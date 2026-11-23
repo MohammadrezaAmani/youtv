@@ -56,7 +56,7 @@ export default function ProxyPage(){
       if(!body||typeof body!=='object')throw new Error(`Invalid Worker response (HTTP ${response.status})`);
       const data=body as {ok?:boolean;status?:number;code?:string;error?:string};
       if(!response.ok){
-        const hint=data.code==='host_not_allowed'?(settings.language==='fa'?'دامنه استریم در ALLOWED_HOSTS ثبت نشده':'Add the stream hostname to ALLOWED_HOSTS'):
+        const hint=data.code==='host_not_allowed'?(settings.language==='fa'?'ALLOWED_HOSTS را روی * بگذار یا کد Worker جدید را Deploy کن':'Set ALLOWED_HOSTS to * or deploy the new Worker code'):
           data.code==='origin_not_allowed'?(settings.language==='fa'?'ALLOWED_ORIGINS باید آدرس کامل سایت با https:// باشد':'Set ALLOWED_ORIGINS to your full HTTPS site origin'):
           data.code==='unauthorized'?(settings.language==='fa'?'کلید ذخیره‌شده در YouTV با PROXY_TOKEN یکسان نیست':'YouTV token does not match PROXY_TOKEN'):
           data.error||data.code||'Request failed';
@@ -90,13 +90,13 @@ export default function ProxyPage(){
       <form className="form-stack" onSubmit={add}>
         <label>{t('workerName')}<Input value={name} onChange={e=>setName(e.target.value)} required placeholder="My Worker"/></label>
         <label>{t('workerUrl')}<Input value={url} onChange={e=>setUrl(e.target.value)} type="url" dir="ltr" required placeholder="https://your-worker.workers.dev/"/></label>
-        <label>{t('accessToken')}<Input value={token} onChange={e=>setToken(e.target.value)} type="password" dir="ltr" required minLength={24} placeholder="Your PROXY_TOKEN secret"/></label>
+        <label>{t('accessToken')}<Input value={token} onChange={e=>setToken(e.target.value)} type="password" dir="ltr" placeholder="Optional PROXY_TOKEN (empty = no authentication)"/></label>
         {error&&<div className="error-message" role="alert">{error}</div>}
         <Button type="submit"><Plus size={17}/>{t('addWorker')}</Button>
       </form>
     </div><div className="panel-card"><h3><ShieldCheck size={20}/>{t('security')}</h3>
       <p className="muted">{settings.language==='fa'?'این پروکسی فقط برای منابعی که اجازه استفاده از آن‌ها را داری تنظیم شود. دامنه‌های منبع را در Allowlist تعریف کن و هیچ توکن مدیریتی را در URL عمومی قرار نده.':'Use the Worker only for authorized sources. Restrict upstream hosts and keep management credentials out of public URLs.'}</p>
-      <div className="info-box">{settings.language==='fa'?'برای کارکرد صحیح این Worker باید ALLOWED_HOSTS و ALLOWED_ORIGINS و PROXY_TOKEN تنظیم شده باشند. کلید API مدیریت Cloudflare با توکن پخش یکی نیست.':'Configure ALLOWED_HOSTS, ALLOWED_ORIGINS and PROXY_TOKEN. Cloudflare API Token and playback token are different credentials.'}</div>
+      <div className="info-box">{settings.language==='fa'?'ALLOWED_HOSTS پیش‌فرض * است. GitHub Pages این پروژه و localhost به‌صورت پیش‌فرض Origin مجاز هستند. PROXY_TOKEN اختیاری است؛ اگر در Cloudflare تنظیم شد، همان مقدار را اینجا وارد کن.':'ALLOWED_HOSTS defaults to *. The project GitHub Pages site and localhost are allowed origins by default. PROXY_TOKEN is optional; if configured in Cloudflare, enter the same value here.'}</div>
     </div></div>
     <div className="panel-card"><h3>{t('defaultWorker')}</h3>
       <div className="settings-row"><label>{t('proxyMode')}<Select value={settings.proxyMode} className="ui-input" onChange={e=>update({proxyMode:e.target.value as 'direct'|'proxy'|'auto'})}><SelectOption value="direct">{t('direct')}</SelectOption><SelectOption value="proxy">{t('viaProxy')}</SelectOption><SelectOption value="auto">{t('automatic')}</SelectOption></Select></label>
@@ -112,7 +112,7 @@ export default function ProxyPage(){
       <div className="worker-icon"><Cloud size={23}/></div><div className="worker-details"><b>{w.name}</b><small dir="ltr">{w.baseUrl}</small><small className="muted">{results[w.id]||''}</small></div>
       <div className="row-wrap"><label className="checkbox-row"><Checkbox checked={w.enabled} onChange={e=>save({...w,enabled:e.target.checked})}/>{t('active')}</label>
         <Button variant="outline" size="sm" onClick={()=>void health(w.id,w.baseUrl)}><Activity size={16}/>{t('healthCheck')}</Button>
-        <Button variant="outline" size="sm" disabled={!probeSource.trim()||!w.token} onClick={()=>void probe(w)}>{settings.language==='fa'?'تست استریم':'Test stream'}</Button>
+        <Button variant="outline" size="sm" disabled={!probeSource.trim()} onClick={()=>void probe(w)}>{settings.language==='fa'?'تست استریم':'Test stream'}</Button>
         <Button variant="outline" size="sm" onClick={()=>editWorker(w.id)}><Pencil size={15}/>{t('edit')}</Button>
         <Button variant="outline" size="sm" onClick={()=>{setEditingToken(editingToken===w.id?'':w.id);setReplacementToken('');}}>{ui('changeToken',settings.language)}</Button>
         <Button variant="ghost" size="icon" onClick={()=>{if(confirm(t('deleteConfirm')))remove(w.id);}} aria-label={t('delete')}><Trash2 size={18}/></Button>
@@ -123,7 +123,7 @@ export default function ProxyPage(){
         <div className="row-wrap"><Button size="sm" onClick={()=>commitWorkerEdit(w.id)}><Check size={15}/>{t('save')}</Button><Button size="sm" variant="ghost" onClick={()=>setEditingWorker('')}><X size={15}/>{t('cancel')}</Button></div>
         {error&&<div className="error-message">{error}</div>}
       </div>}
-      {editingToken===w.id&&<div className="worker-token-edit"><Input type="password" dir="ltr" minLength={24} placeholder="New token (minimum 24 characters)" value={replacementToken} onChange={e=>setReplacementToken(e.target.value)}/><Button size="sm" disabled={replacementToken.length<24} onClick={()=>{save({...w,token:replacementToken});setEditingToken('');setReplacementToken('');}}>{ui('saveToken',settings.language)}</Button></div>}
+      {editingToken===w.id&&<div className="worker-token-edit"><Input type="password" dir="ltr" placeholder="Optional token (leave empty to clear)" value={replacementToken} onChange={e=>setReplacementToken(e.target.value)}/><Button size="sm" onClick={()=>{save({...w,token:replacementToken});setEditingToken('');setReplacementToken('');}}>{ui('saveToken',settings.language)}</Button></div>}
     </div>)}</div>
   </section>;
 }

@@ -91,13 +91,13 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   const [rate,setRate]=useState(settings.defaultPlaybackRate),[teletext,setTeletext]=useState(false),[diagnostics,setDiagnostics]=useState(false);
   const [localTrack,setLocalTrack]=useState<{id:string;label:string;url:string}|null>(null);
   const [remoteTracks,setRemoteTracks]=useState<{id:string;label:string;language:string;url:string}[]>([]);
-  const canProxy=Boolean(activeWorker(channel,settings,workers)?.token);
+  const canProxy=Boolean(activeWorker(channel,settings,workers));
   const sources=[channel.url,...(channel.alternateUrls||[])];
   const saveProgress=useYoutv(s=>s.saveProgress);
   const savedProgress=useYoutv(s=>s.resume[channel.id]||0);
   const effectiveMode=override==='default'?channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode:override;
   const resolved=useMemo(()=>{
-    try { const preferWorker=appleMobile&&effectiveMode==='auto'&&Boolean(activeWorker(channel,settings,workers)?.token)&&Boolean(channel.iptv.userAgent||channel.iptv.referer);
+    try { const preferWorker=appleMobile&&effectiveMode==='auto'&&Boolean(activeWorker(channel,settings,workers))&&Boolean(channel.iptv.userAgent||channel.iptv.referer);
       const value=resolveStream({...channel,url:sources[sourceIndex]||channel.url,proxyMode:override==='default'?channel.proxyMode:override},settings,workers,fallback||preferWorker);return {value,error:''}; }
     catch(e){return {value:null,error:e instanceof Error?e.message:String(e)};}
   // Settings can change during playback, but only actual stream URL is used to initialize the engine.

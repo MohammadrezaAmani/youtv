@@ -8,7 +8,7 @@ export function proxyUrl(url:string,worker:WorkerProfile,route:'proxy'|'text'|'p
   const base=normalizeStreamUrl(worker.baseUrl);
   const path=new URL(route,base.endsWith('/')?base:base+'/');
   path.searchParams.set('url',normalizeStreamUrl(url));
-  path.searchParams.set('key',worker.token);
+  if(worker.token)path.searchParams.set('key',worker.token);
   if(route==='proxy'&&hls)path.searchParams.set('hls','1');
   if(hints?.userAgent)path.searchParams.set('ua',hints.userAgent);
   if(hints?.referer)path.searchParams.set('ref',hints.referer);
@@ -23,6 +23,5 @@ export function resolveStream(channel:Channel,settings:Settings,workers:WorkerPr
     return {url:channel.url,mode:'direct'};
   }
   if (mode==='auto' && !forceProxy) return {url:channel.url,mode:'direct'};
-  if (!worker.token) throw new Error('Worker access token is missing');
   return {url:proxyUrl(channel.url,worker,'proxy',(channel.format==='hls'||(channel.format==='auto'&&/\.m3u8?(?:[?#]|$)/i.test(channel.url))),{userAgent:channel.iptv.userAgent,referer:channel.iptv.referer}),mode:'proxy',worker};
 }

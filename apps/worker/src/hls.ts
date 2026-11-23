@@ -12,7 +12,7 @@ export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, toke
     if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') throw new Error('HLS URI must use HTTP(S)');
     const out = new URL(proxyUrl);
     out.searchParams.set('url', resolved.toString());
-    out.searchParams.set('key', token);
+    if (token) out.searchParams.set('key', token);
     if(hints?.userAgent)out.searchParams.set('ua',hints.userAgent);
     if(hints?.referer)out.searchParams.set('ref',hints.referer);
     return out.toString();

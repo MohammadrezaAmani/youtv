@@ -26,6 +26,12 @@ function blockedHost(hostname) {
         return true;
     return false;
 }
+/**
+ * '*' permits any public DNS hostname, including domains used by HLS redirects.
+ * Missing/empty ALLOWED_HOSTS intentionally behaves like '*'. Explicit lists
+ * and '*.domain.tld' are still supported for users wanting a restricted proxy.
+ * The SSRF denylist is applied *before* the wildcard and on every redirect.
+ */
 function assertAllowedUrl(raw, env) {
     let url;
     try {
@@ -40,34 +46,46 @@ function assertAllowedUrl(raw, env) {
         throw new ProxyError(403, 'blocked_host', 'IP literals and private/local hostnames are blocked');
     const allowed = entries(env.ALLOWED_HOSTS);
     if (!allowed.length)
-        throw new ProxyError(503, 'not_configured', 'Configure ALLOWED_HOSTS before using the proxy');
+        allowed.push('*');
     const host = url.hostname.toLowerCase().replace(/\.$/, '');
-    if (!allowed.some(pattern => pattern.startsWith('*.')
+    if (!allowed.some(pattern => pattern === '*' || (pattern.startsWith('*.')
         ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2)
-        : host === pattern)) {
+        : host === pattern))) {
         throw new ProxyError(403, 'host_not_allowed', 'Source host is not in ALLOWED_HOSTS');
     }
     return url;
 }
+const DEFAULT_WEB_ORIGIN = 'https://mohammadrezaamani.github.io';
+const LOCAL_ORIGIN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** Default YouTV site + loopback development origins; extra origins are additive. */
 function allowedOrigin(request, env) {
     const origin = request.headers.get('Origin');
-    if (!origin)
-        return null; // curl and similar non-browser callers
+    if (!origin || origin === 'null')
+        return null;
+    let parsed;
+    try {
+        parsed = new URL(origin);
+    }
+    catch {
+        return null;
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin.toLowerCase() !== origin.toLowerCase())
+        return null;
     const list = entries(env.ALLOWED_ORIGINS);
-    if (list.includes('*'))
+    if (list.includes('*') || origin.toLowerCase() === DEFAULT_WEB_ORIGIN ||
+        LOCAL_ORIGIN_HOSTS.has(parsed.hostname.toLowerCase()) || list.includes(origin.toLowerCase()))
         return origin;
-    // Compare exact origin; do not permit arbitrary suffix matching.
-    return list.some(item => item === origin.toLowerCase()) ? origin : null;
+    return null;
 }
 function assertOrigin(request, env) {
     if (request.headers.has('Origin') && !allowedOrigin(request, env))
         throw new ProxyError(403, 'origin_not_allowed', 'Browser origin is not allowed');
 }
+/** A missing/blank secret makes the personal Worker passwordless. */
 function assertToken(token, env) {
-    const expected = env.PROXY_TOKEN || '';
-    if (!expected || expected.length < 24) {
-        throw new ProxyError(503, 'token_not_configured', 'Configure PROXY_TOKEN (at least 24 characters)');
-    }
+    const expected = env.PROXY_TOKEN?.trim() || '';
+    if (!expected)
+        return;
     const candidate = token || '';
     let mismatch = candidate.length ^ expected.length;
     const length = Math.max(candidate.length, expected.length);
@@ -105,7 +123,8 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints) {
             throw new Error('HLS URI must use HTTP(S)');
         const out = new URL(proxyUrl);
         out.searchParams.set('url', resolved.toString());
-        out.searchParams.set('key', token);
+        if (token)
+            out.searchParams.set('key', token);
         if (hints?.userAgent)
             out.searchParams.set('ua', hints.userAgent);
         if (hints?.referer)
@@ -167,7 +186,7 @@ function equalsToken(a, b) { let diff = a.length ^ b.length; for (let i = 0; i <
 async function cloudflareAdmin(request, env) {
     const origin = request.headers.get('Origin');
     // Admin operations require a concrete browser origin; wildcard is explicitly forbidden.
-    if (!origin || !allowedOrigin(request, env) || env.ALLOWED_ORIGINS.split(',').map(x => x.trim()).includes('*'))
+    if (!origin || !allowedOrigin(request, env) || (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).includes('*'))
         throw new ProxyError(403, 'admin_origin', 'Configure an explicit ALLOWED_ORIGINS for the admin interface');
     const adminSecret = env.ADMIN_TOKEN || '';
     const candidate = request.headers.get('X-YouTV-Admin-Token') || '';
@@ -270,7 +289,7 @@ async function cloudflareAdmin(request, env) {
 
 
 const MAX_REDIRECTS = 4;
-const VERSION = '0.4.0';
+const VERSION = '0.23.0';
 function json(request, env, value, status = 200) {
     const headers = corsHeaders(request, env);
     headers.set('Content-Type', 'application/json; charset=utf-8');
@@ -383,7 +402,7 @@ export default {
             if (url.pathname === '/health' && request.method === 'GET')
                 return json(request, env, { name: 'YouTV Proxy', version: VERSION, ok: true });
             if (url.pathname === '/capabilities' && request.method === 'GET')
-                return json(request, env, { protocol: 1, hls: true, range: true, playlistImport: true, authentication: 'query-token' });
+                return json(request, env, { protocol: 1, hls: true, range: true, playlistImport: true, authentication: env.PROXY_TOKEN?.trim() ? 'query-token' : 'none' });
             if (url.pathname === '/text') {
                 if (request.method !== 'GET')
                     throw new ProxyError(405, 'method_not_allowed', 'GET only');

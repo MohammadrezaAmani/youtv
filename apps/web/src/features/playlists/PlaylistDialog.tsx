@@ -41,7 +41,7 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
     try{
       const source=new URL(url.trim());if(!/^https?:$/.test(source.protocol))throw new Error(t('invalidUrl'));
       const profile=workers.find(w=>w.id===(workerId||settings.defaultWorkerId));
-      if(fromWorker&&(!profile||!profile.token))throw new Error(t('noWorker'));
+      if(fromWorker&&(!profile||!profile.enabled))throw new Error(t('noWorker'));
       const endpoint=fromWorker&&profile?proxyUrl(source.toString(),profile,'text'):source.toString();
       const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),25000);
       try{

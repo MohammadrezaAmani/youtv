@@ -4,7 +4,7 @@ import {cloudflareAdmin} from './cloudflare.ts';
 
 export interface Env extends ProxyEnv {}
 const MAX_REDIRECTS = 4;
-const VERSION = '0.4.0';
+const VERSION = '0.23.0';
 
 function json(request: Request, env: Env, value: object, status = 200): Response {
   const headers = corsHeaders(request, env);
@@ -101,7 +101,7 @@ export default {
       }
       if (url.pathname === '/health'  && request.method === 'GET') return json(request, env, { name:'YouTV Proxy', version: VERSION, ok:true });
       if (url.pathname === '/capabilities' && request.method === 'GET')
-        return json(request, env, {protocol:1, hls:true, range:true, playlistImport:true, authentication:'query-token'});
+        return json(request, env, {protocol:1, hls:true, range:true, playlistImport:true, authentication:env.PROXY_TOKEN?.trim()?'query-token':'none'});
       if (url.pathname === '/text') {
         if (request.method !== 'GET') throw new ProxyError(405,'method_not_allowed','GET only');
         const key=url.searchParams.get('key'); assertToken(key,env);

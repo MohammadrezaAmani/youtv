@@ -22,7 +22,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
   const [forceProxy,setForceProxy]=useState(false);
   const appleMobile=typeof navigator!=='undefined'&&isAppleMobileBrowser(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const mode=useMemo(()=>{
-    try{const effective=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;const useWorker=appleMobile&&effective==='auto'&&Boolean(activeWorker(channel,settings,workers)?.token)&&Boolean(channel.iptv.userAgent||channel.iptv.referer);return {stream:resolveStream(channel,settings,workers,forceProxy||useWorker),error:''};}
+    try{const effective=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;const useWorker=appleMobile&&effective==='auto'&&Boolean(activeWorker(channel,settings,workers))&&Boolean(channel.iptv.userAgent||channel.iptv.referer);return {stream:resolveStream(channel,settings,workers,forceProxy||useWorker),error:''};}
     catch(e){return {stream:null,error:e instanceof Error?e.message:String(e)};}
   },[channel,settings,workers,forceProxy,appleMobile]);
   const url=mode.stream?.url??'';
@@ -32,7 +32,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
   const hlsJsSupported=useMemo(()=>Hls.isSupported(),[]);
   const playbackEngine=selectPlaybackEngine({isHls:sourceIsHls,nativeHls,hlsJsSupported,appleMobile});
   const effectiveMode=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;
-  const canFallback=effectiveMode==='auto'&&!forceProxy&&Boolean(activeWorker(channel,settings,workers)?.token);
+  const canFallback=effectiveMode==='auto'&&!forceProxy&&Boolean(activeWorker(channel,settings,workers));
   useEffect(()=>{setForceProxy(false);},[channel.id]);
 
   useEffect(()=>{

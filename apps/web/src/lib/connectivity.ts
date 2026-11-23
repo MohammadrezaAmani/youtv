@@ -60,7 +60,7 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
   const useProxy=channel.proxyMode==='proxy'||(channel.proxyMode==='inherit'&&settings.proxyMode==='proxy');
   if (!isValidHttpUrl(channel.url))return {status:'offline',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Invalid stream URL'};
   const viaProxy=async():Promise<HealthResult>=>{
-    if(!worker?.token) return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Worker/token unavailable'};
+    if(!worker) return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Worker unavailable'};
     try{
       const endpoint=proxyUrl(channel.url,worker,'probe');
       const response=await fetch(endpoint,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(TIMEOUT_MS)]),credentials:'omit',cache:'no-store'});
@@ -87,7 +87,7 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
     return {status:validStatus(response.status)?'online':'offline',mode:'direct',httpStatus:response.status,elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'HTTP probe completed'};
   }catch(error){
     if(signal?.aborted)return {status:'unknown',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Cancelled'};
-    if(worker?.token){
+    if(worker){
       const result=await viaProxy();
       if(result.status!=='unknown')return result;
       const dns=await dnsFailure(channel,started);if(dns)return dns;

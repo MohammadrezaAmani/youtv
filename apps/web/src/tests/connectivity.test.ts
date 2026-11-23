@@ -28,6 +28,17 @@ describe('channel connectivity probes',()=>{
     const result=await probeChannel(proxyChannel,settings,[worker]);
     expect(result.status).toBe('online');expect(result.httpStatus).toBe(206);expect(result.elapsedMs).toBe(42);
   });
+  it('uses an open Worker /probe even without a token',async()=>{
+    const openWorker={...worker,id:'worker-open',token:''};
+    const proxyChannel={...channel,proxyMode:'proxy' as const,workerId:openWorker.id};
+    vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
+      expect(new URL(String(input)).pathname).toBe('/probe');
+      expect(new URL(String(input)).searchParams.has('key')).toBe(false);
+      return new Response(JSON.stringify({ok:true,status:200,elapsedMs:23}),{status:200});
+    }));
+    const result=await probeChannel(proxyChannel,settings,[openWorker]);
+    expect(result.status).toBe('online');expect(result.elapsedMs).toBe(23);
+  });
   it('classifies a definitive DNS NXDOMAIN as offline when CORS hides the HTTP error',async()=>{
     const missing={...channel,id:'dead-dns',url:'https://removed-domain.example.invalid/live.m3u8'};
     vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{

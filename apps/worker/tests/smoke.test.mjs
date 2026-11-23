@@ -92,3 +92,75 @@ test('playlist import streams responses larger than the former 15 MB limit',asyn
   assert.equal(response.status,200);
   assert.equal((await response.text()).length,body.length);
 });
+
+
+test('wildcard worker serves public stream with no configured secret',async(t)=>{
+  const old=globalThis.fetch;
+  globalThis.fetch=async()=>new Response('#EXTM3U\n#EXTINF:4,\nseg.ts\n',{headers:{'Content-Type':'application/vnd.apple.mpegurl'}});
+  t.after(()=>{globalThis.fetch=old;});
+  const withoutSecret={ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:''};
+  const url=new URL('https://youtv.workers.dev/proxy');
+  url.searchParams.set('url','https://live.presstv.co.uk/hls/ifilmfa.m3u8');
+  const response=await worker.fetch(new Request(url,{headers:{Origin:'https://mohammadrezaamani.github.io'}}),withoutSecret);
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://mohammadrezaamani.github.io');
+  const body=await response.text();
+  assert.match(body,/seg.ts/);
+  const segment=body.split('\n').find(line=>line.startsWith('https://'));
+  assert.ok(segment);assert.equal(new URL(segment).searchParams.has('key'),false);
+});
+
+test('wildcard worker denies IP and local host even with no token',async()=>{
+  const open={ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:''};
+  for(const target of ['http://127.0.0.1/admin','http://[::1]/','http://metadata.google.internal/']){
+    const url=new URL('https://youtv.workers.dev/proxy');url.searchParams.set('url',target);
+    const response=await worker.fetch(new Request(url),open);
+    assert.equal(response.status,403);assert.equal((await response.json()).code,'blocked_host');
+  }
+});
+
+test('configured secret requires the correct key, including /probe and /text',async()=>{
+  const settings={ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:'',PROXY_TOKEN:'a-secret'};
+  for(const route of ['proxy','probe','text']){
+    const url=new URL('https://youtv.workers.dev/'+route);url.searchParams.set('url',input);
+    const without=await worker.fetch(new Request(url),settings);
+    assert.equal(without.status,401);assert.equal((await without.json()).code,'unauthorized');
+  }
+});
+
+test('redirects to private addresses remain blocked when ALLOWED_HOSTS=*',async(t)=>{
+  const old=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(null,{status:302,headers:{Location:'http://169.254.169.254/latest/meta-data/'}});
+  t.after(()=>{globalThis.fetch=old;});
+  const url=new URL('https://youtv.workers.dev/proxy');url.searchParams.set('url',input);
+  const response=await worker.fetch(new Request(url),{ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:''});
+  assert.equal(response.status,403);assert.equal((await response.json()).code,'blocked_host');
+});
+
+test('capabilities states whether worker access is passwordless or token-protected',async()=>{
+  const url='https://youtv.workers.dev/capabilities';
+  const open=await worker.fetch(new Request(url),{ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:''});
+  assert.equal((await open.json()).authentication,'none');
+  const secured=await worker.fetch(new Request(url),{ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:'',PROXY_TOKEN:key});
+  assert.equal((await secured.json()).authentication,'query-token');
+});
+
+test('passwordless /probe, /text and CORS preflight work with localhost defaults',async(t)=>{
+  const previous=globalThis.fetch;
+  globalThis.fetch=async(_url,options)=>options?.method==='HEAD'
+    ? new Response(null,{status:200,headers:{'Content-Type':'application/vnd.apple.mpegurl'}})
+    : new Response('#EXTM3U\n#EXTINF:-1,Channel\nhttps://live.presstv.co.uk/hls/ifilmfa.m3u8\n');
+  t.after(()=>{globalThis.fetch=previous;});
+  const open={ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:''};
+  const origin='http://localhost:32001';
+  const path=(route)=>{const url=new URL('https://youtv.workers.dev/'+route);url.searchParams.set('url',input);return url;};
+  const options=await worker.fetch(new Request(path('proxy'),{method:'OPTIONS',headers:{Origin:origin}}),open);
+  assert.equal(options.status,204);assert.equal(options.headers.get('Access-Control-Allow-Origin'),origin);
+  const probe=await worker.fetch(new Request(path('probe'),{headers:{Origin:origin}}),open);
+  assert.equal(probe.status,200);assert.equal((await probe.json()).status,200);
+  const textResponse=await worker.fetch(new Request(path('text'),{headers:{Origin:origin}}),open);
+  assert.equal(textResponse.status,200);assert.match(await textResponse.text(),/#EXTM3U/);
+  assert.equal(textResponse.headers.get('Access-Control-Allow-Origin'),origin);
+  const health=await worker.fetch(new Request('https://youtv.workers.dev/health'),open);
+  assert.equal((await health.json()).version,'0.23.0');
+});

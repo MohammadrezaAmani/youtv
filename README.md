@@ -56,16 +56,21 @@ Routing uses `HashRouter`, so client-side pages work without server rewrite rule
 
 ## Optional Cloudflare Worker
 
-The Worker is a personal proxy, not part of the frontend hosting. It will only accept requests for domains you explicitly approve. Edit `apps/worker/wrangler.jsonc` (allowlist and CORS) and create a secret in Cloudflare:
+The Worker is a **public-destination** HLS proxy, separate from GitHub Pages. `ALLOWED_HOSTS` defaults to `*`, accepting public DNS hostnames (including redirected segment hosts) without per-channel configuration. Private/local hosts, IPv4/IPv6 literals and non-HTTP(S) URLs are always blocked. To restrict upstreams, set an explicit comma-separated domain allowlist instead of `*`.
+
+`https://mohammadrezaamani.github.io` and loopback development origins (`http(s)://localhost:<port>`, `127.0.0.1` and `[::1]`) are permitted automatically. Set `ALLOWED_ORIGINS` only to **add** other exact browser origins. A custom domain will need to be added explicitly.
 
 ```bash
 cd apps/worker
 bunx wrangler login
-bunx wrangler secret put PROXY_TOKEN
 bunx wrangler deploy
+# OPTIONAL: require authentication using a Cloudflare secret
+bunx wrangler secret put PROXY_TOKEN
 ```
 
-The token is entered into the YouTV Proxy Manager, along with the Worker URL. **Never commit tokens** into source. Ensure the frontend origin is in the Worker CORS allowlist and the actual streaming domains (including redirected segment hosts) are in its upstream allowlist. A default lock-down is intentional.
+`PROXY_TOKEN` is optional. If omitted/blank, YouTV can save a Worker profile with an empty token and all playback, HLS segments, playlist imports and probes work without a `key` query parameter. When `PROXY_TOKEN` exists, enter the exact same secret into YouTV; all routes carrying upstream data require it. **Never commit secrets**. Wrangler is configured with `keep_vars: true` to preserve variables set in the Cloudflare dashboard on subsequent CLI deploys; existing settings may need to be corrected manually.
+
+**Exposure warning:** combining `ALLOWED_HOSTS=*` with no `PROXY_TOKEN` makes the Worker an unauthenticated proxy to public hosts, allowing anyone who knows its URL to consume your Worker quota. Set a secret or narrow the hostname list if abuse is a concern.
 
 Worker use for large-scale delivery of video may be restricted by Cloudflare service-specific terms. It also cannot bypass DRM, codec restrictions or a provider's authorization checks. Keep streaming sources lawful and licensed for the intended use.
 

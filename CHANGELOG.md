@@ -1,3 +1,11 @@
+## v0.23.0 — Wildcard Worker and optional authentication
+
+- Accept `ALLOWED_HOSTS=*` and default to public DNS hosts when unset; SSRF guards still block IP literals/private names and apply after redirects.
+- Preallow `https://mohammadrezaamani.github.io` and loopback origins on any development port; extend with optional `ALLOWED_ORIGINS`.
+- `PROXY_TOKEN` and client `key` are optional when the Worker has no secret; when set, credentials are validated on proxy, probe and text routes.
+- Permit tokenless Worker profiles throughout player, monitoring and playlist import; omit `key` from rewritten HLS URLs when unused.
+- Update the dashboard Worker bundle, deployment docs, smoke tests and Wrangler defaults.
+
 ## v0.22.0 — Worker setup diagnostics and interrupted-play recovery
 - Clarify upstream host, browser origin, and random playback token requirements with real examples in the Cloudflare guide.
 - Add per-Worker authenticated /probe checks against an entered original stream URL and show Worker error codes versus upstream HTTP status.

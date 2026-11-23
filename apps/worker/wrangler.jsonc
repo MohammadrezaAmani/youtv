@@ -3,9 +3,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
+  "keep_vars": true,
   "vars": {
-    "ALLOWED_HOSTS": "",
-    "ALLOWED_ORIGINS": "",
+    "ALLOWED_HOSTS": "*",
+    "ALLOWED_ORIGINS": "https://mohammadrezaamani.github.io",
     "UPSTREAM_REFERER": ""
   }
 }

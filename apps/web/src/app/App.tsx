@@ -206,7 +206,7 @@ function Shell(){
       let response:Response;
       try{
         const worker=workers.find(w=>w.id===p.refreshWorkerId&&w.enabled);
-        const source=worker&&worker.token?proxyUrl(p.url,worker,'text'):p.url;
+        const source=worker?proxyUrl(p.url,worker,'text'):p.url;
         response=await fetch(source,{signal:controller.signal,credentials:'omit'});
       }finally{clearTimeout(timeout);}
       if(!response.ok)throw new Error(`HTTP ${response.status}`);

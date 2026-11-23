@@ -11,7 +11,7 @@ function equalsToken(a:string,b:string){let diff=a.length^b.length;for(let i=0;i
 export async function cloudflareAdmin(request:Request,env:AdminEnv):Promise<Response>{
   const origin=request.headers.get('Origin');
   // Admin operations require a concrete browser origin; wildcard is explicitly forbidden.
-  if(!origin||!allowedOrigin(request,env)||env.ALLOWED_ORIGINS.split(',').map(x=>x.trim()).includes('*'))
+  if(!origin||!allowedOrigin(request,env)||(env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).includes('*'))
     throw new ProxyError(403,'admin_origin','Configure an explicit ALLOWED_ORIGINS for the admin interface');
   const adminSecret=env.ADMIN_TOKEN||'';
   const candidate=request.headers.get('X-YouTV-Admin-Token')||'';

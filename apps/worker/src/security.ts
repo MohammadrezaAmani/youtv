@@ -1,6 +1,6 @@
 export type ProxyEnv = {
-  ALLOWED_HOSTS: string;
-  ALLOWED_ORIGINS: string;
+  ALLOWED_HOSTS?: string;
+  ALLOWED_ORIGINS?: string;
   PROXY_TOKEN?: string;
   ADMIN_TOKEN?: string;
   UPSTREAM_REFERER?: string;
@@ -10,7 +10,7 @@ export class ProxyError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
 
-function entries(csv: string): string[] {
+function entries(csv?: string): string[] {
   return (csv || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 }
 
@@ -27,6 +27,12 @@ function blockedHost(hostname: string): boolean {
   return false;
 }
 
+/**
+ * '*' permits any public DNS hostname, including domains used by HLS redirects.
+ * Missing/empty ALLOWED_HOSTS intentionally behaves like '*'. Explicit lists
+ * and '*.domain.tld' are still supported for users wanting a restricted proxy.
+ * The SSRF denylist is applied *before* the wildcard and on every redirect.
+ */
 export function assertAllowedUrl(raw: string, env: ProxyEnv): URL {
   let url: URL;
   try { url = new URL(raw); } catch { throw new ProxyError(400, 'invalid_url', 'Invalid source URL'); }
@@ -34,23 +40,30 @@ export function assertAllowedUrl(raw: string, env: ProxyEnv): URL {
     throw new ProxyError(400, 'invalid_url', 'Only HTTP(S) without embedded credentials is supported');
   if (blockedHost(url.hostname)) throw new ProxyError(403, 'blocked_host', 'IP literals and private/local hostnames are blocked');
   const allowed = entries(env.ALLOWED_HOSTS);
-  if (!allowed.length) throw new ProxyError(503, 'not_configured', 'Configure ALLOWED_HOSTS before using the proxy');
+  if (!allowed.length) allowed.push('*');
   const host = url.hostname.toLowerCase().replace(/\.$/,'');
-  if (!allowed.some(pattern => pattern.startsWith('*.')
+  if (!allowed.some(pattern => pattern === '*' || (pattern.startsWith('*.')
     ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2)
-    : host === pattern)) {
+    : host === pattern))) {
     throw new ProxyError(403, 'host_not_allowed', 'Source host is not in ALLOWED_HOSTS');
   }
   return url;
 }
 
+const DEFAULT_WEB_ORIGIN = 'https://mohammadrezaamani.github.io';
+const LOCAL_ORIGIN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Default YouTV site + loopback development origins; extra origins are additive. */
 export function allowedOrigin(request: Request, env: ProxyEnv): string | null {
   const origin = request.headers.get('Origin');
-  if (!origin) return null; // curl and similar non-browser callers
+  if (!origin || origin === 'null') return null;
+  let parsed: URL;
+  try { parsed = new URL(origin); } catch { return null; }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin.toLowerCase() !== origin.toLowerCase()) return null;
   const list = entries(env.ALLOWED_ORIGINS);
-  if (list.includes('*')) return origin;
-  // Compare exact origin; do not permit arbitrary suffix matching.
-  return list.some(item => item === origin.toLowerCase()) ? origin : null;
+  if (list.includes('*') || origin.toLowerCase() === DEFAULT_WEB_ORIGIN ||
+      LOCAL_ORIGIN_HOSTS.has(parsed.hostname.toLowerCase()) || list.includes(origin.toLowerCase())) return origin;
+  return null;
 }
 
 export function assertOrigin(request: Request, env: ProxyEnv): void {
@@ -58,11 +71,10 @@ export function assertOrigin(request: Request, env: ProxyEnv): void {
     throw new ProxyError(403, 'origin_not_allowed', 'Browser origin is not allowed');
 }
 
+/** A missing/blank secret makes the personal Worker passwordless. */
 export function assertToken(token: string | null, env: ProxyEnv): void {
-  const expected = env.PROXY_TOKEN || '';
-  if (!expected || expected.length < 24) {
-    throw new ProxyError(503, 'token_not_configured', 'Configure PROXY_TOKEN (at least 24 characters)');
-  }
+  const expected = env.PROXY_TOKEN?.trim() || '';
+  if (!expected) return;
   const candidate = token || '';
   let mismatch = candidate.length ^ expected.length;
   const length = Math.max(candidate.length, expected.length);

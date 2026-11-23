@@ -17,3 +17,18 @@ it('carries per-channel IPTV HTTP hints through the Worker URL',()=>{
   expect(url.searchParams.get('ua')).toBe('smartlabs');
   expect(url.searchParams.get('ref')).toBe('https://player.example.org/');
 });
+
+
+it('allows a configured Worker without a client token and omits key for HLS and text',()=>{
+  const worker={id:'no-token',name:'Open worker',baseUrl:'https://public.workers.dev/',token:'',enabled:true};
+  const channel=createChannel({name:'Public stream',url:'https://live.presstv.co.uk/hls/ifilmfa.m3u8',proxyMode:'proxy',workerId:worker.id});
+  const result=resolveStream(channel,defaultState.settings,[worker]);
+  expect(result.mode).toBe('proxy');
+  const output=new URL(result.url);
+  expect(output.pathname).toBe('/proxy');
+  expect(output.searchParams.get('url')).toBe(channel.url);
+  expect(output.searchParams.has('key')).toBe(false);
+  expect(output.searchParams.get('hls')).toBe('1');
+  expect(new URL(proxyUrl(channel.url,worker,'text')).searchParams.has('key')).toBe(false);
+  expect(new URL(proxyUrl(channel.url,worker,'probe')).searchParams.has('key')).toBe(false);
+});
