@@ -41,7 +41,7 @@ export function mergeBackup(current:AppState,incoming:AppState):AppState{
   const playlistMap=new Map(existing.playlists.map(p=>[p.id,p]));for(const p of next.playlists)playlistMap.set(p.id,p);
   const workers=new Map(existing.workers.map(w=>[w.id,w]));for(const w of next.workers){const old=workers.get(w.id);workers.set(w.id,{...w,token:w.token||old?.token||''});}
   return stateSchema.parse({version:1,channels:[...channelMap.values()],playlists:[...playlistMap.values()],workers:[...workers.values()],
-    recent:[...new Set([...next.recent,...existing.recent])].slice(0,100),resume:{...existing.resume,...next.resume},health:{...existing.health,...next.health},settings:{...existing.settings,...next.settings}});
+    recent:[...new Set([...next.recent,...existing.recent])].slice(0,100),resume:{...existing.resume,...next.resume},health:{...existing.health,...next.health},settings:{...existing.settings,...next.settings,folderSourceEnabled:{...existing.settings.folderSourceEnabled,...next.settings.folderSourceEnabled}}});
 }
 export function importBackupText(text:string,current:AppState,mode:RestoreMode='replace'):AppState{
   const incoming=parseBackupText(text).data;

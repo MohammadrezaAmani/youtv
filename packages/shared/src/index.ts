@@ -67,6 +67,7 @@ export const BUILTIN_PLAYLIST_ID = 'youtv:builtin:default';
 
 export const settingsSchema = z.object({
   defaultPlaylistEnabled: z.boolean().default(true),
+  folderSourceEnabled: z.record(z.string(),z.boolean()).default({}),
   cloudflareAccountId: z.string().max(32).default(''),
   cloudflareScriptName: z.string().max(64).default(''),
   healthCheckOnStartup: z.boolean().default(false),
@@ -74,7 +75,7 @@ export const settingsSchema = z.object({
   reconnectMaxAttempts: z.number().int().min(1).max(12).default(8),
   preferredQuality: z.union([z.literal('auto'), z.number().int().min(144).max(4320)]).default('auto'),
   language: z.enum(['fa','en','ar','tr','ru']).default('fa'),
-  theme: z.enum(['dark','light','oled','ocean','emerald','violet']).default('dark'),
+  theme: z.enum(['dark','light','mint','oled','ocean','emerald','violet']).default('dark'),
   proxyMode: z.enum(['direct','proxy','auto']).default('direct'),
   defaultWorkerId: z.string().default(''),
   miniPlayer: z.boolean().default(true),
@@ -106,7 +107,7 @@ export type AppState = z.infer<typeof stateSchema>;
 
 export const defaultState: AppState = {
   version: 1, channels: [], playlists: [], workers: [], recent: [], resume: {}, health: {},
-  settings: { cloudflareAccountId:'', cloudflareScriptName:'', defaultPlaylistEnabled:true, healthCheckOnStartup:false,autoReconnect:true,reconnectMaxAttempts:8,preferredQuality:'auto', language:'fa', theme:'dark', proxyMode:'direct', defaultWorkerId:'', miniPlayer:true,libraryLayout:'grid',librarySort:'name',
+  settings: { cloudflareAccountId:'', cloudflareScriptName:'', defaultPlaylistEnabled:true, folderSourceEnabled:{}, healthCheckOnStartup:false,autoReconnect:true,reconnectMaxAttempts:8,preferredQuality:'auto', language:'fa', theme:'dark', proxyMode:'direct', defaultWorkerId:'', miniPlayer:true,libraryLayout:'grid',librarySort:'name',
     preferredAudio:'',preferredSubtitle:'',captionsEnabled:false,captionSize:'medium',captionBackground:'shadow',
     defaultVolume:0.8,autoplay:false,defaultPlaybackRate:1,recordingBitrate:4_000_000 }
 };

@@ -64,3 +64,11 @@ Important: no real-browser, Bun dependency install, or Vite production build pro
 - Streaming file writes via File System Access when supported, bounded-memory download fallback.
 - Shared responsive form controls: Radix Select, checkbox, radio, slider, textarea, file picker, date picker and semantic action button.
 - Fix Picture-in-Picture React typing, Cloudflare input and settings handlers, health probe schema and M3U export test.
+
+## v0.13.0
+
+- Decoupled Rose Light/Dark and Mint Light/Emerald Dark theme families.
+- Fixed Multi-view entry: automatic second channel, searchable add, four simultaneous independently managed HLS tiles, audio isolation and resize.
+- One-row mobile header search with relocated navigation menu.
+- Responsive related-channel rail with bounded initial results.
+- Removed redundant LIVE badges from channel cards.

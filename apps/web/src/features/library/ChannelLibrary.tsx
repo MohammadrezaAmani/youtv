@@ -20,7 +20,7 @@ export default function ChannelLibrary({initialGroup='',home=false,kind,search,o
   const {t}=useTranslation();
   const allChannels=useYoutv(s=>s.channels),recent=useYoutv(s=>s.recent),playlists=useYoutv(s=>s.playlists),settings=useYoutv(s=>s.settings),updateSettings=useYoutv(s=>s.updateSettings);
   const health=useYoutv(s=>s.health);
-  const channels=useMemo(()=>allChannels.filter(c=>isVisibleChannel(c,settings)),[allChannels,settings.defaultPlaylistEnabled]);
+  const channels=useMemo(()=>allChannels.filter(c=>isVisibleChannel(c,settings)),[allChannels,settings.defaultPlaylistEnabled,settings.folderSourceEnabled]);
   const [healthFilter,setHealthFilter]=useState<'all'|'online'|'offline'|'unknown'>('all');
   const [pageLimit,setPageLimit]=useState(120);
   const bulkUpdate=useYoutv(s=>s.bulkUpdate),bulkDelete=useYoutv(s=>s.bulkDelete),bulkAddTags=useYoutv(s=>s.bulkAddTags),bulkRemoveTags=useYoutv(s=>s.bulkRemoveTags);

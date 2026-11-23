@@ -5,7 +5,7 @@ import {ActionButton} from '@/components/ui/action-button';
 import {useCallback,useEffect,useMemo,useRef,useState,type ChangeEvent,type KeyboardEvent as KeyEvent,type ReactNode,type CSSProperties} from 'react';
 import {useTranslation} from 'react-i18next';
 import Hls from 'hls.js';
-import {Activity,AlertTriangle,AudioLines,Circle,Square,Download,BookOpen,Check,ChevronDown,Cloud,Captions,Copy,ExternalLink,Heart,Keyboard,Languages,Maximize,Minimize,MonitorPlay,Pause,Pin,PictureInPicture,Play,Radio,RefreshCw,Settings2,SkipBack,SkipForward,SlidersHorizontal,Subtitles,Volume2,VolumeX,Wifi,WifiOff,X} from 'lucide-react';
+import {Activity,AlertTriangle,AudioLines,Circle,Square,Download,BookOpen,Check,ChevronDown,Cloud,Captions,Copy,ExternalLink,Heart,Keyboard,Languages,Maximize,Minimize,MonitorPlay,Pause,Pin,PictureInPicture,Play,Radio,RefreshCw,Settings2,RotateCw,MoreHorizontal,SkipBack,SkipForward,SlidersHorizontal,Subtitles,Volume2,VolumeX,Wifi,WifiOff,X} from 'lucide-react';
 import type {Channel,SubtitleSource,WorkerProfile} from '@youtv/shared';
 import {useYoutv} from '@/stores/useYoutv';
 import {activeWorker,proxyUrl,resolveStream} from '@/lib/proxy';
@@ -19,7 +19,7 @@ type ConnectionOverride='default'|'direct'|'proxy';
 type AudioOption={id:string;name:string;language:string};
 type CaptionOption={id:string;name:string;language:string};
 type QualityOption={id:number;name:string;height:number;bitrate:number};
-type Menu='quality'|'audio'|'captions'|'appearance'|'speed'|'sources'|'keyboard'|null;
+type Menu='quality'|'audio'|'captions'|'appearance'|'speed'|'sources'|'keyboard'|'record'|'more'|null;
 type NativeAudioTrack={label:string;language:string;enabled:boolean};
 type NativeAudioList={length:number;[index:number]:NativeAudioTrack};
 const translatedMedia:Record<string,Partial<Record<'ar'|'tr'|'ru',string>>>= {
@@ -60,6 +60,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const hideChromeTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
   const retryCountRef=useRef(0);
   const playbackWantedRef=useRef(settings.autoplay);
+  const userPausedRef=useRef(false);
   const lastProgressAtRef=useRef(Date.now());
   const healthySinceRef=useRef(Date.now());
   const lastTimeRef=useRef(0);
@@ -76,7 +77,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const [override,setOverride]=useState<ConnectionOverride>('default'),[fallback,setFallback]=useState(false),[attempt,setAttempt]=useState(0);
   const [status,setStatus]=useState('idle'),[error,setError]=useState(''),[menu,setMenu]=useState<Menu>(null);
   const [showChrome,setShowChrome]=useState(true);
-  const [recordPanelOpen,setRecordPanelOpen]=useState(false);
+  const [rotatedFallback,setRotatedFallback]=useState(false);
   const [quality,setQuality]=useState(-1),[qualities,setQualities]=useState<QualityOption[]>([]);
   const [audio,setAudio]=useState(''),[audioOptions,setAudioOptions]=useState<AudioOption[]>([]);
   const [caption,setCaption]=useState('off'),[captions,setCaptions]=useState<CaptionOption[]>([]);
@@ -292,7 +293,9 @@ export default function PlayerStage({channel}:{channel:Channel}){
     setCurrent(v.currentTime||0);setDuration(Number.isFinite(v.duration)?v.duration:0);
     if(v.buffered.length)setBuffered(v.buffered.end(v.buffered.length-1));
     setBufferAhead(secondsBufferedAhead(v.currentTime,v.buffered));
-    const engine=hlsRef.current;setLiveLatency(engine&&Number.isFinite(engine.latency)&&engine.latency>0?engine.latency:null);
+    const engine=hlsRef.current;
+    const nativeDelay=!engine&&!Number.isFinite(v.duration)&&v.seekable.length?Math.max(0,v.seekable.end(v.seekable.length-1)-v.currentTime):null;
+    setLiveLatency(engine&&Number.isFinite(engine.latency)&&engine.latency>0?engine.latency:nativeDelay);
     if(!hlsRef.current)setIsLive(!Number.isFinite(v.duration)&&v.seekable.length>0);
   },[]);
   const progressMax=useMemo(()=>{
@@ -309,8 +312,8 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const seek=(value:number)=>{const v=videoRef.current;if(v&&Number.isFinite(value))v.currentTime=value;};
   const togglePlay=()=>{
     const v=videoRef.current;if(!v)return;
-    if(v.paused){playbackWantedRef.current=true;void v.play().catch(()=>setStatus('Playback requires user gesture'));}
-    else {playbackWantedRef.current=false;v.pause();}
+    if(v.paused){userPausedRef.current=false;playbackWantedRef.current=true;void v.play().catch(()=>setStatus('Playback requires user gesture'));}
+    else {userPausedRef.current=true;playbackWantedRef.current=false;v.pause();}
   };
   useEffect(()=>{
     const id=setInterval(()=>{
@@ -336,6 +339,13 @@ export default function PlayerStage({channel}:{channel:Channel}){
     return()=>clearInterval(id);
   },[fail,status,isLive]);
   const toggleFullscreen=()=>{if(document.fullscreenElement)void document.exitFullscreen();else void playerRef.current?.requestFullscreen?.();};
+  const rotateScreen=async()=>{
+    const player=playerRef.current;if(!player)return;
+    if(!document.fullscreenElement){try{await player.requestFullscreen();}catch{/* Browser may not allow element fullscreen */}}
+    const orientation=screen.orientation as ScreenOrientation & {lock?:(orientation:'landscape')=>Promise<void>};
+    if(!rotatedFallback&&orientation?.lock){try{await orientation.lock('landscape');setRotatedFallback(false);return;}catch{/* Fallback to CSS rotation */}}
+    if(document.fullscreenElement)setRotatedFallback(value=>!value);
+  };
   const togglePip=()=>{const v=videoRef.current;if(!v)return;if(document.pictureInPictureElement)void document.exitPictureInPicture();else if(document.pictureInPictureEnabled)void v.requestPictureInPicture().catch(()=>undefined);};
   const onVideoKey=(event:KeyEvent<HTMLDivElement>)=>{
     const tag=(event.target as HTMLElement).tagName;if(['BUTTON','INPUT','SELECT','TEXTAREA'].includes(tag))return;
@@ -369,13 +379,13 @@ export default function PlayerStage({channel}:{channel:Channel}){
     return()=>{video.removeEventListener('enterpictureinpicture',entered);video.removeEventListener('leavepictureinpicture',left);};
   },[]);
   useEffect(()=>{
-    const handler=()=>setFullscreen(Boolean(document.fullscreenElement));document.addEventListener('fullscreenchange',handler);return()=>document.removeEventListener('fullscreenchange',handler);
+    const handler=()=>{setFullscreen(Boolean(document.fullscreenElement));if(!document.fullscreenElement){setRotatedFallback(false);try{screen.orientation?.unlock?.();}catch{/* Ignore unsupported unlock */}}};document.addEventListener('fullscreenchange',handler);return()=>document.removeEventListener('fullscreenchange',handler);
   },[]);
   useEffect(()=>{
     if(menu||teletext||diagnostics||!playing){revealChrome(true);return;}
     revealChrome();
   },[playing,menu,teletext,diagnostics,revealChrome]);
-  const playerSettings=(menuName:Menu,label:string,icon:ReactNode)=><ActionButton className="media-icon" title={label} onClick={()=>setMenu(menu===menuName?null:menuName)} aria-label={label}>{icon}</ActionButton>;
+  const playerSettings=(menuName:Menu,label:string,icon:ReactNode)=><ActionButton className={`media-icon media-menu-${menuName}`} title={label} onClick={()=>setMenu(menu===menuName?null:menuName)} aria-label={label}>{icon}</ActionButton>;
   const videoTracks=remoteTracks.map(item=><track key={item.id} src={item.url} label={item.label} srcLang={item.language||'und'} kind="subtitles"/>);
   const allCaptions=captions;
   const trackList=[...remoteTracks,...(localTrack?[{...localTrack,language:''}]:[])];
@@ -385,10 +395,10 @@ export default function PlayerStage({channel}:{channel:Channel}){
 
   return <div className={`player-wrapper professional-player ${theater?'is-theater':''}`}>
     <div className="player-shell">
-      <div className={`pro-player ${showChrome?'':'chrome-hidden'}`} ref={playerRef} tabIndex={0} onKeyDown={onVideoKey} onMouseMove={()=>revealChrome()} onPointerDown={()=>revealChrome(true)} onTouchStart={()=>revealChrome(true)} onDoubleClick={e=>{if(e.target===videoRef.current)toggleFullscreen();}} dir="ltr" aria-label={`${channel.name} player`}>
+      <div className={`pro-player ${rotatedFallback?'rotated-fallback ':''}${showChrome?'':'chrome-hidden'}`} ref={playerRef} tabIndex={0} onKeyDown={onVideoKey} onMouseMove={()=>revealChrome()} onPointerDown={()=>revealChrome(true)} onTouchStart={()=>revealChrome(true)} onDoubleClick={e=>{if(e.target===videoRef.current)toggleFullscreen();}} dir="ltr" aria-label={`${channel.name} player`}>
         <video ref={videoRef} playsInline preload="auto" crossOrigin={hls&&Hls.isSupported()?'anonymous':undefined} autoPlay={settings.autoplay} className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
           onTimeUpdate={refreshTimeline} onDurationChange={refreshTimeline} onProgress={refreshTimeline}
-          onPlaying={()=>{setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);revealChrome(true);}} onWaiting={()=>{setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}
+          onPlaying={()=>{userPausedRef.current=false;setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);if(userPausedRef.current)setStatus('paused');revealChrome(true);}} onWaiting={()=>{setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}
           onCanPlay={()=>{setStatus('ready');updateVideoTracks();if(playbackWantedRef.current&&videoRef.current?.paused){void videoRef.current.play().catch(()=>{playbackWantedRef.current=false;setStatus('Playback requires user gesture');});}}}
           onLoadedMetadata={()=>{refreshTimeline();updateVideoTracks();}}
           onVolumeChange={e=>{setVolume(e.currentTarget.volume);setMuted(e.currentTarget.muted);}}
@@ -398,9 +408,10 @@ export default function PlayerStage({channel}:{channel:Channel}){
           {videoTracks}{localTrack&&<track src={localTrack.url} label={localTrack.label} kind="subtitles" srcLang="und"/>}
         </video>
         {isLive&&<span className="pro-live-pill"><span className="pro-live-dot"/>LIVE</span>}
+        {isLive&&<span className="pro-latency" title={tr('تأخیر تقریبی نسبت به لبه زنده پخش','Estimated latency relative to live edge')}>{tr('تأخیر','Delay')} {liveLatency!==null&&Number.isFinite(liveLatency)?`~${Math.round(liveLatency)}s`:'—'}</span>}
         {(status==='buffering'||status==='reconnecting')&&<div className="pro-buffer-indicator"><span className="pro-spinner"/>{retryInfo&&<span className="reconnect-info">{retryInfo}</span>}</div>}
         {(error||resolved.error)&&<div className="pro-error" role="alert"><AlertTriangle size={34}/><strong>{tr('پخش امکان‌پذیر نیست','Playback failed')}</strong><p dir="auto">{error||resolved.error}</p><div className="pro-error-actions"><ActionButton onClick={()=>reset()}><RefreshCw size={16}/>{t('retry')}</ActionButton>{canProxy&&<ActionButton onClick={()=>reset('proxy')}><Cloud size={16}/>{t('tryProxy')}</ActionButton>}</div></div>}
-        {!error&&!resolved.error&&!playing&&status!=='buffering'&&status!=='reconnecting'&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
+        {!error&&!resolved.error&&!playing&&(status==='paused'||status==='Playback requires user gesture'||(status==='ready'&&!playbackWantedRef.current))&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
         <div className="pro-controls" onClick={e=>e.stopPropagation()}>
           <div className="pro-timeline"><Slider aria-label={tr('خط زمان','Seek')} min={progressMin||0} max={progressMax>progressMin?progressMax:1} step="0.1" value={Math.min(progressMax||1,Math.max(progressMin,current))} onChange={e=>seek(Number(e.target.value))} style={{'--seek-percent':`${progressMax>progressMin?((current-progressMin)/(progressMax-progressMin))*100:0}%`} as CSSProperties}/><div className="pro-buffered" style={{width:`${duration>0?Math.min(100,buffered/duration*100):0}%`}}/></div>
           <div className="pro-control-row">
@@ -412,9 +423,9 @@ export default function PlayerStage({channel}:{channel:Channel}){
               <span className="pro-clock">{secondsToClock(current)}{!isLive&&duration>0?` / ${secondsToClock(duration)}`:''}</span></div>
             <div className="pro-control-group">
               {isLive&&<ActionButton onClick={jumpLive} className={`pro-live-button ${atLiveEdge?'at-live':''}`}>● LIVE</ActionButton>}
-              <ActionButton className={`media-icon pro-record-button ${recordingActive?'is-on':''}`} aria-label={recordingActive?tr('توقف ضبط','Stop recording'):tr('شروع ضبط','Start recording')}
-                title={recordingActive?'Stop recording':'Record this channel'}
-                onClick={()=>{setRecordPanelOpen(true);recordingActive?recording.stop():void recording.start(settings.recordingBitrate);}} disabled={rec.phase==='starting'||rec.phase==='saving'}>
+              <ActionButton className={`media-icon pro-record-button ${recordingActive?'is-on':''}`} aria-label={tr('تنظیمات ضبط','Recording controls')}
+                title={tr('ضبط کانال','Recording')}
+                onClick={()=>setMenu(menu==='record'?null:'record')}>
                 {recordingActive?<Square size={17} fill="currentColor"/>:<Circle size={18} fill="currentColor"/>}
               </ActionButton>
               <ActionButton className={`media-icon ${caption!=='off'?'is-on':''}`} onClick={()=>chooseCaption(caption==='off'&&captionChoices.length?captionChoices[0]!.id:'off')} title={tr('روشن/خاموش کردن زیرنویس','Toggle captions')}><Captions size={21}/></ActionButton>
@@ -423,16 +434,40 @@ export default function PlayerStage({channel}:{channel:Channel}){
               {playerSettings('quality',tr('کیفیت','Quality'),<SlidersHorizontal size={19}/>)}
               {sources.length>1&&playerSettings('sources',tr('منابع پخش','Sources'),<AudioLines size={19}/>)}
               {playerSettings('appearance',tr('تنظیمات زیرنویس','Caption appearance'),<Settings2 size={19}/>)}
+              <ActionButton className="media-icon pro-more-button" onClick={()=>setMenu(menu==='more'?null:'more')} title={tr('گزینه‌های بیشتر','More controls')}><MoreHorizontal size={20}/></ActionButton>
               <ActionButton className="media-icon pro-extras" title="Teletext" onClick={()=>{setTeletext(v=>!v);setMenu(null);}}><BookOpen size={19}/></ActionButton>
               <ActionButton className="media-icon pro-extras" title="Picture in picture" onClick={togglePip} disabled={!document.pictureInPictureEnabled}><PictureInPicture size={19}/></ActionButton>
               <ActionButton className="media-icon pro-extras" title="Theater mode" onClick={()=>setTheater(v=>!v)}><MonitorPlay size={19}/></ActionButton>
+              <ActionButton className="media-icon pro-rotate" onClick={()=>void rotateScreen()} title={tr('چرخش صفحه','Rotate screen')} aria-label={tr('چرخش صفحه','Rotate screen')}><RotateCw size={19}/></ActionButton>
               <ActionButton className="media-icon" onClick={toggleFullscreen} title="Fullscreen">{fullscreen?<Minimize size={19}/>:<Maximize size={19}/>}</ActionButton>
             </div>
           </div>
         </div>
         {menu&&<div className="pro-menu" role="dialog" aria-label="Player settings">
-          <div className="pro-menu-head"><b>{({quality:tr('کیفیت ویدئو','Video quality'),audio:tr('زبان صدا','Audio language'),captions:tr('زیرنویس','Subtitles'),appearance:tr('شکل زیرنویس','Caption style'),speed:tr('سرعت','Speed'),sources:tr('منابع پخش','Stream sources'),keyboard:tr('میانبرها','Shortcuts')})[menu]}</b><ActionButton className="media-icon" onClick={()=>setMenu(null)}><X size={18}/></ActionButton></div>
+          <div className="pro-menu-head"><b>{({quality:tr('کیفیت ویدئو','Video quality'),audio:tr('زبان صدا','Audio language'),captions:tr('زیرنویس','Subtitles'),appearance:tr('شکل زیرنویس','Caption style'),speed:tr('سرعت','Speed'),sources:tr('منابع پخش','Stream sources'),keyboard:tr('میانبرها','Shortcuts'),record:tr('ضبط کانال','Recording'),more:tr('گزینه‌های بیشتر','More controls')})[menu]}</b><ActionButton className="media-icon" onClick={()=>setMenu(null)}><X size={18}/></ActionButton></div>
           <div className="pro-menu-options">
+            {menu==='more'&&<div className="pro-more-list">
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('audio')}>{tr('زبان صدا','Audio language')} <Languages size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('captions')}>{tr('زیرنویس','Subtitles')} <Captions size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('appearance')}>{tr('تنظیمات زیرنویس','Caption settings')} <Settings2 size={17}/></ActionButton>
+              {sources.length>1&&<ActionButton className="media-menu-option" onClick={()=>setMenu('sources')}>{tr('منابع پخش','Sources')} <AudioLines size={17}/></ActionButton>}
+              <ActionButton className="media-menu-option" onClick={()=>{setTeletext(true);setMenu(null);}}>Teletext <BookOpen size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('speed')}>{tr('سرعت','Speed')} <ChevronDown size={17}/></ActionButton>
+            </div>}
+            {menu==='record'&&<div className="pro-record-options">
+              <div className="pro-record-line"><span className={`youtv-record-indicator ${rec.phase==='recording'?'active':''}`}/><span>{rec.phase==='idle'?tr('آماده','Ready'):`${rec.phase} · ${Math.floor(rec.elapsedMs/1000)}s · ${readableBytes(rec.bytes)}`}</span></div>
+              <label className="pro-setting-label">{tr('بیت‌ریت ضبط','Recording bitrate')}<Select value={settings.recordingBitrate} disabled={recordingActive} onChange={e=>updateSettings({recordingBitrate:Number(e.target.value)})}>
+                {[1_500_000,3_000_000,4_000_000,6_000_000,10_000_000].map(value=><SelectOption key={value} value={value}>{value/1_000_000} Mbps</SelectOption>)}
+              </Select></label>
+              <div className="pro-record-actions">
+                {!recordingActive&&<ActionButton disabled={!playing} onClick={()=>void recording.start(settings.recordingBitrate)}><Circle size={14} fill="currentColor"/>{tr('شروع ضبط','Record')}</ActionButton>}
+                {rec.phase==='recording'&&<ActionButton onClick={recording.pause}><Pause size={14}/>{tr('مکث','Pause')}</ActionButton>}
+                {rec.phase==='paused'&&<ActionButton onClick={recording.resume}><Play size={14}/>{tr('ادامه','Resume')}</ActionButton>}
+                {recordingActive&&<ActionButton disabled={rec.phase==='starting'||rec.phase==='saving'} onClick={recording.stop}><Square size={14}/>{tr('پایان و ذخیره','Stop & save')}</ActionButton>}
+                {rec.downloadUrl&&<ActionButton onClick={()=>{const link=document.createElement('a');link.href=rec.downloadUrl!;link.download=rec.filename;link.click();}}><Download size={14}/>{tr('دریافت فایل','Download')}</ActionButton>}
+              </div>
+              {rec.message&&<p className="pro-menu-note" role="status">{rec.message}</p>}
+            </div>}
             {menu==='quality'&&<>{menuButton('auto','Auto (ABR)',quality===-1,()=>{if(hlsRef.current)hlsRef.current.nextLevel=-1;setQuality(-1);updateSettings({preferredQuality:'auto'});})}{qualities.map(q=>menuButton(String(q.id),q.name,quality===q.id,()=>{if(hlsRef.current)hlsRef.current.nextLevel=q.id;setQuality(q.id);if(q.height>0)updateSettings({preferredQuality:q.height});}))}{!qualities.length&&<p className="pro-menu-note">{tr('این استریم چندکیفیتی نیست یا مرورگر از HLS بومی استفاده می‌کند.','No multiple renditions available or native HLS controls quality.')}</p>}</>}
             {menu==='sources'&&sources.map((source,index)=>menuButton(`source-${index}`,index===0?tr('منبع اصلی','Primary source'):`${tr('منبع جایگزین','Backup source')} ${index}`,sourceIndex===index,()=>{setSourceIndex(index);setFallback(false);setError('');setStatus('switching source');}))}
             {menu==='audio'&&<>{audioOptions.map(q=>menuButton(q.id,`${q.name}${q.language?` (${q.language})`:''}`,audio===q.id,()=>chooseAudio(q.id)))}{!audioOptions.length&&<p className="pro-menu-note">{tr('ترک صوتی جداگانه‌ای در این منبع ارائه نشده است.','No alternative audio tracks exposed by the stream.')}</p>}</>}
@@ -447,35 +482,9 @@ export default function PlayerStage({channel}:{channel:Channel}){
         </div>}
         {teletext&&<TeletextPanel template={channel.teletextUrl} worker={currentWorker} usingProxy={Boolean(currentWorker)} onClose={()=>setTeletext(false)}/>}
       </div>
-      {(recordPanelOpen||recordingActive||Boolean(rec.downloadUrl)||Boolean(rec.message))&&<div className="youtv-record-dock" role="region" aria-label="Local recording">
-        <div className="youtv-record-dock-head">
-          <span className={`youtv-record-indicator ${rec.phase==='recording'?'active':''}`} />
-          <strong>{tr('ضبط کانال','Channel recording')}</strong>
-          <span className="youtv-record-meta">{rec.phase==='idle'?`${settings.recordingBitrate/1_000_000} Mbps`:`${rec.phase.toUpperCase()} · ${Math.floor(rec.elapsedMs/3600000).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/60000%60).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/1000%60).toString().padStart(2,'0')} · ${readableBytes(rec.bytes)}`}</span>
-          <ActionButton className="player-quick-action" onClick={()=>setRecordPanelOpen(false)}><X size={16}/></ActionButton>
-        </div>
-        <div className="youtv-record-dock-actions">
-          {rec.phase==='recording'&&<ActionButton onClick={recording.pause}><Pause size={14}/> {tr('مکث ضبط','Pause')}</ActionButton>}
-          {rec.phase==='paused'&&<ActionButton onClick={recording.resume}><Play size={14}/> {tr('ادامه ضبط','Resume')}</ActionButton>}
-          {recordingActive&&<ActionButton onClick={recording.stop} disabled={rec.phase==='starting'||rec.phase==='saving'}><Square size={13}/> {tr('پایان و ذخیره','Stop & save')}</ActionButton>}
-          {!recordingActive&&(rec.phase==='idle'||rec.phase==='complete'||rec.phase==='error')&&<ActionButton onClick={()=>void recording.start(settings.recordingBitrate)} disabled={!playing}><Circle size={14} fill="currentColor"/> {tr('شروع ضبط','Record')}</ActionButton>}
-          <label className="youtv-record-bitrate">{tr('بیت‌ریت ضبط','Recording bitrate')}
-            <Select value={settings.recordingBitrate} disabled={recordingActive} onChange={e=>updateSettings({recordingBitrate:Number(e.target.value)})} aria-label="Recording bitrate">
-              <SelectOption value={1_500_000}>1.5 Mbps</SelectOption>
-              <SelectOption value={3_000_000}>3 Mbps</SelectOption>
-              <SelectOption value={4_000_000}>4 Mbps</SelectOption>
-              <SelectOption value={6_000_000}>6 Mbps</SelectOption>
-              <SelectOption value={10_000_000}>10 Mbps</SelectOption>
-            </Select>
-          </label>
-          {rec.downloadUrl&&<ActionButton className="youtv-record-download" onClick={()=>{const link=document.createElement('a');link.href=rec.downloadUrl!;link.download=rec.filename;link.click();}}><Download size={14}/>{tr('دریافت فایل ضبط‌شده','Download recording')}</ActionButton>}
-        </div>
-        {rec.message&&<span className={`youtv-record-notice ${rec.phase==='error'?'is-error':''}`} role="status">{rec.message}</span>}
-      </div>}
-      <div className="player-status-strip"><span><span className={`status-dot ${error?'danger':''}`}/>{status}</span><span>{hls?'HLS':'VIDEO'}{isLive?' · LIVE':''}</span><span className="spacer"/>{resolved.value?.mode==='proxy'?<span><Cloud size={14}/> Worker</span>:<span><Wifi size={14}/> Direct</span>}</div>
     </div>
     <div className="player-channel-info"><div className="player-channel-icon">{channel.logo?<img src={channel.logo} alt=""/>:<Radio size={25}/>}</div><div className="player-text"><h2>{channel.name}</h2><span className="muted">{channel.group||t('channels')}{channel.country?` · ${channel.country}`:''}{channel.language?` · ${channel.language}`:''}</span></div>
-      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton><ActionButton className={`player-quick-action ${recordPanelOpen||recordingActive||rec.downloadUrl?'action-on':''}`} title="Recording" onClick={()=>setRecordPanelOpen(v=>!v)}><Circle size={16} fill={recordingActive?'currentColor':'none'}/></ActionButton><ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
+      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton><ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
     {channel.description&&<p className="channel-about">{channel.description}</p>}
     {channel.tags.length>0&&<div className="watch-tag-row">{channel.tags.map(tag=><span key={tag}>#{tag}</span>)}</div>}
     <div className="player-connection-toolbar"><div><span className="eyebrow">{tr('اتصال','CONNECTION')}</span><strong>{tr('مسیر پخش','Playback route')}</strong></div>

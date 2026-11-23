@@ -35,6 +35,19 @@ export const useYoutv = create<Store>()(persist((set) => ({
   ...empty,
   addChannel: (value) => set(s => ({channels: [createChannel(value), ...s.channels]})),
   upsertChannels: (values, sourceId, replaceSource = false) => set(s => {
+    // Each local folder file owns its own channel collection. Two sources may
+    // contain the same stream URL, but disabling one must never hide the other.
+    if(sourceId?.startsWith('youtv:folder:')){
+      const previous=new Map(s.channels.filter(c=>c.sourceId===sourceId).map(c=>[c.url,c]));
+      const others=s.channels.filter(c=>c.sourceId!==sourceId);
+      const owned=new Map<string,Channel>();
+      for(const value of values){
+        const old=previous.get(value.url);
+        owned.set(value.url,old?{...value,id:old.id,sourceId,favorite:old.favorite,pinned:old.pinned,
+          tags:[...new Set([...old.tags,...value.tags])],createdAt:old.createdAt,updatedAt:Date.now()}:{...value,sourceId});
+      }
+      return {channels:[...others,...owned.values()]};
+    }
     const existing = replaceSource && sourceId ? s.channels.filter(c => c.sourceId !== sourceId) : [...s.channels];
     const keyed = new Map(existing.map(c=>[c.id,c]));
     const oldByUrl = new Map(s.channels.map(c=>[c.url,c]));

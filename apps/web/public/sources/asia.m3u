@@ -1,0 +1,409 @@
+﻿#EXTM3U
+#EXTINF:-1,RTSH Sport
+http://79.106.48.2/live/rtsh_sport_ott_p3/playlist.m3u8
+#EXTINF:-1,Fox Sports News
+https://austchannel-live.akamaized.net/hls/live/2002736/austchannel-sport/master1280x720.m3u8
+#EXTINF:-1,Racing.com (Opt-1)
+https://racingvic-i.akamaized.net/hls/live/598695/racingvic/628.m3u8?fluxustv.m3u8
+#EXTINF:-1,Racing.com (Opt-2)
+https://racingvic-i.akamaized.net/hls/live/598695/racingvic/1500.m3u8
+#EXTINF:-1,Racing.com (Opt-3)
+https://racingvic-i.akamaized.net/hls/live/598695/racingvic/628.m3u8
+#EXTINF:-1,ORF Sport Plus
+http://at.iptvboard.me:80/ORFSPORTPLUS/index.m3u8
+#EXTINF:-1,CBC Sport (Opt-1)
+https://streams.livetv.az/azerbaijan/cbc_sport_hd/chunks.m3u8
+#EXTINF:-1,CBC Sport (Opt-2)
+http://0s.ha2s4mjtgixdkmzogu3a.cmle.ru/azerbaijan/cbc_sport_hd/playlist.m3u8
+#EXTINF:-1,CBC Sport (Opt-3)
+https://streams.livetv.az/azerbaijan/cbc_sport_hd/playlist.m3u8
+#EXTINF:-1,Bahrain Sport 1 (Opt-1)
+http://185.105.4.106:1935/live/Bahrain%20Sports/chunklist.m3u8?v=1548640033
+#EXTINF:-1,Bahrain Sport 1 (Opt-2)
+http://185.105.4.106:1935/live/Bahrain%20Sports/chunklist.m3u8?v=1558393494
+#EXTINF:-1,All Sports (Opt-1)
+http://173.236.10.10:1935/dgrau/dgrau/live.m3u8?AndreOid
+#EXTINF:-1,All Sports (Opt-2)
+http://173.236.10.10:1935/dgrau/dgrau/playlist.m3u8
+#EXTINF:-1,All Sports (Opt-3)
+http://173.236.10.10:1935/dgrau/dgrau/live.m3u8?iptvgratis?chile.m3u8
+#EXTINF:-1,All Sports (Opt-4)
+http://173.236.10.10:1935/dgrau/dgrau/live.m3u8
+#EXTINF:-1,Hard Knocks Fighting
+https://vcnboutsports.teleosmedia.com/stream/boutsports/boutsports/playlist.m3u8
+#EXTINF:-1,Sports Net Ontario
+http://185.246.209.109:8080/SPORTSNET_ONTARIO/index.m3u8
+#EXTINF:-1,CDO
+http://edge1.cl.grupoz.cl/cdofree/live/chunklist_w822432298.m3u8?GrupoTopIptv
+#EXTINF:-1,Real Madrid TV
+http://rmtvlive-lh.akamaihd.net/i/rmtv_1@154306/index_1000_av-p.m3u8?sd=10&amp;rebase=on?iptvgratis?chile.m3u8
+#EXTINF:-1,NEWTV Super sports HD
+http://111.40.205.107/PLTV/88888888/224/3221225715/index.m3u8
+#EXTINF:-1,Telecaribe Deportes
+http://telecaribe-deportes.gcdn.anvato.net/hls/live/telecaribedeporteshd2/2196k/index.m3u8
+#EXTINF:-1,EuroSports 1
+http://213.151.233.20:8000/dna-6069-tv-pc/hls/4001v105.m3u8
+#EXTINF:-1,TV 2 Play
+https://tv2-play-cl2-live-hls-nt.akamaized.net/out/u/tv2play1/crsvkedv/0/master.m3u8
+#EXTINF:-1,STAD'AFRIC (Opt-1)
+https://stadafric.streamakaci.tv/str_stadafric_stadafric/str_stadafric_multi/str_stadafric_stadafric/str_stadafric_player_1080p/chunks.m3u8
+#EXTINF:-1,STAD'AFRIC (Opt-2)
+https://stadafric.streamakaci.tv/str_stadafric_stadafric/str_stadafric_multi/str_stadafric_stadafric/str_stadafric_player_480p/chunks.m3u8
+#EXTINF:-1,World Of Free Sports TV
+https://a.jsrdn.com/broadcast/22723/+0000/hi/c.m3u8
+#EXTINF:-1,Todo Deportes (Opt-1)
+https://5ca9af4645e15.streamlock.net/tododeportes/smil:tododeportes.smil/chunklist_w1897460415_b13128000_sleng.m3u8
+#EXTINF:-1,Todo Deportes (Opt-2)
+http://rtmp.zafra.cloud:1935/securelive/tdcampeones20161/playlist.m3u8
+#EXTINF:-1,DD Sports (Opt-1)
+http://103.199.161.254/Content/ddsports/Live/Channel(DDSPORTS)/index.m3u8
+#EXTINF:-1,DD Sports (Opt-2)
+http://103.199.161.254/Content/ddsports/Live/Channel(DDSPORTS)/Stream(02)/index.m3u8
+#EXTINF:-1,DSport
+http://jiocgehub.jio.ril.com/Dsports_HD/Dsports_HD_800.m3u8
+#EXTINF:-1,Sony Ten 2
+http://globalbd.mywire.org:8081/globe/ten2/chunks.m3u8
+#EXTINF:-1,FightBox (Opt-1)
+http://92.43.140.249/s86/04.m3u8
+#EXTINF:-1,FightBox (Opt-2)
+http://ott-cdn.ucom.am/s86/index.m3u8?fluxustv.m3u8
+#EXTINF:-1,FightBox (Opt-3)
+http://92.43.140.200/s86/index.m3u8
+#EXTINF:-1,Flow Sports 1 (Opt-1)
+http://161.0.157.5/PLTV/88888888/224/3221226899/01.m3u8
+#EXTINF:-1,Flow Sports 1 (Opt-2)
+http://161.0.157.9/PLTV/88888888/224/3221226899/02.m3u8
+#EXTINF:-1,Flow Sports 1 (Opt-3)
+http://161.0.157.9/PLTV/88888888/224/3221226899/03.m3u8
+#EXTINF:-1,Flow Sports 1 (Opt-4)
+http://161.0.157.9/PLTV/88888888/224/3221226899/04.m3u8
+#EXTINF:-1,Olympic Channel (Opt-1)
+http://ott-live.olympicchannel.com/out/u/OC1_3.m3u8
+#EXTINF:-1,Red Bull TV (Opt-1)
+http://i.mjh.nz/au/Canberra/tv.redbull.tv.m3u8
+#EXTINF:-1,Red Bull TV (Opt-13)
+https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8
+#EXTINF:-1,Red Bull TV (Opt-2)
+https://i.mjh.nz/au/Melbourne/tv.redbull.tv.m3u8
+#EXTINF:-1,Red Bull TV (Opt-3)
+https://dms.redbull.tv/v3/linear-borb/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjYXRlZ29yeSI6InBlcnNvbmFsX2NvbXB1dGVyIiwiY291bnRyeV9jb2RlIjoidXMiLCJleHBpcmVzIjoiMjAxNy0wOS0xNlQxNzo0NjowMy45NjM0NjI4NDJaIiwib3NfZmFtaWx5IjoiaHR0cCIsInJlbW90ZV9pcCI6IjEwLjE1Ny4xMTIuMTQ4IiwidWEiOiJNb3ppbGxhLzUuMCAoTWFjaW50b3NoOyBJbnRlbCBNYWMgT1MgWCAxMF8xMl81KSBBcHBsZVdlYktpdC82MDMuMi40IChLSFRNTCwgbGlrZSBHZWNrbykgVmVyc2lvbi8xMC4xLjEgU2FmYXJpLzYwMy4yLjQiLCJ1aWQiOiJkOGZiZWYzMC0yZDhhLTQwYTUtOGNjNy0wNzgxNGJhMTliNzMifQ.Q_38FNpW3so5yrA5FQt9qBuix3dTulKpb6uQ0dRjrtY/playlist.m3u8
+#EXTINF:-1,Red Bull TV (Opt-4)
+https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master_3360.m3u8
+#EXTINF:-1,Red Bull TV (Opt-5)
+http://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master_1660.m3u8
+#EXTINF:-1,Red Bull TV (Opt-6)
+http://i.mjh.nz/nz/tv.redbull.tv.m3u8
+#EXTINF:-1,Red Bull TV (Opt-8)
+https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master_928.m3u8
+#EXTINF:-1,SportsMax TV (Opt-1)
+http://161.0.157.5/PLTV/88888888/224/3221226766/01.m3u8
+#EXTINF:-1,SportsMax TV (Opt-2)
+http://161.0.157.5/PLTV/88888888/224/3221226766/02.m3u8
+#EXTINF:-1,SportsMax TV (Opt-3)
+http://161.0.157.5/PLTV/88888888/224/3221226766/03.m3u8
+#EXTINF:-1,Eurosport 1
+https://1.ip2stream.icu/live/eurosport_1_hd/playlist.m3u8
+#EXTINF:-1,IRC Sport TV (Opt-1)
+http://178.32.140.155/irctv/mp4:irctv/playlist.m3u8
+#EXTINF:-1,IRC Sport TV (Opt-2)
+http://wms.shared.streamshow.it/irctv/mp4:irctv/playlist.m3u8
+#EXTINF:-1,Rai Sport
+http://everyrai-lh.akamaihd.net/i/raisportjolly1_1@177967/index_400_av-p.m3u8
+#EXTINF:-1,RTV Sport (San Marino)
+https://dlxommsyqo2g0.cloudfront.net/smrtv-ch02/_definst_/smil:ch-02.smil/playlist.m3u8?fluxustv.m3u8
+#EXTINF:-1,SuperTennis
+https://1.ip2stream.icu/live/supertennis/playlist.m3u8
+#EXTINF:-1,Jordan Sport TV (Opt-1)
+http://stream.joinvisions.net:1935/jorlive/sport/playlist.m3u8?DVR
+#EXTINF:-1,Jordan Sport TV (Opt-2)
+http://stream.joinvisions.net:1935/Jordantv/Jordan_Sport/gmswf.m3u8?DVR
+#EXTINF:-1,Qazsport
+http://77.245.98.22:8000/play/529/tracks-v1a1/index.m3u8
+#EXTINF:-1,KTV Sport (Opt-1)
+http://www.elahmad.com/tv/m3u8/ktv.m3u8?id=ktv3
+#EXTINF:-1,KTV Sport (Opt-2)
+https://svs.itworkscdn.net/ktvsportslive/ksports.smil/chunklist.m3u8
+#EXTINF:-1,KTV Sport (Opt-3)
+https://svs.itworkscdn.net/ktvsportslive/smil:ksports.smil/chunklist.m3u8
+#EXTINF:-1,КТРК Спорт
+http://onlinetv.ktrk.kg:1935/live/myStream4/playlist.m3u8
+#EXTINF:-1,Oman Sport (Opt-1)
+http://www.elahmad.com/tv/m3u8/akamaihd.m3u8?id=oman_sport
+#EXTINF:-1,Oman Sport (Opt-2)
+http://38.96.148.35:1935/live/omantv02/chunklist.m3u8
+#EXTINF:-1,Oman Sport (Opt-3)
+http://38.96.148.35:1935/live/omantv02/playlist.m3u8
+#EXTINF:-1,Al Kass Five (Opt-1)
+http://www.elahmad.com/tv/m3u8/alkass.m3u8?id=alkass5
+#EXTINF:-1,Al Kass Five (Opt-2)
+https://alkasmsl4.akamaized.net/hls/live/2003123/five/master570.m3u8
+#EXTINF:-1,Al Kass One (Opt-1)
+http://www.elahmad.com/tv/m3u8/alkass.m3u8?id=alkass1
+#EXTINF:-1,Al Kass One (Opt-2)
+https://alkasmsl4.akamaized.net/hls/live/2003123/alkassone1/master570.m3u8
+#EXTINF:-1,Al Kass Online
+https://alkasmsl4.akamaized.net/hls/live/2003123/alkassOnlineZI/master570.m3u8
+#EXTINF:-1,Al Kass Two (Opt-1)
+http://www.elahmad.com/tv/m3u8/alkass.m3u8?id=alkass2
+#EXTINF:-1,Al Kass Two (Opt-2)
+https://alkasmsl4.akamaized.net/hls/live/2003123/alkasstwo/master570.m3u8
+#EXTINF:-1,Pro X
+https://vid.hls.protv.ro/proxhdn/proxhd_high/index.m3u8?1
+#EXTINF:-1,Eurosport 1 Россия
+http://212.112.101.69:8081/stream44/output.m3u8
+#EXTINF:-1,Fast & Fun Box Русский (Opt-1)
+http://ott-cdn.ucom.am/s79/04.m3u8
+#EXTINF:-1,Fast & Fun Box Русский (Opt-2)
+http://ott-cdn.ucom.am/s79/index.m3u8
+#EXTINF:-1,Setanta Sports 1 (Opt-1)
+http://ott-cdn.ucom.am/s81/03.m3u8
+#EXTINF:-1,Setanta Sports 1 (Opt-2)
+http://ott-cdn.ucom.am/s81/04.m3u8
+#EXTINF:-1,Setanta Sports 1 (Opt-3)
+http://92.43.140.204:80/s81/index.m3u8
+#EXTINF:-1,Setanta Sports 2
+http://92.43.140.200/s82/04.m3u8
+#EXTINF:-1,Астрахань.Ru Sport (Opt-1)
+http://91.211.143.214/astrakhanrusporthd/tracks-v2a1/index.m3u8
+#EXTINF:-1,Астрахань.Ru Sport (Opt-2)
+http://streaming.astrakhan.ru/astrakhanrusporthd/tracks-v3a1/index.m3u8
+#EXTINF:-1,Астрахань.Ru Sport (Opt-3)
+http://streaming.astrakhan.ru/astrakhanrusporthd/tracks-v2a1/index.m3u8
+#EXTINF:-1,Астрахань.Ru Sport (Opt-4)
+http://91.211.143.214/astrakhanrusporthd/tracks-v3a1/index.m3u8
+#EXTINF:-1,Астрахань.Ru Sport (Opt-5)
+http://streaming.astrakhan.ru/astrakhanrusporthd/tracks-v1a1/index.m3u8
+#EXTINF:-1,Бокс ТВ (Opt-3)
+http://hls.boxingtvru.cdnvideo.ru/boxingtvru/smil:boxingtvru.smil/playlist.m3u8
+#EXTINF:-1,Матч ТВ (Opt-1)
+http://176.114.16.54:80/match/index.m3u8
+#EXTINF:-1,Матч ТВ (Opt-2)
+http://uiptv.do.am/1ufc/000000003/playlist.m3u8
+#EXTINF:-1,Матч ТВ (Opt-3)
+http://s1.only4.tv/2204/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Арена
+http://s1.only4.tv/1301/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Боец
+http://s1.only4.tv/1302/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Игра
+http://s1.only4.tv/1303/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Премьер
+http://s1.only4.tv/1403/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Футбол 1
+http://s1.only4.tv/14105/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Футбол 2 (Opt-1)
+http://persik.by/stream/3477/395381/10217.m3u8
+#EXTINF:-1,Матч! Футбол 2 (Opt-2)
+http://s1.only4.tv/1401/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Матч! Футбол 3
+http://s1.only4.tv/1402/video.m3u8?token=3KC9QUbdE7
+#EXTINF:-1,Сила (Opt-1)
+http://gcore.silatv.ru/streams/3431_1488/480n/index.m3u8
+#EXTINF:-1,Сила (Opt-2)
+https://gcore.silatv.ru/streams/3431_1488/720n/index.m3u8
+#EXTINF:-1,Сила (Opt-3)
+https://gcore.silatv.ru/streams/3431_1488/1080n/index.m3u8
+#EXTINF:-1,Старт (Opt-1)
+https://strm.yandex.ru/kal/start/start0_169_480p.json/index-v1-a1.m3u8
+#EXTINF:-1,Старт (Opt-2)
+https://strm.yandex.ru/kal/start/start0_169_1080p.json/index-v1-a1.m3u8
+#EXTINF:-1,Старт (Opt-3)
+https://strm.yandex.ru/kal/start/start0_169_720p.json/index-v1-a1.m3u8
+#EXTINF:-1,Старт (Opt-4)
+https://strm.yandex.ru/kal/start/start0.m3u8
+#EXTINF:-1,Футбол (Opt-1)
+http://ott-cdn.ucom.am/s41/04.m3u8
+#EXTINF:-1,Футбол (Opt-2)
+http://ott-cdn.ucom.am/s41/index.m3u8
+#EXTINF:-1,Orange Sport (Opt-1)
+http://2ng.ru/31y
+#EXTINF:-1,Orange Sport (Opt-2)
+http://213.151.233.20:8000/dna-6428-tv-pc/hls/4001v102.m3u8
+#EXTINF:-1,JTBC Golf
+http://122.129.115.21:1935/edgedol/_definst_/tao129/chunklist_w1957069897.m3u8
+#EXTINF:-1,SBS Golf
+http://122.129.115.21:1935/edgedol/_definst_/tao129/playlist.m3u8
+#EXTINF:-1,Sky Sports
+http://122.129.115.21:1935/edgedol/_definst_/tao126/playlist.m3u8
+#EXTINF:-1,ESport3 (Opt-1)
+https://ccma-tva-int-cellnex-live-hls.secure.footprint.net/int/ngrp:es3_web/playlist.m3u8
+#EXTINF:-1,ESport3 (Opt-2)
+https://ccma-tva-int-cellnex-live-hls.secure.footprint.net/int/ngrp:es3_web/chunklist.m3u8
+#EXTINF:-1,ESport3 (Opt-3)
+http://ccma-tva-int-abertis-live.hls.adaptive.level3.net/int/ngrp:es3_web/chunklist_b1296000_DVR.m3u8
+#EXTINF:-1,Real Betis TV
+https://cdnlive.shooowit.net/rbetislive/smil:television.smil/playlist.m3u8
+#EXTINF:-1,Real Madrid TV (English) (Opt-1)
+http://rmtv24hweblive-lh.akamaihd.net/i/rmtv24hweben_1@300662/master.m3u8
+#EXTINF:-1,Real Madrid TV (English) (Opt-2)
+http://rmtv24hweblive-lh.akamaihd.net/i/rmtv24hweben_1@300662/index_3_av-b.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-1)
+http://rmtv24hweblive-lh.akamaihd.net:80/i/rmtv24hwebes_1@300661/index_3_av-p.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-2)
+http://rmtvlive-lh.akamaihd.net/i/rmtv_1@154306/index_1000_av-p.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-3)
+http://rmtv24hweblive-lh.akamaihd.net/i/rmtv24hwebes_1@300661/master.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-4)
+http://rmtvlive-lh.akamaihd.net/i/rmtv_1@154306/master.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-5)
+http://rmtvlive-lh.akamaihd.net/i/rmtv_1@154306/index_1000_av-p.m3u8?sd=10&rebase=on?iptvgratis?chile.m3u8
+#EXTINF:-1,Real Madrid TV (Opt-6)
+http://rmtv24hweblive-lh.akamaihd.net/i/rmtv24hwebes_1@300661/index_3_av-b.m3u8
+#EXTINF:-1,ATG
+https://httpcache0-00688-cacheliveedge0.dna.qbrick.com/00688-cacheliveedge0/out/u/atg_sdi_1_free_3.m3u8
+#EXTINF:-1,Swiss Sport TV
+https://cdn02.upstream-cloud.ch/sstvlinear/ngrp:sstvlinear_all/chunklist_w2102582891_b6628000.m3u8
+#EXTINF:-1,11 Sports 台湾 1
+http://61.58.60.230:9319/live/75.m3u8
+#EXTINF:-1,11 Sports 台湾 2
+http://61.58.60.230:9319/live/102.m3u8
+#EXTINF:-1,A Spor (Opt-1)
+http://trkvz-m.ercdn.net/trkvz-temp/asporhdm.m3u8
+#EXTINF:-1,A Spor (Opt-2)
+https://trkvz-m.ercdn.net/trkvz-temp/asporhdm.m3u8?fluxustv.m3u8
+#EXTINF:-1,NTV Spor
+http://46.105.233.106:8181/hls/ntvspor/playlist.m3u8
+#EXTINF:-1,Sports TV
+https://mn-nl.mncdn.com/blutv_live/sportstv/sportstv.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:-1,TJK TV
+http://tjktv.ercdn.net/tjktv.m3u8
+#EXTINF:-1,TRT Spor (Opt-2)
+https://mn-nl.mncdn.com/blutv_live/trtsporhd/trtsporhd.smil/playlist.m3u8
+#EXTINF:-1,Türkmenistan Sport (Opt-1)
+http://217.174.225.146/hls/ch004_720/index.m3u8
+#EXTINF:-1,Türkmenistan Sport (Opt-2)
+https://alpha.tv.online.tm/hls/ch004_720/index.m3u8
+#EXTINF:-1,Türkmenistan Sport (Opt-4)
+https://alpha.tv.online.tm/legacyhls/ch004_720/index.m3u8
+#EXTINF:-1,Abu Dhabi Sports (Opt-1)
+https://adtv.ercdn.net/adsport1/adsport1_720p.m3u8?st=P9H1mUdptRfQ99toISpmTg&e=1495397980
+#EXTINF:-1,Abu Dhabi Sports (Opt-2)
+http://adtv.ercdn.net/adsport1/adsport1_360p.m3u8?v=3157566659
+#EXTINF:-1,Abu Dhabi Sports (Opt-3)
+http://adtv.ercdn.net/adsport1/adsport1_480p.m3u8
+#EXTINF:-1,Abu Dhabi Sports (Opt-4)
+http://adtv.ercdn.net/adsport1/adsport1_720p.m3u8?Compartilhandolink
+#EXTINF:-1,Abu Dhabi Sports (Opt-5)
+http://adtv.ercdn.net/adsport1/adsport1_360p.m3u8
+#EXTINF:-1,Abu Dhabi Sports (Opt-6)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports1
+#EXTINF:-1,Abu Dhabi Sports (Opt-7)
+http://adtv.ercdn.net/adsport1/adsport1_720p.m3u8
+#EXTINF:-1,Abu Dhabi Sports (Opt-8)
+http://adtv.ercdn.net/adsport1/adsport1_720p.m3u8?VIPIPTV
+#EXTINF:-1,Abu Dhabi Sports (Opt-9)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports1
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-1)
+http://adtv.ercdn.net/adsport2/adsport2_360p.m3u8?v=3157566659
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-2)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports2
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-3)
+http://adtv.ercdn.net/adsport2/adsport2_720p.m3u8?VIPIPTV
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-4)
+http://adtv.ercdn.net/adsport2/adsport2_480p.m3u8
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-5)
+http://adtv.ercdn.net/adsport2/adsport2.m3u8
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-6)
+http://adtv.ercdn.net/adsport2/adsport2_720p.m3u8?Compartilhandolink
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-7)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports2
+#EXTINF:-1,Abu Dhabi Sports 2 (Opt-8)
+http://adtv.ercdn.net/adsport2/adsport2_360p.m3u8
+#EXTINF:-1,Abu Dhabi Sports 3 (Opt-1)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports3
+#EXTINF:-1,Abu Dhabi Sports 3 (Opt-2)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports3
+#EXTINF:-1,Abu Dhabi Sports 4 (Opt-1)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports4
+#EXTINF:-1,Abu Dhabi Sports 4 (Opt-2)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports4
+#EXTINF:-1,Abu Dhabi Sports 5 (Opt-1)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports5
+#EXTINF:-1,Abu Dhabi Sports 5 (Opt-2)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports5
+#EXTINF:-1,Abu Dhabi Sports 6 (Opt-1)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_Sports6
+#EXTINF:-1,Abu Dhabi Sports 6 (Opt-2)
+http://www.elahmad.com/tv/m3u8/adtv.m3u8?id=abudhabi_sports6
+#EXTINF:-1,Dubai Racing (Opt-3)
+http://dmisvthvll.cdn.mangomolo.com/events/smil:events.smil/chunklist.m3u8
+#EXTINF:-1,Dubai Sports
+http://www.elahmad.com/tv/m3u8/dubaitv.m3u8?id=dubaisports
+#EXTINF:-1,Dubai Sports 2 (Opt-1)
+http://dmiftvll.mangomolo.com/dubaisportshd/smil:dubaisportshd.smil/chunklist.m3u8
+#EXTINF:-1,Dubai Sports 2 (Opt-2)
+http://dmivll.mangomolo.com/dubaisportshd/smil:dubaisportshd.smil/playlist.m3u8
+#EXTINF:-1,Dubai Sports 3
+http://dmiftvll.mangomolo.com/dubaisportshd5/smil:dubaisportshd5.smil/chunklist.m3u8
+#EXTINF:-1,SharjahSport (Opt-3)
+https://svs.itworkscdn.net/smc4sportslive/smc4.smil/chunklist_b585000.m3u8
+#EXTINF:-1,Sharjah Sports (Opt-1)
+https://svs.itworkscdn.net/smc4sportslive/smc4.smil/chunklist.m3u8
+#EXTINF:-1,Sharjah Sports (Opt-2)
+https://svs.itworkscdn.net/smc4sportslive/smc4.smil/playlist.m3u8
+#EXTINF:-1,Horizon Sports
+https://a.jsrdn.com/broadcast/22705/+0000/hi/c.m3u8
+#EXTINF:-1,EDGEsport
+https://imgedge.akamaized.net/amagi_hls_data_imgAAA2AA-edgesports/CDN/1920x1080_5628000/index.m3u8
+#EXTINF:-1,ESPNews
+http://185.246.209.109:8080/ESPN_NEWS/index.m3u8
+#EXTINF:-1,FOX Sports 1
+http://185.246.209.109:8080/FOX_SPORTS1/tracks-v1a1/index.m3u8
+#EXTINF:-1,GOL TV
+http://185.246.209.109:8080/GOL_TV/index.m3u8
+#EXTINF:-1,Hard Knocks Fighting
+http://vcnboutsports.teleosmedia.com/stream/boutsports/boutsports/playlist.m3u8
+#EXTINF:-1,MLB Network (Opt-1)
+http://mlblive-akc.mlb.com/ls01/mlbam/mlb_network/NETWORK_LINEAR_1/master_tablet.m3u8
+#EXTINF:-1,MLB Network (Opt-2)
+http://mlblive-akc.mlb.com/ls01/mlbam/mlb_network/NETWORK_LINEAR_1/master_wired.m3u8
+#EXTINF:-1,MLB Network (Opt-3)
+http://mlblive-akc.mlb.com/ls01/mlbam/mlb_network/NETWORK_LINEAR_1/master_mobile.m3u8
+#EXTINF:-1,NBA Plus
+https://bozztv.com/36bay2/gin/giniko_nbaplus_1000kb_36bay2/tracks-v1a1/mono.m3u8
+#EXTINF:-1,SEC Network
+http://185.246.209.109:8080/SEC_NETWORK/index.m3u8
+#EXTINF:-1,Sportskool
+https://a.jsrdn.com/broadcast/22697/+0000/hi/c.m3u8
+#EXTINF:-1,Stadium (Opt-1)
+https://d28avce4cnwu2y.cloudfront.net/v1/manifest/61a556f78e4547c8ab5c6297ea291d6350767ca2/Mux/37f5dd6d-5713-4998-8354-8c6675612b42/0.m3u8
+#EXTINF:-1,Stadium (Opt-2)
+https://d28avce4cnwu2y.cloudfront.net/v1/manifest/61a556f78e4547c8ab5c6297ea291d6350767ca2/Mux/37f5dd6d-5713-4998-8354-8c6675612b42/1.m3u8
+#EXTINF:-1,WOSN TV
+http://streamengine.wosn.tv:1935/live/WOSNLive_1/playlist.m3u8
+#EXTINF:-1, Cairo drama
+http://109.236.92.216:9090/Cairo_Drama/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Roya
+http://109.236.92.216:9090/Roya/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Aghani
+http://109.236.92.216:9090/Aghani/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Al rafidain
+http://109.236.92.216:9090/al_rafidain/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Al majd
+http://109.236.92.216:9090/al_majd/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Mekameleen
+http://109.236.92.216:9090/Mekmalene/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Kuwait 2
+http://109.236.92.216:9090/Kuwait2/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Burhan tv
+http://109.236.92.216:9090/BurhanTV/tracks-v1a1/mono.m3u8
+#EXTINF:-1, B4U Plus
+http://109.236.92.216:9090/B4U_PLUS/tracks-v1a1/mono.m3u8
+#EXTINF:-1, B4U Aflam
+http://109.236.92.216:9090/B4UAflam/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Sudan 24
+http://109.236.92.216:9090/Sudan24-M/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Tarteel
+http://109.236.92.216:9090/Tarteel/tracks-v1a1/mono.m3u8
+#EXTINF:-1, France 3
+http://109.236.92.216:9090/France3/tracks-v1a1/mono.m3u8
+#EXTINF:-1, France 24 English
+http://109.236.92.216:9090/France24_Eng/tracks-v1a1/mono.m3u8
+#EXTINF:-1, France 24 France
+http://109.236.92.216:9090/France24_FR/tracks-v1a1/mono.m3u8
+#EXTINF:-1, Euronews
+http://109.236.92.216:9090/EuroNews/tracks-v1a1/mono.m3u8
+#EXTINF:-1, ABC NEWS
+http://109.236.92.216:9090/ABC_NEWS/tracks-v1a1/mono.m3u8
+#EXTINF:-1, CTV NEWS
+http://109.236.92.216:9090/CTVNews/tracks-v1a1/mono.m3u8

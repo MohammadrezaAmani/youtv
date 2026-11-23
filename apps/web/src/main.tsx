@@ -9,5 +9,6 @@ import './player.css';
 import './design-system.css';
 import './monitor.css';
 import './shell.css';
+import './mobile-fixes.css';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><ErrorBoundary><App/></ErrorBoundary></React.StrictMode>);

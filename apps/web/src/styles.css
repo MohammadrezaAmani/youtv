@@ -30,3 +30,6 @@
 .next-channel-row{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}.next-channel-row:last-child{border-bottom:0}.next-channel-row .next-channel{border-bottom:0;flex:1}.next-channel-add{width:34px;height:34px;flex-shrink:0;border-radius:11px;border:1px solid var(--border);background:var(--surface-2);color:var(--muted);display:grid;place-items:center}.next-channel-add.is-on,.next-channel-add:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--border));color:var(--accent)}
 @media(max-width:1100px){.multiview-grid{grid-template-columns:1fr}.multiview-tile{resize:vertical}}
 @media(max-width:700px){.watch-toolbar{align-items:stretch}.watch-toolbar-actions{margin-inline-start:0;width:100%}.watch-toolbar-actions .watch-chip{flex:1;justify-content:center}.next-channel-row{gap:7px}.next-channel-add{width:31px;height:31px}.multiview-tile{padding:10px;min-height:280px}}
+
+/* New light-green palette is independent of light/rose. */
+:root[data-theme="mint"]{color-scheme:light}

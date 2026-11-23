@@ -10,12 +10,15 @@ import {SearchBox} from '@/components/ui/search-box';
 import ChannelDialog from '@/features/channels/ChannelDialog';
 import ChannelLibrary from '@/features/library/ChannelLibrary';
 import PlaylistDialog from '@/features/playlists/PlaylistDialog';
+import FolderSources from '@/features/playlists/FolderSources';
 import PlayerStage from '@/features/player/PlayerStage';
+import MultiViewTile from '@/features/player/MultiViewTile';
 import ProxyPage from '@/features/proxy/ProxyPage';
 import SettingsPage from '@/features/settings/SettingsPage';
 import {useYoutv} from '@/stores/useYoutv';
 import {parseM3u} from '@/lib/playlist';
-import {isVisibleChannel,readBundledPlaylist} from '@/lib/builtin';
+import {addMultiChannel,relatedToChannel,MAX_MULTI_VIEWS} from '@/lib/multiview';
+import {FOLDER_SOURCE_PREFIX,isVisibleChannel,readBundledPlaylist} from '@/lib/builtin';
 import {BUILTIN_PLAYLIST_ID} from '@youtv/shared';
 import ConnectivityPage from '@/features/connectivity/ConnectivityPage';
 import CategoriesPage from '@/features/categories/CategoriesPage';
@@ -68,7 +71,12 @@ function Shell(){
 
   const updatePlaylist=useYoutv(s=>s.savePlaylist),upsert=useYoutv(s=>s.upsertChannels),removePlaylist=useYoutv(s=>s.removePlaylist),play=useYoutv(s=>s.playChannel);
   const [search,setSearch]=useState('');
-  const [multiViewIds,setMultiViewIds]=useState<string[]>(()=>{try{const raw=localStorage.getItem('youtv:multiview');return raw?JSON.parse(raw):[];}catch{return[];}});
+  const [multiViewIds,setMultiViewIds]=useState<string[]>([]);
+  const [multiEnabled,setMultiEnabled]=useState(false);
+  const [audioTileId,setAudioTileId]=useState('');
+  const [relatedExpanded,setRelatedExpanded]=useState(false);
+  const [multiPickerOpen,setMultiPickerOpen]=useState(false);
+  const [multiQuery,setMultiQuery]=useState('');
   const [sidebar,setSidebar]=useState(()=>{try{return localStorage.getItem('youtv:sidebar-collapsed')!=='1';}catch{return true;}});
   const [mobileDrawer,setMobileDrawer]=useState(false),[navQuery,setNavQuery]=useState('');
   const [edit,setEdit]=useState<Channel|null>(null),[channelDialog,setChannelDialog]=useState(false),[playlistDialog,setPlaylistDialog]=useState(false),[toast,setToast]=useState('');
@@ -78,7 +86,7 @@ function Shell(){
   const updateSettings=useYoutv(s=>s.updateSettings);
   const fa=['fa','ar'].includes(settings.language);
   useEffect(()=>{try{localStorage.setItem('youtv:sidebar-collapsed',sidebar?'0':'1');}catch{/* Storage may be disabled */}},[sidebar]);
-  useEffect(()=>{try{localStorage.setItem('youtv:multiview',JSON.stringify(multiViewIds.slice(0,6)));}catch{/* Storage may be disabled */}},[multiViewIds]);
+  useEffect(()=>{setRelatedExpanded(false);},[location.pathname]);
   useEffect(()=>{setMobileDrawer(false);},[location.pathname]);
   useEffect(()=>{
     if(!mobileDrawer)return;
@@ -109,21 +117,30 @@ function Shell(){
   const path=location.pathname,activeId=path.startsWith('/watch/')?decodeURIComponent(path.slice(7)):'';
   const activeChannel=channels.find(c=>c.id===activeId);
   const view=path.startsWith('/watch/')?'watch':path==='/proxy'?'proxy':path==='/settings'?'settings':path==='/connectivity'?'connectivity':path==='/groups'?'groups':path==='/playlists'?'playlists':path==='/favorites'?'favorites':path==='/recent'?'recent':'all';
-  const watchIds=Array.from(new Set([activeId,...multiViewIds])).filter(Boolean).slice(0,6);
+  const watchIds=multiEnabled?Array.from(new Set([activeId,...multiViewIds])).filter(Boolean).slice(0,MAX_MULTI_VIEWS):[activeId].filter(Boolean);
   const multiChannels=watchIds.map(id=>channels.find(c=>c.id===id)).filter(Boolean) as Channel[];
-  const relatedMap=new Map<string,Channel>();
-  if(activeChannel){
-    for(const channel of channels){if(channel.id!==activeId&&activeChannel.sourceId&&channel.sourceId===activeChannel.sourceId&&activeChannel.group&&channel.group===activeChannel.group)relatedMap.set(channel.id,channel);}
-    for(const channel of channels){if(channel.id!==activeId&&activeChannel.sourceId&&channel.sourceId===activeChannel.sourceId)relatedMap.set(channel.id,channel);}
-    for(const channel of channels){if(channel.id!==activeId&&activeChannel.group&&channel.group===activeChannel.group)relatedMap.set(channel.id,channel);}
-    for(const channel of channels){if(channel.id!==activeId&&channel.tags.some(tag=>activeChannel.tags.includes(tag)))relatedMap.set(channel.id,channel);}
-    for(const channel of channels){if(channel.id!==activeId)relatedMap.set(channel.id,channel);if(relatedMap.size>=120)break;}
-  }
-  const relatedChannels=[...relatedMap.values()].slice(0,80);
+  const relatedChannels=activeChannel?relatedToChannel(channels,activeChannel):[];
   const openWatch=(id:string)=>{play(id);navigate(`/watch/${encodeURIComponent(id)}`);window.scrollTo({top:0,behavior:'smooth'});};
-  const addToMulti=(id:string)=>setMultiViewIds(prev=>Array.from(new Set([activeId||id,...prev,id])).filter(Boolean).slice(0,6));
-  const removeFromMulti=(id:string)=>setMultiViewIds(prev=>prev.filter(item=>item!==id));
-  const clearMulti=()=>setMultiViewIds([]);
+  const focusMulti=(id:string)=>{if(id!==activeId){setMultiViewIds(previous=>addMultiChannel(id,previous.filter(item=>item!==id),activeId));setAudioTileId('');}openWatch(id);};
+  const startMulti=()=>{
+    if(multiEnabled){setMultiEnabled(false);setMultiViewIds([]);setMultiPickerOpen(false);return;}
+    const second=relatedChannels.find(c=>c.id!==activeId);
+    setMultiViewIds(second?[second.id]:[]);
+    setAudioTileId(''); // Start muted so browser autoplay policies do not block the tiles.
+    setMultiEnabled(true);
+    setMultiPickerOpen(!second);
+  };
+  const addToMulti=(id:string)=>{
+    if(id===activeId){startMulti();return;}
+    setMultiEnabled(true);
+    setMultiViewIds(previous=>addMultiChannel(activeId,previous,id));
+  };
+  const removeFromMulti=(id:string)=>{
+    setMultiViewIds(previous=>previous.filter(item=>item!==id));
+    if(audioTileId===id)setAudioTileId(activeId);
+  };
+  const clearMulti=()=>{setMultiEnabled(false);setMultiViewIds([]);setAudioTileId('');setMultiPickerOpen(false);};
+  const multiCandidates=multiPickerOpen?channels.filter(c=>c.id!==activeId&&!watchIds.includes(c.id)&&`${c.name} ${c.group} ${c.country}`.toLocaleLowerCase().includes(multiQuery.toLocaleLowerCase().trim())).slice(0,36):[];
   const openGroup=(group:string)=>navigate(`/channels?group=${encodeURIComponent(group)}`);
   const showEdit=(channel:Channel)=>{setEdit(channel);setChannelDialog(true);};
   const showAdd=()=>{setEdit(null);setChannelDialog(true);};
@@ -164,23 +181,23 @@ function Shell(){
       <div className="yt-header-commands">
         <Button variant="outline" className="yt-import-button" size="sm" onClick={()=>setPlaylistDialog(true)}><Upload size={17}/><span>{t('importPlaylist')}</span></Button>
         <Button className="yt-add-button" size="sm" onClick={showAdd}><Plus size={18}/><span>{t('addChannel')}</span></Button>
-        <ActionButton className="yt-header-control yt-theme-toggle" onClick={()=>updateSettings({theme:settings.theme==='light'?'dark':'light'})}
+        <ActionButton className="yt-header-control yt-theme-toggle" onClick={()=>updateSettings({theme:settings.theme==='light'?'dark':settings.theme==='mint'?'emerald':settings.theme==='emerald'?'mint':'light'})}
           aria-label={settings.language==='fa'?'تغییر تم':'Toggle theme'} title={settings.language==='fa'?'تغییر تم':'Toggle theme'}>
-          {settings.theme==='light'?<Moon size={18}/>:<Sun size={18}/>}
+          {settings.theme==='light'||settings.theme==='mint'?<Moon size={18}/>:<Sun size={18}/>}
         </ActionButton>
       </div>
       <div className="yt-header-search">
         <SearchBox inputRef={searchRef} value={search} onChange={value=>{setSearch(value);if(!['/','/channels','/favorites','/recent'].includes(path))navigate('/channels');}} placeholder={text('librarySearch')} ariaLabel={t('search')} className="yt-global-search"/>
       </div>
       <div className="yt-header-identity">
+        <ActionButton className="yt-header-control yt-mobile-menu-toggle" onClick={()=>setMobileDrawer(v=>!v)}
+          aria-controls="yt-desktop-sidebar" aria-expanded={mobileDrawer} aria-label={fa?'منوی بخش‌ها':'Navigation menu'}><Menu size={21}/></ActionButton>
         <ActionButton className="yt-brand" onClick={()=>navigate('/')} aria-label="YouTV home"><span className="yt-brand-icon"><Play size={18} fill="currentColor"/></span><span className="yt-brand-name">You<span>TV</span></span></ActionButton>
         <ActionButton className="yt-header-control yt-desktop-collapse" onClick={()=>{setSidebar(value=>!value);setNavQuery('');}}
           aria-controls="yt-desktop-sidebar" aria-expanded={sidebar} aria-label={sidebar?(fa?'بستن سایدبار':'Collapse sidebar'):(fa?'بازکردن سایدبار':'Expand sidebar')}
           title={sidebar?(fa?'بستن سایدبار':'Collapse sidebar'):(fa?'بازکردن سایدبار':'Expand sidebar')}>
           {sidebar?<PanelRightClose size={19}/>:<PanelRightOpen size={19}/>}
         </ActionButton>
-        <ActionButton className="yt-header-control yt-mobile-menu-toggle" onClick={()=>setMobileDrawer(v=>!v)}
-          aria-controls="yt-desktop-sidebar" aria-expanded={mobileDrawer} aria-label={fa?'منوی بخش‌ها':'Navigation menu'}><Menu size={21}/></ActionButton>
       </div>
     </header>
 
@@ -188,8 +205,9 @@ function Shell(){
       <main className="yt-main" id="main-content">
         {view==='proxy'?<ProxyPage/>:view==='settings'?<SettingsPage/>:view==='connectivity'?<ConnectivityPage onWatch={openWatch} onGroup={openGroup}/>:view==='groups'?<CategoriesPage onOpen={openGroup}/>:view==='playlists'?<section className="page-content">
           <div className="page-heading"><div><div className="eyebrow">PLAYLIST STUDIO</div><h1><ListVideo size={28}/>{t('playlists')}</h1><p>{t('playlistImportNote')}</p></div><Button onClick={()=>setPlaylistDialog(true)}><Upload size={17}/>{t('importPlaylist')}</Button></div>
-          {!playlists.length?<div className="refined-empty"><div className="empty-orb"><ListVideo size={36}/></div><h2>{t('noPlaylists')}</h2><p>{t('playlistImportNote')}</p><Button onClick={()=>setPlaylistDialog(true)}>{t('importPlaylist')}</Button></div>:
-            <div className="playlist-grid">{playlists.map(p=><div key={p.id} className="panel-card playlist-card"><div className="playlist-identity"><span className="playlist-icon"><ListVideo size={22}/></span><div><h3>{p.name}</h3><span className="muted">{p.count} {t('channelsCount')}</span></div></div>
+          <FolderSources/>
+          {playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).length>0&&
+            <div className="playlist-grid">{playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).map(p=><div key={p.id} className="panel-card playlist-card"><div className="playlist-identity"><span className="playlist-icon"><ListVideo size={22}/></span><div><h3>{p.name}</h3><span className="muted">{p.count} {t('channelsCount')}</span></div></div>
               {p.id===BUILTIN_PLAYLIST_ID?<label className="checkbox-row"><Checkbox checked={settings.defaultPlaylistEnabled} onChange={e=>useYoutv.getState().updateSettings({defaultPlaylistEnabled:e.target.checked})}/> {settings.language==='fa'?'فعال بودن پلی‌لیست پیش‌فرض':'Enable bundled playlist'}</label>:p.url&&<div className="url-line" title={p.url}>{p.url}</div>}
               <small className="muted">{formatWhen(p.importedAt,settings.language)}</small>
               <div className="row-wrap"><Button size="sm" variant="secondary" onClick={()=>navigate('/channels')}>{t('viewChannels')}</Button>
@@ -197,11 +215,13 @@ function Shell(){
               {p.id!==BUILTIN_PLAYLIST_ID&&<Button size="sm" variant="ghost" onClick={()=>{if(confirm(`${t('removeSource')}?`))removePlaylist(p.id,confirm(t('removeChannels')));}}>{t('delete')}</Button>}</div>
             </div>)}</div>}
         </section>:view==='watch'?activeChannel?<section className="watch-layout">
-          <div className="watch-main"><div className="watch-toolbar"><ActionButton className="back-link" onClick={()=>navigate('/channels')}>{settings.language==='en'?<ArrowLeft size={17}/>:<ArrowRight size={17}/>} {t('back')}</ActionButton><div className="row-wrap watch-toolbar-actions"><ActionButton className={`watch-chip ${watchIds.includes(activeId)?'is-on':''}`} onClick={()=>addToMulti(activeId)}><Grid2x2 size={16}/> {settings.language==='fa'?`چندپخش ${multiChannels.length}`:`Multi ${multiChannels.length}`}</ActionButton>{multiChannels.length>1&&<ActionButton className="watch-chip" onClick={clearMulti}><X size={15}/> {settings.language==='fa'?'خروج':'Clear'}</ActionButton>}</div></div>
-            {multiChannels.length>1?<div className="multiview-grid">{multiChannels.map(channel=><section key={channel.id} className={`multiview-tile ${channel.id===activeId?'is-primary':''}`}><div className="multiview-head"><strong>{channel.name}</strong><div className="row-wrap">{channel.id!==activeId&&<ActionButton className="watch-chip" onClick={()=>openWatch(channel.id)}>{settings.language==='fa'?'اصلی':'Focus'}</ActionButton>}{channel.id!==activeId&&<ActionButton className="watch-chip" onClick={()=>removeFromMulti(channel.id)}><X size={14}/></ActionButton>}</div></div><PlayerStage channel={channel}/></section>)}</div>:<PlayerStage channel={activeChannel}/>}
+          <div className="watch-main"><div className="watch-toolbar"><ActionButton className="back-link" onClick={()=>navigate('/channels')}>{settings.language==='en'?<ArrowLeft size={17}/>:<ArrowRight size={17}/>} {t('back')}</ActionButton><div className="row-wrap watch-toolbar-actions"><ActionButton className={`watch-chip ${multiEnabled?'is-on':''}`} onClick={startMulti} aria-pressed={multiEnabled}><Grid2x2 size={16}/> {settings.language==='fa'?`چندپخش${multiEnabled?` (${multiChannels.length})`:''}`:`Multi-view${multiEnabled?` (${multiChannels.length})`:''}`}</ActionButton>{multiEnabled&&<><ActionButton className="watch-chip" onClick={()=>setMultiPickerOpen(value=>!value)} disabled={multiChannels.length>=MAX_MULTI_VIEWS}><Plus size={15}/>{settings.language==='fa'?'افزودن شبکه':'Add channel'}</ActionButton><ActionButton className="watch-chip" onClick={clearMulti}><X size={15}/> {settings.language==='fa'?'خروج':'Exit'}</ActionButton></>}</div></div>
+            {multiEnabled&&multiPickerOpen&&<div className="multi-channel-picker"><SearchBox size="compact" value={multiQuery} onChange={setMultiQuery} placeholder={settings.language==='fa'?'نام شبکه را جستجو کن':'Search channel'} ariaLabel={t('search')}/><div className="multi-picker-results">{multiCandidates.map(c=><ActionButton key={c.id} onClick={()=>{addToMulti(c.id);setMultiPickerOpen(false);setMultiQuery('');}}><span>{c.name}</span><small>{c.group}</small><Plus size={15}/></ActionButton>)}</div></div>}
+            {multiEnabled?<div className="multiview-grid">{multiChannels.map(channel=><MultiViewTile key={channel.id} channel={channel} primary={channel.id===activeId} audible={audioTileId===channel.id} onAudio={()=>setAudioTileId(current=>current===channel.id?'':channel.id)} onFocus={()=>focusMulti(channel.id)} onRemove={()=>removeFromMulti(channel.id)}/>)}{multiChannels.length<2&&<div className="multiview-placeholder">{settings.language==='fa'?'برای افزودن شبکه از + در فهرست کناری استفاده کن.':'Add another channel using + in the related list.'}</div>}</div>:<PlayerStage channel={activeChannel}/>}
           </div>
-          <aside className="watch-rail"><div className="watch-rail-heading"><h3>{settings.language==='fa'?'شبکه‌های مرتبط':'Related channels'}</h3><ActionButton onClick={()=>navigate('/channels')}>{text('viewAll')} <ChevronRight size={15}/></ActionButton></div>
-            {relatedChannels.map(c=><div key={c.id} className="next-channel-row"><ActionButton className="next-channel" onClick={()=>openWatch(c.id)}><span className="next-channel-image">{c.logo?<img loading="lazy" src={c.logo} alt=""/>:<Radio size={21}/>}</span><span><b>{c.name}</b><small>{c.sourceId===activeChannel.sourceId?(c.group||t('channels')):`${c.group||t('channels')}`}</small></span><ChevronRight size={17}/></ActionButton><ActionButton className={`next-channel-add ${watchIds.includes(c.id)?'is-on':''}`} aria-label={watchIds.includes(c.id)?'Remove from multiview':'Add to multiview'} onClick={()=>watchIds.includes(c.id)?removeFromMulti(c.id):addToMulti(c.id)}>{watchIds.includes(c.id)?<X size={15}/>:<Plus size={15}/>}</ActionButton></div>)}
+          <aside className={`watch-rail ${relatedExpanded?'is-expanded':''}`}><div className="watch-rail-heading"><h3>{settings.language==='fa'?'شبکه‌های مرتبط':'Related channels'}</h3><ActionButton onClick={()=>navigate('/channels')}>{text('viewAll')} <ChevronRight size={15}/></ActionButton></div>
+            {relatedChannels.slice(0,relatedExpanded?60:12).map(c=><div key={c.id} className="next-channel-row"><ActionButton className="next-channel" onClick={()=>openWatch(c.id)}><span className="next-channel-image">{c.logo?<img loading="lazy" src={c.logo} alt=""/>:<Radio size={21}/>}</span><span><b>{c.name}</b><small>{c.sourceId===activeChannel.sourceId?(c.group||t('channels')):`${c.group||t('channels')}`}</small></span><ChevronRight size={17}/></ActionButton><ActionButton className={`next-channel-add ${watchIds.includes(c.id)?'is-on':''}`} aria-label={watchIds.includes(c.id)?'Remove from multiview':'Add to multiview'} onClick={()=>watchIds.includes(c.id)?removeFromMulti(c.id):addToMulti(c.id)} disabled={!watchIds.includes(c.id)&&watchIds.length>=MAX_MULTI_VIEWS}>{watchIds.includes(c.id)?<X size={15}/>:<Plus size={15}/>}</ActionButton></div>)}
+            {relatedChannels.length>12&&<ActionButton className="watch-related-more" onClick={()=>setRelatedExpanded(value=>!value)}>{settings.language==='fa'?(relatedExpanded?'نمایش کمتر':`نمایش بیشتر (${relatedChannels.length})`):(relatedExpanded?'Show fewer':`Show more (${relatedChannels.length})`)}</ActionButton>}
           </aside></section>:<section className="page-content"><div className="refined-empty"><h2>{t('chooseChannel')}</h2><Button onClick={()=>navigate('/channels')}>{t('channels')}</Button></div></section>
           :<ChannelLibrary key={path+location.search} initialGroup={new URLSearchParams(location.search).get('group')||''} home={path==='/'} kind={view} search={search} onSearch={setSearch} onWatch={openWatch} onEdit={showEdit} onAdd={showAdd} onImport={()=>setPlaylistDialog(true)} onNavigate={navigate}/>}
       </main>

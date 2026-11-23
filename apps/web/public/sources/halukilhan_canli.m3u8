@@ -1,0 +1,142 @@
+#EXTM3U
+#EXTINF:0,FOX TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/foxtvhd/foxtvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,SHOW TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/showhd/showtvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,STAR TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/startvhd/startvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,KANAL D HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/kanaldhd/kanaldhd.smil/chunklist_b2628000_slturk.m3u8
+#EXTINF:0,ATV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/atvhd/atvhd.smil/chunklist_b1628000_sltur.m3u8
+#EXTINF:0,TRT 1 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trt1hd/trt1hd.smil/chunklist_b2596000_sltur.m3u8
+#EXTINF:0,TLC HD
+#EXTGRP:unsorted
+http://pa9agxjg.rocketcdn.com/tlctv.smil/chunklist_b2328000_sltur.m3u8
+#EXTINF:0,BLOOMBERG TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/bloomberghd/bloomberghd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,CNN TÜRK HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/cnnturkhd/cnnturkhd.smil/chunklist_b2628000_slturk.m3u8
+#EXTINF:0,NTV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/ntvhd/ntvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,HABERTÜRK HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/haberturkhd/haberturkhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,HABER GLOBAL SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/haberglobal/haberglobal.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,NTV SPOR
+#EXTGRP:unsorted
+http://46.105.233.106:8181/ntvspor.ts
+#EXTINF:0,TİVİBUSPOR HD
+#EXTGRP:unsorted
+http://zu2or9hg.rocketcdn.com/konf/mob/web16009.isml/QualityLevels(1564000)/manifest(format=m3u8-aapl).m3u8
+#EXTINF:0,A SPOR HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/aspor/aspor.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,SPORTS TV SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/sportstv/sportstv.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,TRT SPOR HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trtsporhd/trtsporhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TRT BELGESEL HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trtbelgesel/trtbelgesel.smil/chunklist_b2628000_slturk.m3u8
+#EXTINF:0,D'MAX
+#EXTGRP:unsorted
+http://jviqfbc2.rocketcdn.com/dmax.smil/chunklist.m3u8
+#EXTINF:0,UÇANKUŞ TV
+#EXTGRP:unsorted
+http://ucankus-live.cdnnew.com/ucankus/ucankus.m3u8
+#EXTINF:0,TV8.5 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/tv8.5hd/tv8.5hd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TV8 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/tv8hd/tv8hd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TEVE2 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/teve2hd/teve2hd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,A2 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/a2/a2.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,BEYAZ TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/beyaztv/beyaztv.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,KANAL 7 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/kanal7hd/kanal7hd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,HALK TV HD
+#EXTGRP:unsorted
+http://mn-nl.mncdn.com/blutv_live/halktv/halktv.smil/playlist.m3u8
+#EXTINF:0,A HABER HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/ahaber/ahaber.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,24 HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/24hd/24hd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TRT HABER HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trthaber/trthaber.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TGRT HABER SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/tgrthaber/tgrthaber.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,ÜLKE TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/ulketvhd/ulketvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,A PARA SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/apara/apara.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,CBC SPORT
+#EXTGRP:unsorted
+https://streams.livetv.az/azerbaijan/cbc_sport_hd/playlist.m3u8
+#EXTINF:0,TAY TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/taytvhd/taytvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TRT ÇOCUK HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trtcocukhd/trtcocukhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,DREAM TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/dreamtvhd/dreamtvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,DREAM TÜRK SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/dreamturk/dreamturk.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,POWER TÜRK HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/powerturkhd/powerturkhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,POWER TV HD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/powertvhd/powertvhd.smil/chunklist_b2628000_sltur.m3u8
+#EXTINF:0,TRT MÜZİK SD
+#EXTGRP:unsorted
+https://blutv-beta.akamaized.net/trtmuzik/trtmuzik.smil/chunklist_b1596000_sltur.m3u8
+#EXTINF:0,KRAL' WORLD HD
+#EXTGRP:unsorted
+http://stmpo0wa.rocketcdn.com/kralworldtv.smil/chunklist.m3u8
+#EXTINF:0,KRAL' POP HD
+#EXTGRP:unsorted
+http://bqgsd19q.rocketcdn.com/kralpop_720/chunklist.m3u8
+#EXTINF:0,KRAL'TV HD
+#EXTGRP:unsorted
+http://mid5dg6m.rocketcdn.com/kraltv_720/chunklist.m3u8
+#EXTINF:0,KRAL PERFORMANS
+#EXTGRP:unsorted
+https://kh2zh6sy.rocketcdn.com/kraldijital-konsertv.smil/chunklist_b2328000.m3u8
+#EXTINF:0,KRAL AKUSTIK
+#EXTGRP:unsorted
+https://dmu3sqri.rocketcdn.com/kraldijital-akustiktv.smil/chunklist_b2328000.m3u8
+#EXTINF:0,KRAL KONSER
+#EXTGRP:unsorted
+https://0ajuu84p.rocketcdn.com/kraldijital-popkonsertv.smil/chunklist_b2328000.m3u8

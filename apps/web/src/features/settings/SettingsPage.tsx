@@ -17,7 +17,8 @@ import type {Settings} from '@youtv/shared';
 import {Input} from '@/components/ui/input';
 const InputMedia=Input;
 
-const themes:Settings['theme'][]=['dark','light','oled','ocean','emerald','violet'];
+const themes:Settings['theme'][]=['dark','light','mint','oled','ocean','emerald','violet'];
+const themeLabels:Record<Settings['theme'],{fa:string;en:string}>={dark:{fa:'رز تیره',en:'Rose Dark'},light:{fa:'رز روشن',en:'Rose Light'},mint:{fa:'سبز روشن',en:'Mint Light'},oled:{fa:'مشکی OLED',en:'OLED Black'},ocean:{fa:'آبی اقیانوسی',en:'Ocean'},emerald:{fa:'سبز تیره',en:'Emerald Dark'},violet:{fa:'بنفش',en:'Violet'}};
 const langs:Record<Settings['language'],string>={fa:'فارسی',en:'English',ar:'العربية',tr:'Türkçe',ru:'Русский'};
 export default function SettingsPage(){
   const {t}=useTranslation();
@@ -50,7 +51,7 @@ export default function SettingsPage(){
         <p className="muted">{channels.filter(c=>c.sourceId===BUILTIN_PLAYLIST_ID).length} imported channels</p>
       </div>
       <div className="panel-card"><h3><Palette size={20}/>{t('appearance')}</h3>
-        <div className="theme-grid">{themes.map(theme=><ActionButton className={`theme-preview theme-${theme} ${settings.theme===theme?'theme-selected':''}`} key={theme} onClick={()=>update({theme})} aria-pressed={settings.theme===theme}><span className="theme-bar"/><span className="theme-text">{theme.toUpperCase()}</span></ActionButton>)}</div>
+        <div className="theme-grid">{themes.map(theme=><ActionButton className={`theme-preview theme-${theme} ${settings.theme===theme?'theme-selected':''}`} key={theme} onClick={()=>update({theme})} aria-pressed={settings.theme===theme}><span className="theme-bar"/><span className="theme-text">{themeLabels[theme][settings.language==='fa'?'fa':'en']}</span></ActionButton>)}</div>
       </div>
       <div className="panel-card"><h3><Languages size={20}/>{t('language')}</h3>
         <div className="form-stack"><label>{t('language')}<Select className="ui-input" value={settings.language} onChange={e=>changeLang(e.target.value as Settings['language'])}>{Object.entries(langs).map(([code,label])=><SelectOption key={code} value={code}>{label}</SelectOption>)}</Select></label><p className="muted">RTL / LTR automatically follows the selected language.</p></div>

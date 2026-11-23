@@ -1,0 +1,57 @@
+﻿#EXTM3U
+#EXTINF:-1,ARB
+http://85.132.81.184:8080/arb/live/index.m3u8
+#EXTINF:-1,ARB 24
+http://85.132.81.184:8080/arb24/live1/index.m3u8
+#EXTINF:-1,ATV 1
+http://85.132.81.184:8080/atv/index.m3u8
+#EXTINF:-1,ATV 1
+http://85.132.81.184:8080/atvlive/atv-e1/index.m3u8
+#EXTINF:-1,ATV 2
+http://85.132.81.184:8080/atv-2/index.m3u8
+#EXTINF:-1,ATV 4
+http://85.132.81.184:8080/atv-4/index.m3u8
+#EXTINF:-1,AzTV
+https://streams.livetv.az/azerbaijan/aztv_stream2/chunks.m3u8
+#EXTINF:-1,CBC
+http://cbctvlive.flashmediacast.com:1935/CBCTVLive/livestream/chunklist_w1352949174.m3u8
+#EXTINF:-1,CBC
+https://streams.livetv.az/azerbaijan/cbc_stream2/chunks.m3u8
+#EXTINF:-1,CBC Sport
+http://0s.ha2s4mjtgixdkmzogu3a.cmle.ru/azerbaijan/cbc_sport_hd/playlist.m3u8
+#EXTINF:-1,CBC Sport
+https://streams.livetv.az/azerbaijan/cbc_sport_hd/chunks.m3u8
+#EXTINF:-1,CBC Sport
+https://streams.livetv.az/azerbaijan/cbc_sport_hd/playlist.m3u8
+#EXTINF:-1,Dalğa
+http://streams2.livetv.az/azerbaijan/dalga/playlist.m3u8
+#EXTINF:-1,Dunya TV
+https://streams.livetv.az/azerbaijan/dunya/chunks.m3u8
+#EXTINF:-1,İctimai TV
+http://streams2.livetv.az/azerbaijan/ictimai_stream2/playlist.m3u8
+#EXTINF:-1,İctimai TV
+https://streams.livetv.az/azerbaijan/ictimaihd/chunks.m3u8
+#EXTINF:-1,İdman Azərbaycan
+http://streams.livetv.az/azerbaijan/idman2_stream/playlist.m3u8
+#EXTINF:-1,İdman Azərbaycan
+http://streams2.livetv.az/azerbaijan/idmanhd/playlist.m3u8
+#EXTINF:-1,İnterAz TV
+http://streams2.livetv.az/azerbaijan/interaz/playlist.m3u8
+#EXTINF:-1,Kəpəz TV
+http://85.132.81.184:8080/arbkepez/live/index.m3u8
+#EXTINF:-1,Lider TV
+http://streams2.livetv.az/azerbaijan/lider_stream/playlist.m3u8
+#EXTINF:-1,Medeniyyet
+https://streams.livetv.az/azerbaijan/medeniyyet_stream2/chunks.m3u8
+#EXTINF:-1,Muz TV
+http://streams2.livetv.az/azerbaijan/muztv/playlist.m3u8
+#EXTINF:-1,Naxçivan TV
+https://streams.livetv.az/azerbaijan/naxicevan/chunks.m3u8
+#EXTINF:-1,Real TV
+http://streams2.livetv.az/azerbaijan/real/playlist.m3u8
+#EXTINF:-1,Space TV
+http://streams2.livetv.az/azerbaijan/space_stream/playlist.m3u8
+#EXTINF:-1,Xəzər TV
+http://streams2.livetv.az/azerbaijan/xazar_sd_stream2/playlist.m3u8
+#EXTINF:-1,Ümüd
+http://win26.yayin.com.tr/umudtv/smil:umudtv.smil/chunklist.m3u8

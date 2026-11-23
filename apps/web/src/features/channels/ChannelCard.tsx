@@ -26,7 +26,6 @@ export default function ChannelCard({channel,healthStatus='untested',onOpen,onEd
       {channel.logo&&!brokenLogo?<img loading="lazy" referrerPolicy="no-referrer" src={channel.logo} alt="" onError={()=>setBrokenLogo(true)}/>:<div className="poster-placeholder"><span className="poster-pattern"/><Radio size={39} strokeWidth={1.2}/></div>}
       <span className="poster-vignette"/>
       <span className={`channel-health-badge state-${healthStatus}`} title={healthStatus}><i/>{healthStatus==='online'?(settings.language==='fa'?'متصل':'Online'):healthStatus==='offline'?(settings.language==='fa'?'قطع':'Offline'):healthStatus==='unknown'?(settings.language==='fa'?'نامشخص':'Unknown'):(settings.language==='fa'?'تست‌نشده':'Untested')}</span>
-      <span className="live-chip"><span className="live-dot"/>{t('live')}</span>
       {channel.pinned&&<span className="card-pin"><Pin size={13}/></span>}
       <span className="poster-play">{selectable?(selected?<Check size={28}/>:<span className="select-ring"/>):<Play fill="currentColor" size={25}/>}</span>
     </ActionButton>

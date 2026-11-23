@@ -22,7 +22,7 @@ export default function ConnectivityPage({onWatch,onGroup}:{onWatch:(id:string)=
   const [query,setQuery]=useState(''),[group,setGroup]=useState(''),[tag,setTag]=useState(''),[source,setSource]=useState(''),[status,setStatus]=useState<Status>('all');
   const [page,setPage]=useState(1);
   useEffect(()=>subscribeScan(setScan),[]);
-  const channels=useMemo(()=>all.filter(c=>isVisibleChannel(c,settings)),[all,settings.defaultPlaylistEnabled]);
+  const channels=useMemo(()=>all.filter(c=>isVisibleChannel(c,settings)),[all,settings.defaultPlaylistEnabled,settings.folderSourceEnabled]);
   const options=useMemo(()=>facets(channels),[channels]);
   const filtered=useMemo(()=>channels.filter(c=>(!group||c.group===group)&&(!tag||c.tags.includes(tag))&&(!source||(source==='__personal'?!c.sourceId:c.sourceId===source))&&(!query||searchNormalize([c.name,c.group,c.country,c.language,...c.tags].join(' ')).includes(searchNormalize(query)))&&(
     status==='all'||(status==='untested'?!health[c.id]:(health[c.id]?.status??'unknown')===status)
