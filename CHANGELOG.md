@@ -1,3 +1,15 @@
+## v0.10.0
+- Restore theme accent colors, remove header/sidebar seam lines.
+- Add in-app copy Worker script and correct Cloudflare dashboard steps.
+
+## v0.9.0 — dashboard shell rebuild
+
+- Replaced the legacy mixed-direction header/sidebar with a unified Anama-style RTL dashboard shell.
+- Added a concave upper sidebar seam and rounded main-content junction, using dedicated theme-safe CSS.
+- Fixed deterministic collapsed sidebar width, icons-only labels, active states and persisted preference.
+- Added searchable navigation, an off-canvas mobile drawer, and an adaptive bottom bar.
+- Kept existing player, channel and worker features untouched.
+
 ## v0.6.0 — live buffering, signal monitor and categories
 
 - Prefetch HLS fragments with bounded forward buffer and live latency recovery watchdog.

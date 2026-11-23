@@ -76,6 +76,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const [override,setOverride]=useState<ConnectionOverride>('default'),[fallback,setFallback]=useState(false),[attempt,setAttempt]=useState(0);
   const [status,setStatus]=useState('idle'),[error,setError]=useState(''),[menu,setMenu]=useState<Menu>(null);
   const [showChrome,setShowChrome]=useState(true);
+  const [recordPanelOpen,setRecordPanelOpen]=useState(false);
   const [quality,setQuality]=useState(-1),[qualities,setQualities]=useState<QualityOption[]>([]);
   const [audio,setAudio]=useState(''),[audioOptions,setAudioOptions]=useState<AudioOption[]>([]);
   const [caption,setCaption]=useState('off'),[captions,setCaptions]=useState<CaptionOption[]>([]);
@@ -399,7 +400,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
         {isLive&&<span className="pro-live-pill"><span className="pro-live-dot"/>LIVE</span>}
         {(status==='buffering'||status==='reconnecting')&&<div className="pro-buffer-indicator"><span className="pro-spinner"/>{retryInfo&&<span className="reconnect-info">{retryInfo}</span>}</div>}
         {(error||resolved.error)&&<div className="pro-error" role="alert"><AlertTriangle size={34}/><strong>{tr('پخش امکان‌پذیر نیست','Playback failed')}</strong><p dir="auto">{error||resolved.error}</p><div className="pro-error-actions"><ActionButton onClick={()=>reset()}><RefreshCw size={16}/>{t('retry')}</ActionButton>{canProxy&&<ActionButton onClick={()=>reset('proxy')}><Cloud size={16}/>{t('tryProxy')}</ActionButton>}</div></div>}
-        {!error&&!resolved.error&&!playing&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
+        {!error&&!resolved.error&&!playing&&status!=='buffering'&&status!=='reconnecting'&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
         <div className="pro-controls" onClick={e=>e.stopPropagation()}>
           <div className="pro-timeline"><Slider aria-label={tr('خط زمان','Seek')} min={progressMin||0} max={progressMax>progressMin?progressMax:1} step="0.1" value={Math.min(progressMax||1,Math.max(progressMin,current))} onChange={e=>seek(Number(e.target.value))} style={{'--seek-percent':`${progressMax>progressMin?((current-progressMin)/(progressMax-progressMin))*100:0}%`} as CSSProperties}/><div className="pro-buffered" style={{width:`${duration>0?Math.min(100,buffered/duration*100):0}%`}}/></div>
           <div className="pro-control-row">
@@ -413,7 +414,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
               {isLive&&<ActionButton onClick={jumpLive} className={`pro-live-button ${atLiveEdge?'at-live':''}`}>● LIVE</ActionButton>}
               <ActionButton className={`media-icon pro-record-button ${recordingActive?'is-on':''}`} aria-label={recordingActive?tr('توقف ضبط','Stop recording'):tr('شروع ضبط','Start recording')}
                 title={recordingActive?'Stop recording':'Record this channel'}
-                onClick={()=>recordingActive?recording.stop():void recording.start(settings.recordingBitrate)} disabled={rec.phase==='starting'||rec.phase==='saving'}>
+                onClick={()=>{setRecordPanelOpen(true);recordingActive?recording.stop():void recording.start(settings.recordingBitrate);}} disabled={rec.phase==='starting'||rec.phase==='saving'}>
                 {recordingActive?<Square size={17} fill="currentColor"/>:<Circle size={18} fill="currentColor"/>}
               </ActionButton>
               <ActionButton className={`media-icon ${caption!=='off'?'is-on':''}`} onClick={()=>chooseCaption(caption==='off'&&captionChoices.length?captionChoices[0]!.id:'off')} title={tr('روشن/خاموش کردن زیرنویس','Toggle captions')}><Captions size={21}/></ActionButton>
@@ -446,11 +447,18 @@ export default function PlayerStage({channel}:{channel:Channel}){
         </div>}
         {teletext&&<TeletextPanel template={channel.teletextUrl} worker={currentWorker} usingProxy={Boolean(currentWorker)} onClose={()=>setTeletext(false)}/>}
       </div>
-      <div className="youtv-record-strip" role="region" aria-label="Local recording">
-        <span className={`youtv-record-indicator ${rec.phase==='recording'?'active':''}`} />
-        <strong>{tr('ضبط کانال','Channel recording')}</strong>
-        {rec.phase!=='idle'&&<span className="youtv-record-meta">{`${rec.phase.toUpperCase()} · ${Math.floor(rec.elapsedMs/3600000).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/60000%60).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/1000%60).toString().padStart(2,'0')} · ${readableBytes(rec.bytes)}`}</span>}
-        <div className="youtv-record-actions">
+      {(recordPanelOpen||recordingActive||Boolean(rec.downloadUrl)||Boolean(rec.message))&&<div className="youtv-record-dock" role="region" aria-label="Local recording">
+        <div className="youtv-record-dock-head">
+          <span className={`youtv-record-indicator ${rec.phase==='recording'?'active':''}`} />
+          <strong>{tr('ضبط کانال','Channel recording')}</strong>
+          <span className="youtv-record-meta">{rec.phase==='idle'?`${settings.recordingBitrate/1_000_000} Mbps`:`${rec.phase.toUpperCase()} · ${Math.floor(rec.elapsedMs/3600000).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/60000%60).toString().padStart(2,'0')}:${Math.floor(rec.elapsedMs/1000%60).toString().padStart(2,'0')} · ${readableBytes(rec.bytes)}`}</span>
+          <ActionButton className="player-quick-action" onClick={()=>setRecordPanelOpen(false)}><X size={16}/></ActionButton>
+        </div>
+        <div className="youtv-record-dock-actions">
+          {rec.phase==='recording'&&<ActionButton onClick={recording.pause}><Pause size={14}/> {tr('مکث ضبط','Pause')}</ActionButton>}
+          {rec.phase==='paused'&&<ActionButton onClick={recording.resume}><Play size={14}/> {tr('ادامه ضبط','Resume')}</ActionButton>}
+          {recordingActive&&<ActionButton onClick={recording.stop} disabled={rec.phase==='starting'||rec.phase==='saving'}><Square size={13}/> {tr('پایان و ذخیره','Stop & save')}</ActionButton>}
+          {!recordingActive&&(rec.phase==='idle'||rec.phase==='complete'||rec.phase==='error')&&<ActionButton onClick={()=>void recording.start(settings.recordingBitrate)} disabled={!playing}><Circle size={14} fill="currentColor"/> {tr('شروع ضبط','Record')}</ActionButton>}
           <label className="youtv-record-bitrate">{tr('بیت‌ریت ضبط','Recording bitrate')}
             <Select value={settings.recordingBitrate} disabled={recordingActive} onChange={e=>updateSettings({recordingBitrate:Number(e.target.value)})} aria-label="Recording bitrate">
               <SelectOption value={1_500_000}>1.5 Mbps</SelectOption>
@@ -460,21 +468,14 @@ export default function PlayerStage({channel}:{channel:Channel}){
               <SelectOption value={10_000_000}>10 Mbps</SelectOption>
             </Select>
           </label>
-          {rec.phase==='idle'||rec.phase==='complete'||rec.phase==='error'?
-            <ActionButton onClick={()=>void recording.start(settings.recordingBitrate)} disabled={!playing}><Circle size={14} fill="currentColor"/> {tr('شروع ضبط','Record')}</ActionButton>:
-            <>
-              {rec.phase==='recording'&&<ActionButton onClick={recording.pause}><Pause size={14}/> {tr('مکث ضبط','Pause')}</ActionButton>}
-              {rec.phase==='paused'&&<ActionButton onClick={recording.resume}><Play size={14}/> {tr('ادامه ضبط','Resume')}</ActionButton>}
-              <ActionButton onClick={recording.stop} disabled={rec.phase==='starting'||rec.phase==='saving'}><Square size={13}/> {tr('پایان و ذخیره','Stop & save')}</ActionButton>
-            </>}
+          {rec.downloadUrl&&<ActionButton className="youtv-record-download" onClick={()=>{const link=document.createElement('a');link.href=rec.downloadUrl!;link.download=rec.filename;link.click();}}><Download size={14}/>{tr('دریافت فایل ضبط‌شده','Download recording')}</ActionButton>}
         </div>
-        {rec.downloadUrl&&<ActionButton className="youtv-record-download" onClick={()=>{const link=document.createElement('a');link.href=rec.downloadUrl!;link.download=rec.filename;link.click();}}><Download size={14}/>{tr('دریافت فایل ضبط‌شده','Download recording')}</ActionButton>}
         {rec.message&&<span className={`youtv-record-notice ${rec.phase==='error'?'is-error':''}`} role="status">{rec.message}</span>}
-      </div>
+      </div>}
       <div className="player-status-strip"><span><span className={`status-dot ${error?'danger':''}`}/>{status}</span><span>{hls?'HLS':'VIDEO'}{isLive?' · LIVE':''}</span><span className="spacer"/>{resolved.value?.mode==='proxy'?<span><Cloud size={14}/> Worker</span>:<span><Wifi size={14}/> Direct</span>}</div>
     </div>
     <div className="player-channel-info"><div className="player-channel-icon">{channel.logo?<img src={channel.logo} alt=""/>:<Radio size={25}/>}</div><div className="player-text"><h2>{channel.name}</h2><span className="muted">{channel.group||t('channels')}{channel.country?` · ${channel.country}`:''}{channel.language?` · ${channel.language}`:''}</span></div>
-      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton><ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
+      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton><ActionButton className={`player-quick-action ${recordPanelOpen||recordingActive||rec.downloadUrl?'action-on':''}`} title="Recording" onClick={()=>setRecordPanelOpen(v=>!v)}><Circle size={16} fill={recordingActive?'currentColor':'none'}/></ActionButton><ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
     {channel.description&&<p className="channel-about">{channel.description}</p>}
     {channel.tags.length>0&&<div className="watch-tag-row">{channel.tags.map(tag=><span key={tag}>#{tag}</span>)}</div>}
     <div className="player-connection-toolbar"><div><span className="eyebrow">{tr('اتصال','CONNECTION')}</span><strong>{tr('مسیر پخش','Playback route')}</strong></div>

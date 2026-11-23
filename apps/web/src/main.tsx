@@ -8,5 +8,6 @@ import './refined.css';
 import './player.css';
 import './design-system.css';
 import './monitor.css';
+import './shell.css';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><ErrorBoundary><App/></ErrorBoundary></React.StrictMode>);
