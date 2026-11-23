@@ -1,6 +1,6 @@
 import {Checkbox} from '@/components/ui/checkbox';
 import {ActionButton} from '@/components/ui/action-button';
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {HashRouter,useLocation,useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
 import {House,Radio,Heart,History,ListVideo,Cloud,Settings,PanelRightClose,PanelRightOpen,Plus,Upload,ArrowLeft,ArrowRight,Play,ChevronRight,X,FolderOpen,Library,Activity,Menu,Search,Moon,Sun,Grid2x2} from 'lucide-react';
@@ -16,6 +16,8 @@ import MultiViewTile from '@/features/player/MultiViewTile';
 import ProxyPage from '@/features/proxy/ProxyPage';
 import SettingsPage from '@/features/settings/SettingsPage';
 import {useYoutv} from '@/stores/useYoutv';
+import {getPersistenceError,subscribePersistenceError} from '@/lib/indexedDbStorage';
+import {downloadBackup} from '@/lib/backup';
 import {parseM3u} from '@/lib/playlist';
 import {addMultiChannel,relatedToChannel,MAX_MULTI_VIEWS} from '@/lib/multiview';
 import {FOLDER_SOURCE_PREFIX,isVisibleChannel,readBundledPlaylist} from '@/lib/builtin';
@@ -99,6 +101,10 @@ function Shell(){
     document.documentElement.lang=settings.language;
     document.documentElement.dir=['fa','ar'].includes(settings.language)?'rtl':'ltr';
     document.documentElement.dataset.theme=settings.theme;
+    const backgrounds:Record<string,string>={dark:'#14161e',light:'#ffffff',mint:'#ffffff',oled:'#07090b',ocean:'#0c2036',emerald:'#0e2019',violet:'#1d1730'};
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',backgrounds[settings.theme]);
+    document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content',
+      settings.theme==='light'||settings.theme==='mint'?'default':'black-translucent');
     void i18n.changeLanguage(settings.language);
   },[settings.language,settings.theme]);
 
@@ -264,4 +270,24 @@ function Shell(){
   </div>;
 }
 
-export default function App(){return <HashRouter><Shell/></HashRouter>;}
+export default function App(){
+  // Async IndexedDB hydration must finish before the bundled playlist or any
+  // other startup effects can modify the store, or restored channels are lost.
+  const [hydrated,setHydrated]=useState(()=>useYoutv.persist.hasHydrated());
+  const storageError=useSyncExternalStore(subscribePersistenceError,getPersistenceError,getPersistenceError);
+  useEffect(()=>{
+    const unsubscribe=useYoutv.persist.onFinishHydration(()=>setHydrated(true));
+    if(useYoutv.persist.hasHydrated())setHydrated(true);
+    return unsubscribe;
+  },[]);
+  const fa=useYoutv(s=>s.settings.language)==='fa';
+  return <>
+    {hydrated?<HashRouter><Shell/></HashRouter>:<div className="youtv-storage-loading" role="status">YouTV…</div>}
+    {storageError&&<div className="youtv-storage-error" role="alert">
+      <span>{storageError}</span>
+      <ActionButton onClick={()=>downloadBackup(useYoutv.getState())}>
+        {fa?'دریافت پشتیبان':'Export backup'}
+      </ActionButton>
+    </div>}
+  </>;
+}

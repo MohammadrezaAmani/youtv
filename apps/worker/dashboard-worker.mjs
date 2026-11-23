@@ -134,21 +134,17 @@ function isHls(url, contentType) {
     return path.endsWith('.m3u8') || path.endsWith('.m3u') ||
         ['application/vnd.apple.mpegurl', 'application/x-mpegurl', 'audio/mpegurl', 'audio/x-mpegurl'].includes(mime);
 }
-async function readTextLimited(body, maxBytes = 2_000_000) {
+async function readTextStream(body) {
     if (!body)
         return '';
     const reader = body.getReader();
     const decoder = new TextDecoder();
-    let size = 0;
     let text = '';
     try {
         while (true) {
             const { done, value } = await reader.read();
             if (done)
                 break;
-            size += value.byteLength;
-            if (size > maxBytes)
-                throw new Error('HLS playlist exceeds maximum size');
             text += decoder.decode(value, { stream: true });
         }
         return text + decoder.decode();
@@ -275,7 +271,6 @@ async function cloudflareAdmin(request, env) {
 
 const MAX_REDIRECTS = 4;
 const VERSION = '0.4.0';
-const MAX_MANIFEST_BYTES = 2_000_000;
 function json(request, env, value, status = 200) {
     const headers = corsHeaders(request, env);
     headers.set('Content-Type', 'application/json; charset=utf-8');
@@ -346,10 +341,7 @@ async function proxy(request, env, reqUrl) {
     if (request.method === 'HEAD' || !response.ok || response.status === 206 || !(reqUrl.searchParams.get('hls') === '1' || isHls(finalUrl, response.headers.get('Content-Type') || ''))) {
         return new Response(request.method === 'HEAD' ? null : response.body, { status: response.status, statusText: response.statusText, headers });
     }
-    const declaredLength = Number(response.headers.get('Content-Length') || '0');
-    if (declaredLength > MAX_MANIFEST_BYTES)
-        throw new ProxyError(413, 'manifest_too_large', 'HLS manifest exceeds 2 MB');
-    const source = await readTextLimited(response.body, MAX_MANIFEST_BYTES);
+    const source = await readTextStream(response.body);
     let rewritten;
     try {
         const proxyUrl = new URL('/proxy', request.url);
@@ -391,7 +383,7 @@ export default {
             if (url.pathname === '/health' && request.method === 'GET')
                 return json(request, env, { name: 'YouTV Proxy', version: VERSION, ok: true });
             if (url.pathname === '/capabilities' && request.method === 'GET')
-                return json(request, env, { protocol: 1, hls: true, range: true, playlistImport: true, authentication: 'query-token', maxManifestBytes: MAX_MANIFEST_BYTES });
+                return json(request, env, { protocol: 1, hls: true, range: true, playlistImport: true, authentication: 'query-token' });
             if (url.pathname === '/text') {
                 if (request.method !== 'GET')
                     throw new ProxyError(405, 'method_not_allowed', 'GET only');

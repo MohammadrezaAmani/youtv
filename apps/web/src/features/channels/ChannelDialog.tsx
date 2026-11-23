@@ -88,7 +88,7 @@ export default function ChannelDialog({open,onOpenChange,editing}:Props){
             <Select className="ui-input" value={track.format} aria-label="Subtitle format" onChange={e=>setForm(v=>({...v,subtitles:v.subtitles.map((item,j)=>j===i?{...item,format:e.target.value as 'vtt'|'srt'}:item)}))}><SelectOption value="vtt">VTT</SelectOption><SelectOption value="srt">SRT</SelectOption></Select>
             <ActionButton type="button" className="media-track-delete" aria-label="Remove subtitle" onClick={()=>setForm(v=>({...v,subtitles:v.subtitles.filter((_,j)=>j!==i)}))}><Trash2 size={16}/></ActionButton></div>
         </div>)}
-        <Button type="button" variant="outline" size="sm" onClick={()=>setForm(v=>({...v,subtitles:[...v.subtitles,{id:crypto.randomUUID(),label:'',language:'',url:'',format:'vtt'}]}))} disabled={form.subtitles.length>=24}><Plus size={15}/>{language==='fa'?'افزودن زبان زیرنویس':'Add subtitle track'}</Button>
+        <Button type="button" variant="outline" size="sm" onClick={()=>setForm(v=>({...v,subtitles:[...v.subtitles,{id:crypto.randomUUID(),label:'',language:'',url:'',format:'vtt'}]}))} ><Plus size={15}/>{language==='fa'?'افزودن زبان زیرنویس':'Add subtitle track'}</Button>
       </fieldset>
       <fieldset className="media-source-editor"><legend><BookOpen size={17}/> Teletext</legend>
         <p className="muted">{language==='fa'?'آدرس صفحه Teletext ارائه‌دهنده با جای‌نگهدار {page}، مثل https://host/teletext/{page}.txt؛ این قابلیت Teletext خام جاسازی‌شده در MPEG-TS را رمزگشایی نمی‌کند.':'Optional provider page URL with {page} placeholder, e.g. https://host/teletext/{page}.txt. Embedded DVB Teletext is not decoded.'}</p>

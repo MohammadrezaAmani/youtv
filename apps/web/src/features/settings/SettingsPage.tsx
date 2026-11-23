@@ -14,6 +14,7 @@ import {BUILTIN_PLAYLIST_ID} from '@youtv/shared';
 import {downloadText,toM3u} from '@/lib/playlist';
 import {normalizeError} from '@/lib/utils';
 import type {Settings} from '@youtv/shared';
+import PwaSettings from '@/features/pwa/PwaSettings';
 import {Input} from '@/components/ui/input';
 const InputMedia=Input;
 
@@ -44,6 +45,7 @@ export default function SettingsPage(){
   return <section className="page-content">
     <div className="page-heading"><div><div className="eyebrow">PERSONALIZATION</div><h1><Palette size={29}/>{t('settings')}</h1><p>{t('madeFor')}</p></div></div>
     <div className="settings-grid">
+      <PwaSettings/>
       <div className="panel-card"><h3><Database size={20}/>{settings.language==='fa'?'منبع پیش‌فرض کانال‌ها':'Bundled channel source'}</h3>
         <label className="checkbox-row"><Checkbox checked={settings.defaultPlaylistEnabled} onChange={e=>update({defaultPlaylistEnabled:e.target.checked})}/>{settings.language==='fa'?'نمایش و استفاده از default.m3u8':'Enable default.m3u8'}</label>
         <p className="muted">{settings.language==='fa'?'با خاموش‌کردن، کانال‌ها پنهان می‌شوند اما Favorites، تگ‌ها و تاریخچه حذف نمی‌شوند.':'Disabling hides default channels without deleting your tags or favorites.'}</p>
@@ -91,7 +93,7 @@ export default function SettingsPage(){
         </div>{backupInfo&&<p className="muted">{backupInfo}</p>}
       </div>
       <div className="panel-card"><h3><Shield size={20}/>{t('security')}</h3><p className="muted">{t('security')}</p>
-        <div className="info-box">Your Worker token is stored in LocalStorage in plaintext. Avoid shared devices and untrusted browser extensions. Tokens are excluded from exported backups.</div>
+        <div className="info-box">Your Worker token is stored in this browser's IndexedDB. Avoid shared devices and untrusted browser extensions. Tokens are excluded from exported backups.</div>
         <Button variant="destructive" onClick={()=>{if(window.confirm(`${t('confirmReset')}\n${t('resetWarning')}`)){reset();setMessage(t('success'));}}}><Trash2 size={16}/>{t('clearData')}</Button>
       </div>
     </div>{message&&<div className="toast-notice" role="status">{message}<ActionButton onClick={()=>setMessage('')}>×</ActionButton></div>}

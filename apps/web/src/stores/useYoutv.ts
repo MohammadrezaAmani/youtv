@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import {createIndexedDbStorage} from '@/lib/indexedDbStorage';
 import {parseExtinf,parseM3u,displayNameFromUrl} from '@/lib/playlist';
 import {
   defaultState, stateSchema, createChannel,
@@ -96,9 +97,9 @@ export const useYoutv = create<Store>()(persist((set) => ({
   togglePinned: (id) => set(s=>({channels:s.channels.map(c=>c.id===id?{...c,pinned:!c.pinned,updatedAt:Date.now()}:c)})),
   bulkDelete: (ids) => set(s=>{const chosen=new Set(ids);return {channels:s.channels.filter(c=>!chosen.has(c.id)),recent:s.recent.filter(id=>!chosen.has(id)),resume:Object.fromEntries(Object.entries(s.resume).filter(([key])=>!chosen.has(key)))};}),
   bulkUpdate: (ids,changes) => set(s=>{const chosen=new Set(ids);return {channels:s.channels.map(c=>chosen.has(c.id)?{...c,...changes,id:c.id,updatedAt:Date.now()}:c)};}),
-  bulkAddTags: (ids,tags) => set(s=>{const chosen=new Set(ids);return {channels:s.channels.map(c=>chosen.has(c.id)?{...c,tags:[...new Set([...c.tags,...tags])].slice(0,30),updatedAt:Date.now()}:c)};}),
+  bulkAddTags: (ids,tags) => set(s=>{const chosen=new Set(ids);return {channels:s.channels.map(c=>chosen.has(c.id)?{...c,tags:[...new Set([...c.tags,...tags])],updatedAt:Date.now()}:c)};}),
   bulkRemoveTags: (ids,tags) => set(s=>{const chosen=new Set(ids),removed=new Set(tags);return {channels:s.channels.map(c=>chosen.has(c.id)?{...c,tags:c.tags.filter(tag=>!removed.has(tag)),updatedAt:Date.now()}:c)};}),
-  playChannel: (id) => set(s=>({recent: [id, ...s.recent.filter(i=>i!==id)].slice(0,40)})),
+  playChannel: (id) => set(s=>({recent: [id, ...s.recent.filter(i=>i!==id)]})),
   saveProgress: (id, seconds) => set(s=>({resume:{...s.resume,[id]:Math.max(0,seconds)}})),
   savePlaylist: (p) => set(s=>({playlists:[p,...s.playlists.filter(x=>x.id!==p.id)]})),
   setHealth: (batch) => set(s=>({health:{...s.health,...batch}})),
@@ -116,7 +117,7 @@ export const useYoutv = create<Store>()(persist((set) => ({
 }),{
   name:'youtv:v1',
   version:1,
-  storage:createJSONStorage(()=>localStorage),
+  storage:createIndexedDbStorage<AppState>(),
   partialize:s => ({version:s.version, channels:s.channels,playlists:s.playlists, workers:s.workers,recent:s.recent,resume:s.resume,health:s.health,settings:s.settings}),
   merge:(persisted,current) => {
     const parsed=stateSchema.safeParse(persisted);

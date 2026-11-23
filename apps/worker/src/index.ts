@@ -1,11 +1,10 @@
 import { assertAllowedUrl, assertOrigin, assertToken, corsHeaders, ProxyError, type ProxyEnv } from './security.ts';
-import { isHls, readTextLimited, rewriteHls } from './hls.ts';
+import { isHls, readTextStream, rewriteHls } from './hls.ts';
 import {cloudflareAdmin} from './cloudflare.ts';
 
 export interface Env extends ProxyEnv {}
 const MAX_REDIRECTS = 4;
 const VERSION = '0.4.0';
-const MAX_MANIFEST_BYTES = 2_000_000;
 
 function json(request: Request, env: Env, value: object, status = 200): Response {
   const headers = corsHeaders(request, env);
@@ -65,9 +64,7 @@ async function proxy(request: Request, env: Env, reqUrl: URL): Promise<Response>
   if (request.method === 'HEAD' || !response.ok || response.status === 206 || !(reqUrl.searchParams.get('hls')==='1'||isHls(finalUrl, response.headers.get('Content-Type') || ''))) {
     return new Response(request.method === 'HEAD' ? null : response.body, {status: response.status, statusText: response.statusText, headers});
   }
-  const declaredLength = Number(response.headers.get('Content-Length') || '0');
-  if (declaredLength > MAX_MANIFEST_BYTES) throw new ProxyError(413, 'manifest_too_large', 'HLS manifest exceeds 2 MB');
-  const source = await readTextLimited(response.body, MAX_MANIFEST_BYTES);
+  const source = await readTextStream(response.body);
   let rewritten: string;
   try {
     const proxyUrl = new URL('/proxy', request.url);
@@ -104,7 +101,7 @@ export default {
       }
       if (url.pathname === '/health'  && request.method === 'GET') return json(request, env, { name:'YouTV Proxy', version: VERSION, ok:true });
       if (url.pathname === '/capabilities' && request.method === 'GET')
-        return json(request, env, {protocol:1, hls:true, range:true, playlistImport:true, authentication:'query-token', maxManifestBytes:MAX_MANIFEST_BYTES});
+        return json(request, env, {protocol:1, hls:true, range:true, playlistImport:true, authentication:'query-token'});
       if (url.pathname === '/text') {
         if (request.method !== 'GET') throw new ProxyError(405,'method_not_allowed','GET only');
         const key=url.searchParams.get('key'); assertToken(key,env);

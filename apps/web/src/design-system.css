@@ -71,3 +71,9 @@
 
 .youtv-record-dock{margin:12px 0 0;border:1px solid var(--border,#445166);background:var(--surface,#141a24);border-radius:14px;padding:12px 14px;display:grid;gap:10px}.youtv-record-dock-head{display:flex;align-items:center;gap:10px;min-width:0}.youtv-record-dock-head strong{font-size:13px}.youtv-record-dock-head .youtv-record-meta{margin-inline-start:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.youtv-record-dock-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.youtv-record-dock .youtv-record-bitrate{margin-inline-start:auto}.youtv-record-dock .youtv-record-notice{display:block}.youtv-record-dock .player-quick-action{width:30px;height:30px}
 @media(max-width:700px){.youtv-record-dock-head{flex-wrap:wrap}.youtv-record-dock-head .youtv-record-meta{width:100%;margin-inline-start:0}.youtv-record-dock .youtv-record-bitrate{margin-inline-start:0;width:100%}}
+
+/* Persistent storage errors must remain visible if the browser rejects an IndexedDB write. */
+.youtv-storage-loading{min-height:100vh;display:grid;place-items:center;color:var(--muted);background:var(--background)}
+.youtv-storage-error{position:fixed;inset-inline:16px;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:9999;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--surface,#181b22);border:1px solid #df5675;border-radius:13px;padding:13px 16px;color:var(--text,#fff);box-shadow:0 15px 40px #0005;font-size:12px}
+.youtv-storage-error button{color:inherit;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);padding:8px 11px;white-space:nowrap}
+@media(max-width:600px){.youtv-storage-error{align-items:stretch;flex-direction:column;font-size:11px}.youtv-storage-error button{align-self:flex-start}}

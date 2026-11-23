@@ -1,3 +1,10 @@
+## v0.18.0 — Installable PWA, offline UI and iOS keyboard behavior
+- Built PWA manifest and service worker with GitHub Pages subpath awareness.
+- Added iOS Home Screen and Android/desktop PWA icon sets, including maskable artwork.
+- Precache only the built app shell; never intercept IPTV playlists, remote media or Worker API calls.
+- Allow manual update checks and user-confirmed reload from Settings, never during a live stream without consent.
+- Prevent iOS focus auto-zoom by using 16px form input text, retain user pinch-zoom and adapt safe areas / keyboard.
+
 ## v0.10.0
 - Restore theme accent colors, remove header/sidebar seam lines.
 - Add in-app copy Worker script and correct Cloudflare dashboard steps.

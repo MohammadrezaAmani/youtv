@@ -153,8 +153,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
           if(track.format==='srt'){
             const response=await fetch(url,{signal:controller.signal});
             if(!response.ok)throw Error(`Subtitle HTTP ${response.status}`);
-            if(Number(response.headers.get('Content-Length')||'0')>2_000_000)throw Error('Subtitle file too large');
-            const source=(await response.text()).slice(0,2_000_000);
+            const source=await response.text();
             url=URL.createObjectURL(new Blob([srtToVtt(source)],{type:'text/vtt'}));objectUrls.push(url);
           }
           list.push({id:track.id,label:track.label,language:track.language,url});
@@ -363,7 +362,6 @@ export default function PlayerStage({channel}:{channel:Channel}){
   };
   const onSubtitleFile=async(event:ChangeEvent<HTMLInputElement>)=>{
     const file=event.target.files?.[0];if(!file)return;
-    if(file.size>2_000_000){setStatus('Subtitle file exceeds 2MB');return;}
     if(localTrack?.url)URL.revokeObjectURL(localTrack.url);
     const source=await file.text();const output=file.name.toLowerCase().endsWith('.srt')?srtToVtt(source):source;
     const url=URL.createObjectURL(new Blob([output],{type:'text/vtt'}));

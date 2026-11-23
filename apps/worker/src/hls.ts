@@ -38,18 +38,15 @@ export function isHls(url: URL, contentType: string): boolean {
     ['application/vnd.apple.mpegurl','application/x-mpegurl','audio/mpegurl','audio/x-mpegurl'].includes(mime);
 }
 
-export async function readTextLimited(body: ReadableStream<Uint8Array> | null, maxBytes = 2_000_000): Promise<string> {
+export async function readTextStream(body: ReadableStream<Uint8Array> | null): Promise<string> {
   if (!body) return '';
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let size = 0;
   let text = '';
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) throw new Error('HLS playlist exceeds maximum size');
       text += decoder.decode(value, { stream: true });
     }
     return text + decoder.decode();

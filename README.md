@@ -106,3 +106,8 @@ See [LICENSE](./LICENSE). Nothing in this project grants a license to rebroadcas
 This release adds local live-TV recording with MediaRecorder, optional direct file writing (where the browser supports the File System Access API), a bounded browser-memory fallback, a configurable recording bitrate that survives backup/restore, and shared custom React inputs, Radix selects, checkboxes, radios, sliders, file inputs, textareas, date picker and action buttons.
 
 **Recording is only available while a stream is actively playing and the browser tab remains open.** The recorded output is re-encoded by the browser and may omit subtitles/teletext; DRM, CORS restrictions and unsupported browsers prevent some sources from recording. See `docs/UPGRADE-v0.5.fa.md` for step-by-step installation and limitations.
+
+
+## YouTV 0.18 PWA and iOS
+
+`bun run build` generates `manifest.webmanifest` and `sw.js` with correct GitHub Pages base paths. The worker caches the built application shell (HTML, JS, CSS and icons) for offline navigation, but never captures IPTV playlists, Cloudflare requests or video segments. iOS Safari: Share → Add to Home Screen. Installation and update controls are in Settings. Inputs are set to 16 CSS pixels on phones to avoid Safari's unwanted focus zoom without blocking user pinch-zoom. See `docs/UPGRADE-v0.18.fa.md`.

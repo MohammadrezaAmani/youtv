@@ -1,0 +1,45 @@
+/* YouTV PWA — iOS safe areas and keyboard-safe forms. */
+:root{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.yt-app-shell{
+  --pwa-safe-top:env(safe-area-inset-top,0px);
+  --yt-header-height:calc(73px + var(--pwa-safe-top));
+  min-height:100dvh;
+}
+.yt-app-shell .yt-topbar{
+  min-height:var(--yt-header-height);
+  padding-top:calc(10px + var(--pwa-safe-top));
+}
+.yt-app-shell .yt-main{min-height:calc(100dvh - var(--yt-header-height))}
+@media(max-width:740px){
+  .yt-app-shell{--yt-header-height:calc(62px + var(--pwa-safe-top))}
+  .yt-app-shell .yt-topbar{
+    height:var(--yt-header-height);
+    min-height:var(--yt-header-height);
+    padding-top:calc(7px + var(--pwa-safe-top));
+    padding-bottom:7px;
+  }
+  /* Safari auto-zooms focused form fields smaller than 16 CSS pixels.
+     Do not disable pinch-zoom: that harms accessibility. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  textarea,select,[contenteditable="true"],
+  .yt-app-shell .yt-header-search .youtv-search-input,
+  .yt-app-shell .yt-side-search .youtv-search-input,
+  .ui-input,.youtv-search-input,.ui-textarea,.pro-setting-label input,
+  .ttx-navigation input{
+    font-size:16px!important;
+  }
+  .yt-app-shell .yt-mobile-nav{
+    padding-bottom:max(4px,env(safe-area-inset-bottom,0px));
+  }
+  /* The iOS keyboard occupies the bottom of the visual viewport.
+     Hide fixed navigation only while a text editor has focus. */
+  .yt-app-shell:has(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus, textarea:focus, [contenteditable="true"]:focus) .yt-mobile-nav{
+    display:none;
+  }
+  .yt-app-shell input,.yt-app-shell textarea{scroll-margin-top:calc(16px + var(--yt-header-height));scroll-margin-bottom:24px}
+}
+.pwa-settings{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
+.pwa-settings>h3{margin-bottom:0}
+.pwa-settings .pwa-state{display:flex;gap:8px;align-items:center}
+.pwa-settings .pwa-footnote{font-size:11px;line-height:1.65;margin-block:0}
+.pwa-settings .pwa-error{color:#ee6681;overflow-wrap:anywhere;font-size:12px}

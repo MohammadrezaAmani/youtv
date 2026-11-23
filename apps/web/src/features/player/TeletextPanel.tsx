@@ -22,8 +22,7 @@ export function TeletextPanel({template,worker,usingProxy,onClose}:Props){
         const url=usingProxy&&worker?proxyUrl(source,worker,'text'):source;
         const response=await fetch(url,{signal:controller.signal});
         if(!response.ok)throw new Error(`HTTP ${response.status}`);
-        if(Number(response.headers.get('content-length')||'0')>150_000)throw new Error('Teletext response too large');
-        const text=(await response.text()).slice(0,150_000);
+        const text=await response.text();
         const contentType=response.headers.get('content-type')||'';
         let output=text;
         if(/json/i.test(contentType)) {
