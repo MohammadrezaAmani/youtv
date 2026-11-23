@@ -78,3 +78,17 @@ test('Teletext plaintext endpoint rejects unapproved destination',async()=>{
   const response=await worker.fetch(new Request(u,{headers:{Origin:'https://user.github.io'}}),env);
   assert.equal(response.status,403);
 });
+
+test('playlist import streams responses larger than the former 15 MB limit',async(t)=>{
+  const original=globalThis.fetch;
+  const body='#EXTM3U\n'+('#EXTINF:-1,TV\nhttps://example.org/live.m3u8\n'.repeat(350_000));
+  assert.ok(body.length>15_000_000);
+  globalThis.fetch=async()=>new Response(body,{headers:{'Content-Type':'application/octet-stream','Content-Length':String(body.length)}});
+  t.after(()=>{globalThis.fetch=original;});
+  const url=new URL('https://youtv.workers.dev/text');
+  url.searchParams.set('url','https://media.example.com/iptv.m3u');
+  url.searchParams.set('key',key);
+  const response=await worker.fetch(new Request(url,{headers:{Origin:'https://user.github.io'}}),env);
+  assert.equal(response.status,200);
+  assert.equal((await response.text()).length,body.length);
+});

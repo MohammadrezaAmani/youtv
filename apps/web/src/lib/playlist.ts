@@ -4,7 +4,7 @@ export type ParsedPlaylist = {title: string; channels: Channel[]; warnings: stri
 
 export function isHlsManifest(text: string): boolean {
   const content=text.replace(/^\uFEFF/,'').trimStart();
-  return content.startsWith('#EXTM3U') && /^#EXT-X-(TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|VERSION|PART-INF|PLAYLIST-TYPE|MAP|KEY):?/m.test(content);
+  return /^#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|VERSION|PART-INF|PLAYLIST-TYPE|MAP|KEY|ENDLIST|PART|PRELOAD-HINT|SERVER-CONTROL)(?=:|\b)/mi.test(content);
 }
 
 /**
@@ -55,8 +55,9 @@ export function parseExtinf(line:string):{name:string;attrs:Record<string,string
 }
 
 export function parseM3u(text: string, baseUrl?:string): ParsedPlaylist {
-  const cleaned=text.replace(/^\uFEFF/,'');
-  if (!cleaned.trimStart().startsWith('#EXTM3U')) throw new Error('The file must start with #EXTM3U');
+  // Accept IPTV lists without the optional EXTM3U declaration. HLS media manifests
+  // are a different format and must never be imported as channel catalogs.
+  const cleaned=text.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
   if (isHlsManifest(cleaned)) throw new Error('This is an HLS video manifest, not an IPTV channel list. Add its URL as a single channel.');
   const channels:Channel[]=[];const warnings:string[]=[];
   let meta: {name:string;logo:string;group:string;tvgId:string;language:string;country:string;tags:string[]} | null=null;
@@ -64,21 +65,22 @@ export function parseM3u(text: string, baseUrl?:string): ParsedPlaylist {
   for (const [i,raw] of cleaned.split(/\r?\n/).entries()) {
     const line=raw.trim();
     if (!line)continue;
-    if (line.startsWith('#EXTGRP:')) {fallbackGroup=line.slice(8).trim();continue;}
-    if (line.startsWith('#EXTINF:')) {
+    if (/^#EXTGRP:/i.test(line)) {fallbackGroup=line.slice(8).trim();continue;}
+    if (/^#EXTINF:/i.test(line)) {
       const {attrs,name}=parseExtinf(line);
       meta={name:name||attrs['tvg-name']||`Channel ${i+1}`,logo:attrs['tvg-logo']||'',group:attrs['group-title']||fallbackGroup,
         tvgId:attrs['tvg-id']||'',language:attrs['tvg-language']||'',country:attrs['tvg-country']||'',tags:attrs['youtv-tags']?.split('|').map(v=>v.trim()).filter(Boolean)||[]};
       continue;
     }
     if(line.startsWith('#'))continue;
+    // A playlist may be a bare list of stream URLs; ignore unrelated text lines.
+    if(!/^https?:\/\//i.test(line) && !(baseUrl && (/^(?:\/\/|\.\.?\/|\/)/.test(line) || /\.(?:m3u8?|mp4|mpd|ts|m4s)(?:[?#].*)?$/i.test(line) || (meta && !/\s/.test(line)))))continue;
     try {
       const url=normalizeStreamUrl(baseUrl?new URL(line,baseUrl).href:line);
-      if(!meta) {warnings.push(`Line ${i+1}: missing #EXTINF; channel name derived from URL`);}
       const name=meta?.name || new URL(url).hostname;
       channels.push(createChannel({name,url,logo:meta?.logo||'',group:meta?.group||'',tvgId:meta?.tvgId||'',language:meta?.language||'',country:meta?.country||'',tags:meta?.tags||[]}));
     } catch {
-      if(warnings.length<25) warnings.push(`Line ${i+1}: invalid or unsupported stream URL`);
+      warnings.push(`Line ${i+1}: invalid or unsupported stream URL`);
     }
     meta=null;
   }

@@ -157,7 +157,7 @@ function Shell(){
         response=await fetch(source,{signal:controller.signal,credentials:'omit'});
       }finally{clearTimeout(timeout);}
       if(!response.ok)throw new Error(`HTTP ${response.status}`);
-      const content=await response.text();if(content.length>15_000_000)throw new Error('Playlist too large');
+      const content=await response.text();
       const result=parseM3u(content,p.url);
       upsert(result.channels,p.id,true);updatePlaylist({...p,count:result.channels.length,refreshedAt:Date.now()});setToast(`${result.channels.length} ${t('importSuccess')}`);
     }catch(e){setToast(`${t('error')}: ${normalizeError(e)}. ${t('sourceRequiresCors')}`);}

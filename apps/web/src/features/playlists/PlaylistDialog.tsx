@@ -16,23 +16,23 @@ import {ui} from '@/lib/labels';
 import {useYoutv} from '@/stores/useYoutv';
 
 type Props={open:boolean;onOpenChange:(open:boolean)=>void;onImported?:()=>void};
-const SIZE_LIMIT=15_000_000;
 export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
   const {t}=useTranslation();
   const [mergeMode,setMergeMode]=useState<'merge'|'skip'>('merge');
+  const [previewPage,setPreviewPage]=useState(0);
+  const previewPageSize=50;
   const [kind,setKind]=useState<'file'|'url'>('file'),[url,setUrl]=useState(''),[name,setName]=useState(''),
     [fromWorker,setFromWorker]=useState(false),[workerId,setWorkerId]=useState(''),
     [results,setResults]=useState<Channel[]>([]),[warnings,setWarnings]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const workers=useYoutv(s=>s.workers),settings=useYoutv(s=>s.settings),channels=useYoutv(s=>s.channels);
   const savePlaylist=useYoutv(s=>s.savePlaylist),upsert=useYoutv(s=>s.upsertChannels);
-  const reset=()=>{setResults([]);setWarnings([]);setError('');};
+  const reset=()=>{setResults([]);setWarnings([]);setError('');setPreviewPage(0);};
   const parse=(text:string,source?:string)=>{
     const value=parseM3u(text,source);
     setResults(value.channels);setWarnings(value.warnings);setError('');
   };
   const readFile=async(file:File|undefined)=>{
     if(!file)return;reset();
-    if(file.size>SIZE_LIMIT){setError('File larger than 15 MB');return;}
     setName(file.name.replace(/\.m3u8?$/i,''));
     try{parse(await file.text());}catch(e){setError(normalizeError(e));}
   };
@@ -47,8 +47,7 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
       try{
         const res=await fetch(endpoint,{signal:controller.signal,credentials:'omit'});
         if(!res.ok)throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        const len=Number(res.headers.get('content-length')||'0');if(len>SIZE_LIMIT)throw new Error('Playlist larger than 15 MB');
-        const text=await res.text();if(text.length>SIZE_LIMIT)throw new Error('Playlist larger than 15 MB');
+        const text=await res.text();
         parse(text,source.toString());
         if(!name)setName(source.hostname);
       }finally{clearTimeout(timeout);}
@@ -91,7 +90,14 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
           <label><RadioOption checked={mergeMode==='merge'} onChange={()=>setMergeMode('merge')}/>{ui('mergePreserve',settings.language)}</label>
           <label><RadioOption checked={mergeMode==='skip'} onChange={()=>setMergeMode('skip')}/>{ui('skipExisting',settings.language)}</label>
         </div>
-        <div className="preview-names">{results.slice(0,8).map((c,i)=><span key={i}>{c.name}</span>)}{results.length>8&&<span>+{results.length-8}</span>}</div>
+        <div className="preview-names preview-names-scroll" role="list" aria-label={t('foundChannels')}>
+          {results.slice(previewPage*previewPageSize,(previewPage+1)*previewPageSize).map((c,i)=><span role="listitem" key={`${c.url}:${i}`} title={c.url}>{c.name}</span>)}
+        </div>
+        {results.length>previewPageSize&&<div className="preview-pagination">
+          <Button size="sm" variant="outline" disabled={previewPage===0} onClick={()=>setPreviewPage(page=>Math.max(0,page-1))}>‹</Button>
+          <span>{previewPage*previewPageSize+1}–{Math.min(results.length,(previewPage+1)*previewPageSize)} / {results.length.toLocaleString()}</span>
+          <Button size="sm" variant="outline" disabled={(previewPage+1)*previewPageSize>=results.length} onClick={()=>setPreviewPage(page=>page+1)}>›</Button>
+        </div>}
         {warnings.length>0&&<div className="warning-text"><AlertTriangle size={15}/>{warnings.length} warnings: {warnings.slice(0,2).join(', ')}</div>}
         <small>{t('duplicates')}</small>
       </div>}

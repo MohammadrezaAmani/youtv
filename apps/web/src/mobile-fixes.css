@@ -136,3 +136,50 @@
 .folder-source-search{width:100%;min-width:0}
 .imported-source-heading{margin-top:22px;margin-bottom:12px}
 .imported-source-heading h2{font-size:16px}
+
+/* Source catalog: real directory hierarchy and README previews */
+.folder-source-tree{display:grid;gap:12px;min-width:0;width:100%}
+.source-tree-folder{display:grid;gap:10px;min-width:0;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);overflow:hidden}
+.source-tree-root{border:0;background:transparent;border-radius:0;overflow:visible}
+.source-tree-folder-head{display:flex;align-items:center;gap:9px;min-width:0;width:100%;min-height:48px;text-align:start;background:var(--surface-2);border:0;color:var(--text);padding:12px 13px;cursor:pointer}
+.source-tree-folder-head:hover{background:var(--surface-3)}
+.source-tree-folder-head>svg{flex-shrink:0;color:var(--accent)}
+.source-tree-folder-head>strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.source-tree-folder-head>span{font-size:11px;color:var(--muted);margin-inline-start:auto;white-space:nowrap;flex-shrink:0}
+.source-tree-contents{padding:0 12px 12px;display:grid;gap:10px;min-width:0}
+.source-tree-root>.source-tree-contents{padding:0}
+.source-tree-folder .folder-sources-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,315px),1fr));gap:9px}
+.source-tree-folder .folder-source-row{background:var(--surface);min-width:0}
+.source-readme-container{min-width:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.source-readme-toggle{display:flex;align-items:center;gap:8px;padding:11px 13px;width:100%;background:transparent;border:0;color:var(--text);text-align:start}
+.source-readme-toggle strong{font-size:12px}.source-readme-toggle span{font-size:11px;color:var(--muted);margin-inline-start:auto}
+.source-readme-toggle svg{color:var(--accent);flex-shrink:0}
+.folder-readme{padding:14px 17px;max-height:560px;overflow:auto;overflow-wrap:anywhere;border-top:1px solid var(--border);line-height:1.85;font-size:13px;color:var(--text);min-width:0}
+.folder-readme h1,.folder-readme h2,.folder-readme h3,.folder-readme h4{font-size:inherit;font-weight:780;margin:16px 0 8px;line-height:1.5}
+.folder-readme h1{font-size:20px}.folder-readme h2{font-size:17px}.folder-readme h3{font-size:14px}
+.folder-readme p,.folder-readme ul,.folder-readme ol,.folder-readme blockquote{margin:8px 0}
+.folder-readme ul,.folder-readme ol{padding-inline-start:23px;list-style:revert}
+.folder-readme li{padding-block:2px}
+.folder-readme a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.folder-readme img{max-width:100%;height:auto;object-fit:contain;border-radius:8px}
+.folder-readme table{display:block;max-width:100%;overflow:auto;border-collapse:collapse;margin:12px 0;white-space:normal}
+.folder-readme th,.folder-readme td{padding:7px 11px;border:1px solid var(--border);text-align:start;min-width:80px}
+.folder-readme th{background:var(--surface-2)}
+.folder-readme pre{padding:12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);overflow:auto;white-space:pre;direction:ltr;text-align:left}
+.folder-readme :not(pre)>code{background:var(--surface-2);padding:2px 5px;border-radius:5px}
+.folder-readme blockquote{padding-inline-start:12px;border-inline-start:3px solid var(--accent);color:var(--muted)}
+.folder-readme hr{border:0;border-top:1px solid var(--border);margin:18px 0}
+.folder-readme p:last-child{margin-bottom:0}
+@media(max-width:700px){
+  .folder-source-tree,.source-tree-contents,.folder-source-row{min-width:0;max-width:100%}
+  .source-tree-folder-head{gap:7px;padding:11px 9px;flex-wrap:wrap}
+  .source-tree-folder-head>strong{flex:1}
+  .source-tree-folder-head>span{margin-inline-start:0;width:100%;padding-inline-start:44px}
+  .source-tree-contents{padding:0 8px 9px}
+  .source-tree-folder .folder-sources-list{grid-template-columns:minmax(0,1fr)}
+  .folder-readme{padding:12px;max-height:420px}
+}
+
+.preview-names-scroll{max-height:260px;overflow-y:auto;overscroll-behavior:contain;display:grid;gap:5px}
+.preview-names-scroll>span{display:block;min-width:0;overflow-wrap:anywhere;padding:5px 8px;border:1px solid var(--border);border-radius:7px}
+.preview-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding-top:8px;font-size:12px;color:var(--muted)}

@@ -31,7 +31,6 @@ export default function SettingsPage(){
   const importFile=async(f:File|undefined)=>{
     if(!f)return;
     try{
-      if(f.size>30_000_000)throw new Error('Backup exceeds 30 MB');
       const content=await f.text(),preview=parseBackupText(content);
       setBackupInfo(`${preview.data.channels.length} channels · ${preview.data.playlists.length} playlists · ${preview.data.workers.length} Workers`);
       const msg=restoreMode==='replace'?'Replace ALL current YouTV data with this backup?':'Merge backup data into your current YouTV library?';

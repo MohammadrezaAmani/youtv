@@ -12,6 +12,5 @@ export async function readBundledPlaylist(signal?: AbortSignal) {
   const response = await fetch(DEFAULT_PLAYLIST_URL, {signal, credentials:'omit', cache:'no-cache'});
   if (!response.ok) throw new Error(`Bundled playlist HTTP ${response.status}`);
   const content = await response.text();
-  if (content.length > 15_000_000) throw new Error('Bundled playlist exceeds 15MB');
   return parseM3u(content);
 }

@@ -1,72 +1,137 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
-/** Purely build-time discovery. No server or directory access is needed in the shipped SPA. */
+/** Scan only at development/build time. The deployed client reads a static JSON catalog. */
 export type LocalSourceEntry = {
-  path: string; name: string; channelCount: number; bytes: number;
-  kind: 'playlist' | 'hls' | 'invalid' | 'oversize';
+  path: string;
+  name: string;
+  channelCount: number;
+  bytes: number;
+  kind: 'playlist' | 'hls' | 'invalid';
 };
-const folder = fileURLToPath(new URL('./public/sources/', import.meta.url));
-const maxBytes = 15_000_000;
+export type LocalSourceFolder = {
+  path: string;
+  name: string;
+  readme: string | null;
+  fileCount: number;
+  channelCount: number;
+};
+export type LocalSourceCatalog = {
+  version: 2;
+  sources: LocalSourceEntry[];
+  folders: LocalSourceFolder[];
+};
 
-export async function scanLocalSources(root = folder): Promise<LocalSourceEntry[]> {
-  const files: LocalSourceEntry[] = [];
-  async function visit(dir: string) {
+/** Vitest can transform import.meta.url into an HTTP URL; avoid fileURLToPath(import.meta.url). */
+const defaultRoot = () => {
+  const local = resolve(process.cwd(), 'public', 'sources');
+  const monorepo = resolve(process.cwd(), 'apps', 'web', 'public', 'sources');
+  // Vite runs from apps/web; `bun run sources:check` runs from the monorepo root.
+  return existsSync(local) ? local : existsSync(monorepo) ? monorepo : local;
+};
+const webPath = (root: string, full: string) => relative(root, full).split(sep).join('/');
+const hlsTag = /^#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|VERSION|PART-INF|PLAYLIST-TYPE|MAP|KEY|ENDLIST|PART|PRELOAD-HINT|SERVER-CONTROL|I-FRAME-STREAM-INF|DISCONTINUITY-SEQUENCE)(?=[:\s]|$)/i;
+const streamUrl = /^(?:https?:\/\/|\/\/|\.\.?\/|[^\s#]+\.(?:m3u8?|mp4|ts|m4s)(?:[?#].*)?$)/i;
+
+/** Stream line by line: files of any size can be catalogued without a 15 MB cut-off. */
+async function classify(full: string): Promise<Pick<LocalSourceEntry, 'kind' | 'channelCount'>> {
+  let urls = 0;
+  let hls = false;
+  let awaitingUri = false;
+  const lines = createInterface({ input: createReadStream(full, { encoding: 'utf8' }), crlfDelay: Infinity });
+  try {
+    for await (const raw of lines) {
+      const line = raw.replace(/^\uFEFF/, '').trim();
+      if (hlsTag.test(line)) { hls = true; continue; }
+      if (/^#EXTINF:/i.test(line)) { awaitingUri = true; continue; }
+      if (!line || line.startsWith('#')) continue;
+      if (streamUrl.test(line) || (awaitingUri && !/\s/.test(line))) urls++;
+      awaitingUri = false;
+    }
+  } finally { lines.close(); }
+  if (hls) return { kind: 'hls', channelCount: 1 };
+  // Headerless IPTV sources and bare URL lists are valid as long as there are streams.
+  if (urls > 0) return { kind: 'playlist', channelCount: urls };
+  return { kind: 'invalid', channelCount: 0 };
+}
+
+export async function scanSourceCatalog(root = defaultRoot()): Promise<LocalSourceCatalog> {
+  const sources: LocalSourceEntry[] = [];
+  const folders: LocalSourceFolder[] = [];
+  async function visit(dir: string): Promise<void> {
     let children;
     try { children = await readdir(dir, { withFileTypes: true }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-    for (const entry of children) {
-      if (entry.name.startsWith('.')) continue;
+    const folderPath = webPath(root, dir);
+    const folder: LocalSourceFolder = {
+      path: folderPath === '.' ? '' : folderPath,
+      name: folderPath === '.' ? 'sources' : dir.split(sep).at(-1) || folderPath,
+      readme: null, fileCount: 0, channelCount: 0
+    };
+    folders.push(folder);
+    for (const entry of children.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) { await visit(full); continue; }
-      if (!entry.isFile() || !/\.m3u8?$/i.test(entry.name)) continue;
-      const path = relative(root, full).split(sep).join('/');
-      const size = (await stat(full)).size;
-      if (size > maxBytes) { files.push({ path, name: entry.name, channelCount: 0, bytes:size, kind:'oversize' }); continue; }
-      const text = await readFile(full, 'utf8');
-      const isExtended = /^(?:\uFEFF)?\s*#EXTM3U\b/.test(text);
-      const hls = /^#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|VERSION|PART-INF|PLAYLIST-TYPE|MAP|KEY)\b/m.test(text);
-      const count = (text.match(/^\s*#EXTINF:/gmi) || []).length;
-      files.push({ path, name:entry.name, channelCount:!hls && isExtended ? count : 0, bytes:size,
-        kind:!isExtended?'invalid':hls?'hls':count>0?'playlist':'invalid' });
+      if (!entry.isFile()) continue;
+      if (/^readme\.md$/i.test(entry.name)) {
+        folder.readme = webPath(root, full);
+        continue;
+      }
+      if (!/\.m3u8?$/i.test(entry.name)) continue;
+      const path = webPath(root, full);
+      const bytes = (await stat(full)).size;
+      const classified = await classify(full);
+      sources.push({ path, name: entry.name, bytes, ...classified });
     }
   }
   await visit(root);
-  return files.sort((a,b)=>a.path.localeCompare(b.path));
+  for (const folder of folders) {
+    const prefix = folder.path ? `${folder.path}/` : '';
+    const relevant = sources.filter(source => source.path.startsWith(prefix));
+    folder.fileCount = relevant.length;
+    folder.channelCount = relevant.reduce((sum, source) => sum + source.channelCount, 0);
+  }
+  return { version: 2, sources: sources.sort((a,b) => a.path.localeCompare(b.path)), folders: folders.sort((a,b) => a.path.localeCompare(b.path)) };
+}
+
+/** Backwards-compatible entry point for old tests and integrations. */
+export async function scanLocalSources(root = defaultRoot()): Promise<LocalSourceEntry[]> {
+  return (await scanSourceCatalog(root)).sources;
 }
 
 export function sourceCatalogPlugin(): Plugin {
+  let root = defaultRoot();
   return {
     name: 'youtv-source-catalog',
+    configResolved(config) { root = resolve(config.root, 'public', 'sources'); },
     configureServer(server) {
-      // Updating files while Vite is already running refreshes the source view.
-      server.watcher.add(folder);
-      const publish=(path:string)=>{
-        const absolute=resolve(path);
-        if(absolute.startsWith(resolve(folder)+sep)&&/\.m3u8?$/i.test(absolute)){
-          server.ws.send({type:'custom',event:'youtv:sources-changed'});
+      server.watcher.add(root);
+      const publish = (path: string) => {
+        const absolute = resolve(path);
+        if (absolute.startsWith(root + sep) && /(?:\.m3u8?|readme\.md)$/i.test(absolute)) {
+          server.ws.send({ type: 'custom', event: 'youtv:sources-changed' });
         }
       };
-      server.watcher.on('add',publish);
-      server.watcher.on('unlink',publish);
-      server.watcher.on('change',publish);
-      server.middlewares.use(async (req,res,next) => {
-        const pathname = (req.url||'').split('?')[0];
-        if (!pathname?.endsWith('/sources/index.json')) return next();
+      server.watcher.on('add', publish);
+      server.watcher.on('unlink', publish);
+      server.watcher.on('change', publish);
+      server.middlewares.use(async (req, res, next) => {
+        if (!(req.url || '').split('?')[0]?.endsWith('/sources/index.json')) return next();
         try {
-          const data = await scanLocalSources();
-          res.statusCode=200;
-          res.setHeader('Content-Type','application/json; charset=utf-8');
-          res.setHeader('Cache-Control','no-store');
-          res.end(JSON.stringify({version:1,sources:data}));
+          const catalog = await scanSourceCatalog(root);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(catalog));
         } catch (error) { next(error); }
       });
     },
     async generateBundle() {
-      const data = await scanLocalSources();
-      this.emitFile({type:'asset',fileName:'sources/index.json',source:JSON.stringify({version:1,sources:data})});
+      this.emitFile({ type: 'asset', fileName: 'sources/index.json', source: JSON.stringify(await scanSourceCatalog(root)) });
     }
   };
 }

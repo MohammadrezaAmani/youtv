@@ -3,7 +3,6 @@ import {downloadText} from './playlist';
 
 export type RestoreMode='merge'|'replace';
 export type BackupFile={format:'youtv-backup';formatVersion:2;exportedAt:string;includesWorkerTokens:boolean;data:AppState};
-const MAX_BACKUP_SIZE = 30_000_000;
 function stripActions(value:AppState):AppState {
   return stateSchema.parse({version:1,channels:value.channels,playlists:value.playlists,workers:value.workers,recent:value.recent,resume:value.resume,health:value.health,settings:value.settings});
 }
@@ -17,7 +16,6 @@ export function downloadBackup(state:AppState,includeWorkerTokens=false):void {
   downloadText(JSON.stringify(backup,null,2),`youtv-full-backup-${new Date().toISOString().slice(0,10)}.json`,'application/json');
 }
 export function parseBackupText(text:string):BackupFile {
-  if(text.length>MAX_BACKUP_SIZE)throw Error('Backup exceeds 30MB limit');
   let raw:unknown;
   try{raw=JSON.parse(text);}catch{throw Error('Invalid JSON file');}
   if(!raw||typeof raw!=='object')throw Error('Invalid backup structure');

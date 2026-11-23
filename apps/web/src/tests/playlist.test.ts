@@ -46,3 +46,24 @@ describe('EXTINF interoperability',()=>{
     expect(parsed.channels[0]?.tvgId).toBe('alpha');
   });
 });
+
+
+describe('headerless IPTV compatibility',()=>{
+  it('imports a real-world EXTINF list even without the EXTM3U header',()=>{
+    const parsed=parseM3u([
+      '#EXTINF:0, tvg-id="" tvg-logo="" tvg-name="Manoto HD" group-title="" - Manoto HD',
+      'https://example.org/manoto.m3u8',
+      '#EXTINF:-1 group-title="News",iran international',
+      'https://example.org/iran.m3u8'
+    ].join('\n'));
+    expect(parsed.channels.map(c=>c.name)).toEqual(['Manoto HD','iran international']);
+    expect(parsed.channels).toHaveLength(2);
+  });
+  it('imports a plain list of HTTP streaming URLs',()=>{
+    const parsed=parseM3u('https://example.org/a.m3u8\nhttps://example.org/b.m3u8\n');
+    expect(parsed.channels).toHaveLength(2);
+  });
+  it('still distinguishes HLS fragment playlists even without EXTM3U',()=>{
+    expect(()=>parseM3u('#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts')).toThrow(/HLS/i);
+  });
+});

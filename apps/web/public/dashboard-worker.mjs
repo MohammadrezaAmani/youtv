@@ -272,7 +272,6 @@ async function cloudflareAdmin(request, env) {
 const MAX_REDIRECTS = 4;
 const VERSION = '0.4.0';
 const MAX_MANIFEST_BYTES = 2_000_000;
-const MAX_IPTV_LIST_BYTES = 15_000_000;
 function json(request, env, value, status = 200) {
     const headers = corsHeaders(request, env);
     headers.set('Content-Type', 'application/json; charset=utf-8');
@@ -379,14 +378,12 @@ export default {
                 const { response } = await fetchSource(assertAllowedUrl(raw, env), request, env);
                 if (!response.ok)
                     throw new ProxyError(502, 'upstream_error', `Playlist source returned HTTP ${response.status}`);
-                const len = Number(response.headers.get('Content-Length') || '0');
-                if (len > MAX_IPTV_LIST_BYTES)
-                    throw new ProxyError(413, 'playlist_too_large', 'Playlist exceeds 15 MB');
-                const body = await readTextLimited(response.body, MAX_IPTV_LIST_BYTES);
+                // Playlist/text responses do not need rewriting: stream them to the
+                // browser instead of buffering the entire file or rejecting large lists.
                 const headers = corsHeaders(request, env);
                 headers.set('Content-Type', 'text/plain; charset=utf-8');
                 headers.set('Cache-Control', 'no-store');
-                return new Response(body, { headers });
+                return new Response(response.body, { status: 200, headers });
             }
             if (url.pathname !== '/proxy')
                 return json(request, env, { code: 'not_found', error: 'Not found' }, 404);
