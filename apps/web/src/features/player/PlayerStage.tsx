@@ -14,6 +14,7 @@ import {TeletextPanel} from './TeletextPanel';
 import {useLocalRecorder} from '@/features/recording/useLocalRecorder';
 import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead} from './liveBuffer';
 import {readableBytes} from '@/features/recording/recorder';
+import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 
 type ConnectionOverride='default'|'direct'|'proxy';
 type AudioOption={id:string;name:string;language:string};
@@ -49,17 +50,19 @@ const translatedMedia:Record<string,Partial<Record<'ar'|'tr'|'ru',string>>>= {
 };
 const fallbackTranslation=(lang:string,fa:string,en:string)=>lang==='fa'?fa:(translatedMedia[en]?.[lang as 'ar'|'tr'|'ru']??en);
 
-export default function PlayerStage({channel}:{channel:Channel}){
+export default function PlayerStage({channel,bottomActions}:{channel:Channel;bottomActions?:ReactNode}){
   const {t}=useTranslation();
   const settings=useYoutv(s=>s.settings),workers=useYoutv(s=>s.workers);
   const updateSettings=useYoutv(s=>s.updateSettings),toggleFavorite=useYoutv(s=>s.toggleFavorite),togglePinned=useYoutv(s=>s.togglePinned);
   const language=settings.language;
+  const appleMobile=typeof navigator!=='undefined'&&isAppleMobileBrowser(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const playerRef=useRef<HTMLDivElement>(null),videoRef=useRef<HTMLVideoElement>(null),hlsRef=useRef<Hls|null>(null);
   const sourceUrls=useRef<string[]>([]),recoverCount=useRef(0);
   const retryTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
   const hideChromeTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
   const retryCountRef=useRef(0);
   const playbackWantedRef=useRef(settings.autoplay);
+  const needsGestureRef=useRef(false);
   const userPausedRef=useRef(false);
   const lastProgressAtRef=useRef(Date.now());
   const healthySinceRef=useRef(Date.now());
@@ -87,21 +90,25 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const [rate,setRate]=useState(settings.defaultPlaybackRate),[teletext,setTeletext]=useState(false),[diagnostics,setDiagnostics]=useState(false);
   const [localTrack,setLocalTrack]=useState<{id:string;label:string;url:string}|null>(null);
   const [remoteTracks,setRemoteTracks]=useState<{id:string;label:string;language:string;url:string}[]>([]);
-  const canProxy=Boolean(activeWorker(channel,settings,workers));
+  const canProxy=Boolean(activeWorker(channel,settings,workers)?.token);
   const sources=[channel.url,...(channel.alternateUrls||[])];
   const saveProgress=useYoutv(s=>s.saveProgress);
   const savedProgress=useYoutv(s=>s.resume[channel.id]||0);
   const effectiveMode=override==='default'?channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode:override;
   const resolved=useMemo(()=>{
-    try { const value=resolveStream({...channel,url:sources[sourceIndex]||channel.url,proxyMode:override==='default'?channel.proxyMode:override},settings,workers,fallback);return {value,error:''}; }
+    try { const preferWorker=appleMobile&&effectiveMode==='auto'&&Boolean(activeWorker(channel,settings,workers)?.token)&&Boolean(channel.iptv.userAgent||channel.iptv.referer);
+      const value=resolveStream({...channel,url:sources[sourceIndex]||channel.url,proxyMode:override==='default'?channel.proxyMode:override},settings,workers,fallback||preferWorker);return {value,error:''}; }
     catch(e){return {value:null,error:e instanceof Error?e.message:String(e)};}
   // Settings can change during playback, but only actual stream URL is used to initialize the engine.
-  },[channel,settings,workers,override,fallback,sourceIndex]);
+  },[channel,settings,workers,override,fallback,sourceIndex,appleMobile,effectiveMode]);
   const streamUrl=resolved.value?.url??'';
   const recording=useLocalRecorder(videoRef,channel.name,`${channel.id}|${streamUrl}|${attempt}`);
   const rec=recording.snapshot;
   const recordingActive=['recording','paused','starting','saving'].includes(rec.phase);
   const hls=isProbablyHls(sources[sourceIndex]||channel.url,channel.format);
+  const nativeHlsSupport=useMemo(()=>typeof document!=='undefined'&&!!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'),[]);
+  const hlsJsSupported=useMemo(()=>Hls.isSupported(),[]);
+  const playbackEngine=selectPlaybackEngine({isHls:hls,nativeHls:nativeHlsSupport,hlsJsSupported,appleMobile});
   const currentWorker=resolved.value?.mode==='proxy'?resolved.value.worker:undefined;
   const tr=useCallback((fa:string,en:string)=>fallbackTranslation(language,fa,en),[language]);
   const clearRetry=useCallback(()=>{if(retryTimerRef.current){clearTimeout(retryTimerRef.current);retryTimerRef.current=null;}setRetryInfo('');},[]);
@@ -119,7 +126,8 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const fail=useCallback((message:string)=>{
     if(retryTimerRef.current)return; // multiple HLS callbacks must not schedule duplicate retries
     const {enabled,max}=reconnectOptionsRef.current;
-    const permanent=/\b(?:HTTP\s*)?(401|403|404|410)\b/i.test(message);
+    const permanent=/\b(?:HTTP\s*)?(401|403|404|410)\b|codec|unsupported|mixed.content|HTTPS required|permission/i.test(message);
+    if(appleMobile&&resolved.value?.mode==='direct'&&effectiveMode==='auto'&&!fallback&&canProxy&&!permanent){setStatus('proxy fallback');setFallback(true);return;}
     if(enabled&&!permanent&&retryCountRef.current<max){
       const number=++retryCountRef.current;
       const jitter=Math.floor(Math.random()*350);
@@ -135,9 +143,9 @@ export default function PlayerStage({channel}:{channel:Channel}){
     if(sourceIndex<sources.length-1){setStatus('switching source');setSourceIndex(n=>n+1);setError('');return;}
     if(effectiveMode==='auto'&&!fallback&&canProxy){setStatus('proxy fallback');setFallback(true);setError('');}
     else {setError(message);setStatus('error');}
-  },[effectiveMode,fallback,canProxy,sourceIndex,channel.alternateUrls]);
+  },[effectiveMode,fallback,canProxy,sourceIndex,channel.alternateUrls,appleMobile,resolved.value?.mode]);
   useEffect(()=>{
-    clearRetry();retryCountRef.current=0;healthySinceRef.current=Date.now();playbackWantedRef.current=settings.autoplay;
+    clearRetry();retryCountRef.current=0;healthySinceRef.current=Date.now();playbackWantedRef.current=settings.autoplay&&!appleMobile;needsGestureRef.current=appleMobile&&settings.autoplay;
     setSourceIndex(0);setOverride('default');setFallback(false);setAttempt(0);setMenu(null);setTeletext(false);setLocalTrack(null);setCaption('off');setAudio('');setQuality(-1);setError('');setStatus('idle');
   // New channel resets reconnect state, not ordinary settings changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,7 +220,12 @@ export default function PlayerStage({channel}:{channel:Channel}){
     recoverCount.current=0;let disposed=false;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();
     setStatus('loading');setError('');setQualities([]);setQuality(-1);setAudioOptions([]);setCaptions([]);setIsLive(false);setCurrent(0);setBufferedFragments(0);setLastFragmentMs(null);setStallCount(0);
     video.volume=settings.defaultVolume;video.playbackRate=settings.defaultPlaybackRate;
-    if(hls&&Hls.isSupported()){
+    if(appleMobile)video.setAttribute('webkit-playsinline','');
+    if(isBlockedMixedMedia(window.location.protocol,streamUrl)){
+      if(effectiveMode==='auto'&&!fallback&&canProxy){setFallback(true);return;}
+      setStatus('error');setError(tr('این منبع HTTP است و روی سایت HTTPS مسدود می‌شود. از پروکسی HTTPS استفاده کن.','This HTTP stream is blocked on HTTPS. Use your HTTPS Worker proxy.'));return;
+    }
+    if(playbackEngine==='hlsjs'){
       const engine=new Hls({...LIVE_HLS_PROFILE});hlsRef.current=engine;
       engine.on(Hls.Events.MANIFEST_PARSED,(_,data)=>{
         if(disposed)return;
@@ -254,13 +267,13 @@ export default function PlayerStage({channel}:{channel:Channel}){
       engine.loadSource(streamUrl);engine.attachMedia(video);
     }else{
       hlsRef.current=null;
-      if(hls&&!video.canPlayType('application/vnd.apple.mpegurl')){fail(tr('این مرورگر از HLS پشتیبانی نمی‌کند.','This browser cannot play HLS.'));}
+      if(playbackEngine==='unsupported'){setStatus('error');setError(tr('این مرورگر از فرمت HLS این منبع پشتیبانی نمی‌کند.','This browser cannot play this HLS stream.'));}
       else {video.src=streamUrl;video.load();}
     }
     return()=>{disposed=true;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
     // Playback changes only when channel/URL/retry changes, not volume, language or settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[streamUrl,attempt,channel.id,hls]);
+  },[streamUrl,attempt,channel.id,hls,playbackEngine]);
 
   useEffect(()=>{
     if(hls)return;
@@ -311,7 +324,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
   const seek=(value:number)=>{const v=videoRef.current;if(v&&Number.isFinite(value))v.currentTime=value;};
   const togglePlay=()=>{
     const v=videoRef.current;if(!v)return;
-    if(v.paused){userPausedRef.current=false;playbackWantedRef.current=true;void v.play().catch(()=>setStatus('Playback requires user gesture'));}
+    if(v.paused){userPausedRef.current=false;playbackWantedRef.current=true;needsGestureRef.current=false;void v.play().catch(e=>{playbackWantedRef.current=false;needsGestureRef.current=needsUserPlayGesture(e);setStatus(needsGestureRef.current?'needs-gesture':'playback-failed');if(!needsGestureRef.current)setError(e instanceof Error?e.message:String(e));});}
     else {userPausedRef.current=true;playbackWantedRef.current=false;v.pause();}
   };
   useEffect(()=>{
@@ -394,14 +407,14 @@ export default function PlayerStage({channel}:{channel:Channel}){
   return <div className={`player-wrapper professional-player ${theater?'is-theater':''}`}>
     <div className="player-shell">
       <div className={`pro-player ${rotatedFallback?'rotated-fallback ':''}${showChrome?'':'chrome-hidden'}`} ref={playerRef} tabIndex={0} onKeyDown={onVideoKey} onMouseMove={()=>revealChrome()} onPointerDown={()=>revealChrome(true)} onTouchStart={()=>revealChrome(true)} onDoubleClick={e=>{if(e.target===videoRef.current)toggleFullscreen();}} dir="ltr" aria-label={`${channel.name} player`}>
-        <video ref={videoRef} playsInline preload="auto" crossOrigin={hls&&Hls.isSupported()?'anonymous':undefined} autoPlay={settings.autoplay} className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
+        <video ref={videoRef} playsInline preload={appleMobile?'metadata':'auto'} crossOrigin={playbackEngine==='hlsjs'?'anonymous':undefined} autoPlay={settings.autoplay&&!appleMobile} className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
           onTimeUpdate={refreshTimeline} onDurationChange={refreshTimeline} onProgress={refreshTimeline}
-          onPlaying={()=>{userPausedRef.current=false;setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);if(userPausedRef.current)setStatus('paused');revealChrome(true);}} onWaiting={()=>{setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}
-          onCanPlay={()=>{setStatus('ready');updateVideoTracks();if(playbackWantedRef.current&&videoRef.current?.paused){void videoRef.current.play().catch(()=>{playbackWantedRef.current=false;setStatus('Playback requires user gesture');});}}}
+          onPlaying={()=>{userPausedRef.current=false;needsGestureRef.current=false;setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);setStatus(previous=>userPausedRef.current?'paused':['error','reconnecting','needs-gesture'].includes(previous)?previous:'paused');revealChrome(true);}} onWaiting={()=>{if(playbackWantedRef.current||playing){setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}}
+          onCanPlay={()=>{setStatus(needsGestureRef.current?'needs-gesture':'ready');updateVideoTracks();if(playbackWantedRef.current&&videoRef.current?.paused){void videoRef.current.play().catch(e=>{playbackWantedRef.current=false;needsGestureRef.current=needsUserPlayGesture(e);setStatus(needsGestureRef.current?'needs-gesture':'playback-failed');});}}}
           onLoadedMetadata={()=>{refreshTimeline();updateVideoTracks();}}
           onVolumeChange={e=>{setVolume(e.currentTarget.volume);setMuted(e.currentTarget.muted);}}
           onRateChange={e=>setRate(e.currentTarget.playbackRate)}
-          onError={()=>{if(!hlsRef.current)fail(tr('خطای پخش ویدئو یا فرمت پشتیبانی‌نشده','Media failed to load or codec is unsupported'));}}
+          onError={e=>{if(!hlsRef.current){const code=e.currentTarget.error?.code;const message=code===4?tr('فرمت یا کدک این شبکه در این دستگاه پشتیبانی نمی‌شود.','This device cannot decode the source format or codec.'):code===3?tr('دستگاه قادر به رمزگشایی ویدئو نیست.','The device cannot decode this video.'):tr('اتصال یا پخش این منبع ناموفق بود.','Media network or playback error.');if(code===3||code===4){setStatus('error');setError(message);}else fail(message);}}}
           >
           {videoTracks}{localTrack&&<track src={localTrack.url} label={localTrack.label} kind="subtitles" srcLang="und"/>}
         </video>
@@ -409,7 +422,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
         {isLive&&<span className="pro-latency" title={tr('تأخیر تقریبی نسبت به لبه زنده پخش','Estimated latency relative to live edge')}>{tr('تأخیر','Delay')} {liveLatency!==null&&Number.isFinite(liveLatency)?`~${Math.round(liveLatency)}s`:'—'}</span>}
         {(status==='buffering'||status==='reconnecting')&&<div className="pro-buffer-indicator"><span className="pro-spinner"/>{retryInfo&&<span className="reconnect-info">{retryInfo}</span>}</div>}
         {(error||resolved.error)&&<div className="pro-error" role="alert"><AlertTriangle size={34}/><strong>{tr('پخش امکان‌پذیر نیست','Playback failed')}</strong><p dir="auto">{error||resolved.error}</p><div className="pro-error-actions"><ActionButton onClick={()=>reset()}><RefreshCw size={16}/>{t('retry')}</ActionButton>{canProxy&&<ActionButton onClick={()=>reset('proxy')}><Cloud size={16}/>{t('tryProxy')}</ActionButton>}</div></div>}
-        {!error&&!resolved.error&&!playing&&(status==='paused'||status==='Playback requires user gesture'||(status==='ready'&&!playbackWantedRef.current))&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
+        {!error&&!resolved.error&&!playing&&(status==='paused'||status==='needs-gesture'||(appleMobile&&status==='loading')||(status==='ready'&&!playbackWantedRef.current))&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
         <div className="pro-controls" onClick={e=>e.stopPropagation()}>
           <div className="pro-timeline"><Slider aria-label={tr('خط زمان','Seek')} min={progressMin||0} max={progressMax>progressMin?progressMax:1} step="0.1" value={Math.min(progressMax||1,Math.max(progressMin,current))} onChange={e=>seek(Number(e.target.value))} style={{'--seek-percent':`${progressMax>progressMin?((current-progressMin)/(progressMax-progressMin))*100:0}%`} as CSSProperties}/><div className="pro-buffered" style={{width:`${duration>0?Math.min(100,buffered/duration*100):0}%`}}/></div>
           <div className="pro-control-row">
@@ -482,7 +495,7 @@ export default function PlayerStage({channel}:{channel:Channel}){
       </div>
     </div>
     <div className="player-channel-info"><div className="player-channel-icon">{channel.logo?<img src={channel.logo} alt=""/>:<Radio size={25}/>}</div><div className="player-text"><h2>{channel.name}</h2><span className="muted">{channel.group||t('channels')}{channel.country?` · ${channel.country}`:''}{channel.language?` · ${channel.language}`:''}</span></div>
-      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton><ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
+      <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton>{bottomActions}<ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
     {channel.description&&<p className="channel-about">{channel.description}</p>}
     {channel.tags.length>0&&<div className="watch-tag-row">{channel.tags.map(tag=><span key={tag}>#{tag}</span>)}</div>}
     <div className="player-connection-toolbar"><div><span className="eyebrow">{tr('اتصال','CONNECTION')}</span><strong>{tr('مسیر پخش','Playback route')}</strong></div>

@@ -33,3 +33,7 @@
 
 /* New light-green palette is independent of light/rose. */
 :root[data-theme="mint"]{color-scheme:light}
+
+.watch-multi-bottom{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin:12px 0 4px;min-width:0}
+.watch-multi-bottom .watch-chip{max-width:100%;min-height:36px}
+@media(max-width:700px){.watch-multi-bottom{justify-content:stretch;gap:6px}.watch-multi-bottom .watch-chip{flex:1;justify-content:center;padding:8px 9px;font-size:11px}}

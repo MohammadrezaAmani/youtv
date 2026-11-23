@@ -79,3 +79,11 @@ Important: no real-browser, Bun dependency install, or Vite production build pro
 - One-row mobile header search with relocated navigation menu.
 - Responsive related-channel rail with bounded initial results.
 - Removed redundant LIVE badges from channel cards.
+
+## v0.19.0 — Mobile HLS playback and multi-view actions
+- Prefer Safari/iOS native HLS even on recent iOS versions exposing Managed Media Source.
+- Do not add a CORS opt-in on native HLS media elements; keep it for hls.js MSE playback.
+- Provide a touch-to-play state instead of a stalled loading state on iOS and report HTTPS mixed-content and unsupported codec errors.
+- Correct Worker HLS routing for auto-detected `.m3u8` streams and automatically fall back from mobile direct playback when Auto mode has an enabled Worker.
+- Use the same mobile engine selection in Multi-view tiles, with user-gesture audio unmute.
+- Move Multi-view action from the watch page toolbar into the controls beneath the primary player; manage active multi-view below the grid.

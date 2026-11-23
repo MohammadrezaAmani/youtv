@@ -24,5 +24,5 @@ export function resolveStream(channel:Channel,settings:Settings,workers:WorkerPr
   }
   if (mode==='auto' && !forceProxy) return {url:channel.url,mode:'direct'};
   if (!worker.token) throw new Error('Worker access token is missing');
-  return {url:proxyUrl(channel.url,worker,'proxy',channel.format==='hls',{userAgent:channel.iptv.userAgent,referer:channel.iptv.referer}),mode:'proxy',worker};
+  return {url:proxyUrl(channel.url,worker,'proxy',(channel.format==='hls'||(channel.format==='auto'&&/\.m3u8?(?:[?#]|$)/i.test(channel.url))),{userAgent:channel.iptv.userAgent,referer:channel.iptv.referer}),mode:'proxy',worker};
 }

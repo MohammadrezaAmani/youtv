@@ -5,6 +5,7 @@ import type {Channel} from '@youtv/shared';
 import {ActionButton} from '@/components/ui/action-button';
 import {activeWorker,resolveStream} from '@/lib/proxy';
 import {isProbablyHls} from './mediaUtils';
+import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 import {useYoutv} from '@/stores/useYoutv';
 
 type Props={channel:Channel;audible:boolean;onAudio:()=>void;onFocus:()=>void;onRemove:()=>void;primary:boolean};
@@ -19,15 +20,19 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
   const [retries,setRetries]=useState(0);
   const [expanded,setExpanded]=useState(false);
   const [forceProxy,setForceProxy]=useState(false);
+  const appleMobile=typeof navigator!=='undefined'&&isAppleMobileBrowser(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const mode=useMemo(()=>{
-    try{return {stream:resolveStream(channel,settings,workers,forceProxy),error:''};}
+    try{const effective=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;const useWorker=appleMobile&&effective==='auto'&&Boolean(activeWorker(channel,settings,workers)?.token)&&Boolean(channel.iptv.userAgent||channel.iptv.referer);return {stream:resolveStream(channel,settings,workers,forceProxy||useWorker),error:''};}
     catch(e){return {stream:null,error:e instanceof Error?e.message:String(e)};}
-  },[channel,settings.proxyMode,settings.defaultWorkerId,workers,forceProxy]);
+  },[channel,settings,workers,forceProxy,appleMobile]);
   const url=mode.stream?.url??'';
   const hls=isProbablyHls(channel.url,channel.format);
   const sourceIsHls=hls||url.includes('hls=1');
+  const nativeHls=useMemo(()=>typeof document!=='undefined'&&!!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'),[]);
+  const hlsJsSupported=useMemo(()=>Hls.isSupported(),[]);
+  const playbackEngine=selectPlaybackEngine({isHls:sourceIsHls,nativeHls,hlsJsSupported,appleMobile});
   const effectiveMode=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;
-  const canFallback=effectiveMode==='auto'&&!forceProxy&&Boolean(activeWorker(channel,settings,workers));
+  const canFallback=effectiveMode==='auto'&&!forceProxy&&Boolean(activeWorker(channel,settings,workers)?.token);
   useEffect(()=>{setForceProxy(false);},[channel.id]);
 
   useEffect(()=>{
@@ -44,14 +49,19 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
     setStatus('loading');setError('');
     video.muted=!audible;
     video.playsInline=true;
-    const tryPlay=()=>{if(!disposed)void video.play().catch(()=>{if(!disposed)setStatus('paused');});};
+    if(appleMobile)video.setAttribute('webkit-playsinline','');
+    const tryPlay=()=>{if(!disposed)void video.play().catch(error=>{if(!disposed){setStatus(needsUserPlayGesture(error)?'paused':'error');if(!needsUserPlayGesture(error))setError(error instanceof Error?error.message:String(error));}});};
     const onPlaying=()=>{if(!disposed)setStatus('playing');};
     const onPause=()=>{if(!disposed)setStatus('paused');};
-    const onError=()=>{if(!disposed){setStatus('error');setError('Media error');}};
+    const onError=()=>{if(!disposed){if(canFallback){setForceProxy(true);return;}setStatus('error');setError(video.error?.code===4?'Unsupported codec or media format':'Media network or playback error');}};
     video.addEventListener('playing',onPlaying);
     video.addEventListener('pause',onPause);
     video.addEventListener('error',onError);
-    if(sourceIsHls&&Hls.isSupported()){
+    if(isBlockedMixedMedia(window.location.protocol,url)){
+      if(canFallback){setForceProxy(true);}
+      else {setStatus('error');setError('HTTP media is blocked on HTTPS. Configure an HTTPS Worker.');}
+    }else if(playbackEngine==='hlsjs'){
+      video.crossOrigin='anonymous';
       engine=new Hls({enableWorker:true,lowLatencyMode:false,maxBufferLength:18,maxMaxBufferLength:30,capLevelToPlayerSize:true});
       engine.on(Hls.Events.MANIFEST_PARSED,tryPlay);
       engine.on(Hls.Events.ERROR,(_event,data)=>{
@@ -62,9 +72,11 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
         setStatus('error');setError(data.details);
       });
       engine.loadSource(url);engine.attachMedia(video);
-    }else if(sourceIsHls&&!video.canPlayType('application/vnd.apple.mpegurl')){
+    }else if(playbackEngine==='unsupported'){
       setStatus('error');setError('HLS not supported');
     }else{
+      // Native HLS must not opt in to cross-origin CORS, unlike hls.js.
+      video.removeAttribute('crossorigin');
       video.src=url;video.load();tryPlay();
     }
     return()=>{
@@ -76,20 +88,20 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
     };
     // Reinitialization depends on channel/source and explicit retry, not on audio selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[channel.id,url,hls,retries]);
+  },[channel.id,url,hls,retries,playbackEngine]);
 
   return <section className={`multiview-tile ${primary?'is-primary':''} ${expanded?'is-expanded':''}`}>
     <div className="multiview-head">
       <div className="multiview-identity">{channel.logo&&<img src={channel.logo} alt="" loading="lazy"/>}<strong title={channel.name}>{channel.name}</strong></div>
       <div className="multiview-actions">
-        <ActionButton aria-label={audible?'Mute tile':'Unmute tile'} title={audible?'Mute':'Listen'} onClick={onAudio}>{audible?<Volume2 size={16}/>:<VolumeX size={16}/>}</ActionButton>
+        <ActionButton aria-label={audible?'Mute tile':'Unmute tile'} title={audible?'Mute':'Listen'} onClick={()=>{const video=videoRef.current;if(video){video.muted=audible;if(!audible&&video.paused)void video.play().catch(()=>setStatus('paused'));}onAudio();}}>{audible?<Volume2 size={16}/>:<VolumeX size={16}/>}</ActionButton>
         <ActionButton aria-label="Focus channel" title="Focus" onClick={onFocus}><Maximize2 size={15}/></ActionButton>
         <ActionButton aria-label={expanded?'Reduce tile':'Enlarge tile'} title={expanded?'Reduce':'Enlarge'} onClick={()=>setExpanded(v=>!v)}>{expanded?<Minimize2 size={16}/>:<Maximize2 size={16}/>}</ActionButton>
         {!primary&&<ActionButton aria-label="Remove tile" title="Remove" onClick={onRemove}><X size={16}/></ActionButton>}
       </div>
     </div>
     <div className="multiview-screen">
-      <video ref={videoRef} playsInline preload="auto" autoPlay muted={!audible} />
+      <video ref={videoRef} playsInline preload={appleMobile?'metadata':'auto'} autoPlay muted={!audible} />
       {status==='loading'&&<div className="multiview-spinner" aria-label="Loading video"/>}
       {status==='error'&&<div className="multiview-error"><span>{error||mode.error}</span><ActionButton onClick={()=>setRetries(n=>n+1)}><RefreshCw size={17}/></ActionButton></div>}
       {status==='paused'&&<ActionButton className="multiview-play" aria-label="Play tile" onClick={()=>void videoRef.current?.play()}><Play fill="currentColor" size={22}/></ActionButton>}

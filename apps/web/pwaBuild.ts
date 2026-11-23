@@ -105,6 +105,7 @@ export function youtvPwaPlugin():Plugin {
       const digest=createHash('sha256');
       for(const name of fileNames){
         const entry=bundle[name];
+        if(!entry)continue;
         digest.update(name);
         if(entry.type==='asset')digest.update(entry.source);
         else digest.update(entry.code);

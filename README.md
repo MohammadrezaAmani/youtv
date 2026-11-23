@@ -111,3 +111,7 @@ This release adds local live-TV recording with MediaRecorder, optional direct fi
 ## YouTV 0.18 PWA and iOS
 
 `bun run build` generates `manifest.webmanifest` and `sw.js` with correct GitHub Pages base paths. The worker caches the built application shell (HTML, JS, CSS and icons) for offline navigation, but never captures IPTV playlists, Cloudflare requests or video segments. iOS Safari: Share → Add to Home Screen. Installation and update controls are in Settings. Inputs are set to 16 CSS pixels on phones to avoid Safari's unwanted focus zoom without blocking user pinch-zoom. See `docs/UPGRADE-v0.18.fa.md`.
+
+## YouTV 0.19 mobile playback
+
+The player now prefers native HLS on iOS/iPadOS, even when `hls.js` reports MediaSource support. Native playback does not request CORS-enabled video; browsers still enforce HTTPS mixed-content, codec, and source authorization restrictions. On iOS, start audio with a user tap. Multi-view controls are located with the player action icons, not in the page header. See `docs/UPGRADE-v0.19.fa.md` for deployment and limitations.
