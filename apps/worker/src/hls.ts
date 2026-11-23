@@ -3,7 +3,7 @@
  * including additional LL-HLS and image playlist URI attributes.
  * Never rewrites metadata or actual media payload bytes.
  */
-export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, token: string): string {
+export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, token: string, hints?:{userAgent?:string;referer?:string}): string {
   if (!/^\uFEFF?\s*#EXTM3U(?:\r?\n|$)/.test(manifest)) {
     throw new Error('Response is not an HLS playlist (#EXTM3U missing)');
   }
@@ -13,6 +13,8 @@ export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, toke
     const out = new URL(proxyUrl);
     out.searchParams.set('url', resolved.toString());
     out.searchParams.set('key', token);
+    if(hints?.userAgent)out.searchParams.set('ua',hints.userAgent);
+    if(hints?.referer)out.searchParams.set('ref',hints.referer);
     return out.toString();
   };
   return manifest.split(/\r?\n/).map(line => {

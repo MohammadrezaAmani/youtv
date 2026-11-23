@@ -1,9 +1,10 @@
 import {Select,SelectOption} from '@/components/ui/select';
+import {Checkbox} from '@/components/ui/checkbox';
 import {Textarea} from '@/components/ui/textarea';
 import {ActionButton} from '@/components/ui/action-button';
 import {useEffect,useState,type FormEvent} from 'react';
 import {useTranslation} from 'react-i18next';
-import {channelSchema,normalizeStreamUrl,type Channel,type SubtitleSource} from '@youtv/shared';
+import {channelSchema,iptvMetadataSchema,normalizeStreamUrl,type Channel,type SubtitleSource,type IptvMetadata} from '@youtv/shared';
 import {Dialog,DialogContent,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -11,22 +12,24 @@ import {useYoutv} from '@/stores/useYoutv';
 import {normalizeError} from '@/lib/utils';
 import {parseTags} from '@/lib/library';
 import {ui} from '@/lib/labels';
-import {Plus,Trash2,Subtitles,BookOpen} from 'lucide-react';
+import {Plus,Trash2,Subtitles,BookOpen,ChevronDown} from 'lucide-react';
 import {makeTeletextUrl} from '@/features/player/mediaUtils';
 
 type Props={open:boolean;onOpenChange:(v:boolean)=>void;editing?:Channel|null};
-const initial={name:'',url:'',logo:'',format:'auto' as Channel['format'],group:'',language:'',country:'',tvgId:'',proxyMode:'inherit' as Channel['proxyMode'],workerId:'',description:'',tags:'',teletextUrl:'',alternateUrls:'',subtitles:[] as SubtitleSource[]};
+const initial={name:'',url:'',logo:'',format:'auto' as Channel['format'],group:'',language:'',country:'',tvgId:'',proxyMode:'inherit' as Channel['proxyMode'],workerId:'',description:'',tags:'',teletextUrl:'',alternateUrls:'',subtitles:[] as SubtitleSource[],iptv:iptvMetadataSchema.parse({})};
 export default function ChannelDialog({open,onOpenChange,editing}:Props){
   const {t}=useTranslation();
   const language=useYoutv(s=>s.settings.language);
   const text=(key:Parameters<typeof ui>[0])=>ui(key,language);
   const [form,setForm]=useState(initial);
   const [error,setError]=useState('');
+  const [advanced,setAdvanced]=useState(false);
   const add=useYoutv(s=>s.addChannel),update=useYoutv(s=>s.updateChannel),workers=useYoutv(s=>s.workers),channels=useYoutv(s=>s.channels);
   useEffect(()=>{
-    if(open){setForm(editing?{name:editing.name,url:editing.url,logo:editing.logo,format:editing.format,group:editing.group,language:editing.language,country:editing.country,tvgId:editing.tvgId,proxyMode:editing.proxyMode,workerId:editing.workerId,description:editing.description,tags:editing.tags.join(', '),teletextUrl:editing.teletextUrl||'',alternateUrls:(editing.alternateUrls||[]).join('\n'),subtitles:editing.subtitles||[]}:initial);setError('');}
+    if(open){setForm(editing?{name:editing.name,url:editing.url,logo:editing.logo,format:editing.format,group:editing.group,language:editing.language,country:editing.country,tvgId:editing.tvgId,proxyMode:editing.proxyMode,workerId:editing.workerId,description:editing.description,tags:editing.tags.join(', '),teletextUrl:editing.teletextUrl||'',alternateUrls:(editing.alternateUrls||[]).join('\n'),subtitles:editing.subtitles||[],iptv:editing.iptv}:initial);setError('');setAdvanced(false);}
   },[open,editing]);
-  const field=(key:Exclude<keyof typeof initial,'subtitles'>,value:string)=>setForm(v=>({...v,[key]:value}));
+  const field=(key:Exclude<keyof typeof initial,'subtitles'|'iptv'>,value:string)=>setForm(v=>({...v,[key]:value}));
+  const iptvField=(key:Exclude<keyof IptvMetadata,'duration'|'radio'|'epgUrls'|'vlcOptions'|'kodiProps'|'webProps'|'attributes'>,value:string)=>setForm(v=>({...v,iptv:{...v.iptv,[key]:value}}));
   const save=(event:FormEvent)=>{
     event.preventDefault();setError('');
     try{
@@ -35,7 +38,7 @@ export default function ChannelDialog({open,onOpenChange,editing}:Props){
         subtitles:form.subtitles.map(item=>({...item,url:normalizeStreamUrl(item.url)}))};
       if(payload.teletextUrl.trim())makeTeletextUrl(payload.teletextUrl.trim(),100);
       if(channels.some(ch=>ch.url===payload.url&&ch.id!==editing?.id))throw new Error(language==='fa'?'این آدرس قبلاً در کتابخانه وجود دارد.':'A channel with this URL already exists.');
-      const checked=channelSchema.pick({name:true,url:true,logo:true,format:true,group:true,language:true,country:true,tvgId:true,proxyMode:true,workerId:true,description:true,tags:true,teletextUrl:true,alternateUrls:true,subtitles:true}).parse(payload);
+      const checked=channelSchema.pick({name:true,url:true,logo:true,format:true,group:true,language:true,country:true,tvgId:true,iptv:true,proxyMode:true,workerId:true,description:true,tags:true,teletextUrl:true,alternateUrls:true,subtitles:true}).parse(payload);
       if(editing)update(editing.id,checked); else add(checked);
       onOpenChange(false);
     }catch(e){setError(normalizeError(e));}
@@ -52,6 +55,27 @@ export default function ChannelDialog({open,onOpenChange,editing}:Props){
       <div className="form-two"><label>{text('streamFormat')}<Select className="ui-input" value={form.format} onChange={e=>field('format',e.target.value)}><SelectOption value="auto">Auto</SelectOption><SelectOption value="hls">HLS (m3u8)</SelectOption><SelectOption value="video">MP4 / Native video</SelectOption></Select></label></div>
       <label>{t('logo')}<Input dir="ltr" type="url" value={form.logo} onChange={e=>field('logo',e.target.value)}/></label>
       <div className="form-two"><label>{t('country')}<Input value={form.country} onChange={e=>field('country',e.target.value)}/></label><label>{t('language')}<Input value={form.language} onChange={e=>field('language',e.target.value)}/></label></div>
+      <ActionButton type="button" className="media-iptv-toggle" onClick={()=>setAdvanced(value=>!value)} aria-expanded={advanced}>
+        {language==='fa'?'مشخصات پیشرفته IPTV':'Advanced IPTV metadata'} <ChevronDown size={17}/>
+      </ActionButton>
+      {advanced&&<fieldset className="media-source-editor">
+        <legend>IPTV / VLC / Kodi</legend>
+        <div className="form-two">
+          <label>{language==='fa'?'نام EPG':'EPG name'}<Input value={form.iptv.tvgName} onChange={e=>iptvField('tvgName',e.target.value)}/></label>
+          <label>{language==='fa'?'شماره کانال':'Channel number'}<Input value={form.iptv.channelNumber} onChange={e=>iptvField('channelNumber',e.target.value)}/></label>
+        </div>
+        <label className="checkbox-row"><Checkbox checked={form.iptv.radio} onChange={e=>setForm(v=>({...v,iptv:{...v.iptv,radio:e.target.checked}}))}/>{language==='fa'?'شبکه رادیویی':'Radio station'}</label>
+        <div className="form-two">
+          <label>tvg-shift<Input value={form.iptv.tvgShift} onChange={e=>iptvField('tvgShift',e.target.value)}/></label>
+          <label>catchup<Input value={form.iptv.catchup} onChange={e=>iptvField('catchup',e.target.value)}/></label>
+          <label>catchup-days<Input value={form.iptv.catchupDays} onChange={e=>iptvField('catchupDays',e.target.value)}/></label>
+        </div>
+        <label>catchup-source<Input dir="ltr" value={form.iptv.catchupSource} onChange={e=>iptvField('catchupSource',e.target.value)}/></label>
+        <label>{language==='fa'?'آدرس‌های XMLTV / EPG (هر خط یک آدرس)':'XMLTV / EPG URLs (one per line)'}<Textarea rows={2} dir="ltr" className="ui-input" value={form.iptv.epgUrls.join('\n')} onChange={e=>setForm(v=>({...v,iptv:{...v.iptv,epgUrls:e.target.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}}))}/></label>
+        <label>HTTP User-Agent<Input dir="ltr" value={form.iptv.userAgent} onChange={e=>iptvField('userAgent',e.target.value)}/></label>
+        <label>HTTP Referer<Input dir="ltr" value={form.iptv.referer} onChange={e=>iptvField('referer',e.target.value)}/></label>
+        <p className="muted">{language==='fa'?'User-Agent و Referer اختصاصی از مسیر Worker شخصی قابل ارسال‌اند. سایر گزینه‌های VLC و Kodi برای Export ذخیره می‌شوند.':'Custom User-Agent and Referer are forwarded through your Worker. Other VLC/Kodi options are preserved for export.'}</p>
+      </fieldset>}
       <div className="form-two"><label>{t('proxyMode')}<Select className="ui-input" value={form.proxyMode} onChange={e=>field('proxyMode',e.target.value)}>
         <SelectOption value="inherit">{text('defaultChoice')}</SelectOption><SelectOption value="direct">{t('direct')}</SelectOption><SelectOption value="proxy">{t('viaProxy')}</SelectOption><SelectOption value="auto">{t('automatic')}</SelectOption>
       </Select></label><label>{t('selectProfile')}<Select className="ui-input" value={form.workerId} onChange={e=>field('workerId',e.target.value)}><SelectOption value="">{text('defaultChoice')}</SelectOption>{workers.map(w=><SelectOption key={w.id} value={w.id}>{w.name}</SelectOption>)}</Select></label></div>

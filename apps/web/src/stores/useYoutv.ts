@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import {parseExtinf} from '@/lib/playlist';
+import {parseExtinf,parseM3u,displayNameFromUrl} from '@/lib/playlist';
 import {
   defaultState, stateSchema, createChannel,
   type Channel, type Playlist, type WorkerProfile, type Settings, type AppState, type HealthResult, BUILTIN_PLAYLIST_ID
@@ -34,8 +34,19 @@ const empty = structuredClone(defaultState);
 const parseState = (unknown: unknown): AppState => stateSchema.parse(unknown);
 /** Repair a legacy import that saved EXTINF attributes as a channel title. */
 export function repairLegacyMetadata(channel:Channel):Channel {
-  if(!/^(?:tvg-id|tvg-logo|tvg-name|group-title)\s*=/i.test(channel.name.trim()))return channel;
-  const {name,attrs}=parseExtinf(`#EXTINF:-1, ${channel.name}`);
+  const title=channel.name.trim();
+  if(/^(?:#?(?:EXTVLCOPT|KODIPROP|EXTHTTP|WEBPROP)\s*:)/i.test(title)){
+    try{
+      const recovered=parseM3u(`#EXTM3U\n#EXTINF:-1,${title}\n${channel.url}`).channels[0];
+      if(recovered)return {...channel,name:displayNameFromUrl(channel.url),iptv:{...channel.iptv,
+        userAgent:channel.iptv.userAgent||recovered.iptv.userAgent,
+        referer:channel.iptv.referer||recovered.iptv.referer,
+        vlcOptions:{...channel.iptv.vlcOptions,...recovered.iptv.vlcOptions},
+        kodiProps:{...channel.iptv.kodiProps,...recovered.iptv.kodiProps}}};
+    }catch{return {...channel,name:displayNameFromUrl(channel.url)};}
+  }
+  if(!/^(?:tvg-id|tvg-logo|tvg-name|group-title)\s*=/i.test(title))return channel;
+  const {name,attrs}=parseExtinf(`#EXTINF:-1, ${title}`);
   if(!name||name===channel.name)return channel;
   return {...channel,name,group:channel.group||attrs['group-title']||'',
     logo:channel.logo||attrs['tvg-logo']||'',tvgId:channel.tvgId||attrs['tvg-id']||''};

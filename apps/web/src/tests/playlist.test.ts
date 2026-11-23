@@ -67,3 +67,81 @@ describe('headerless IPTV compatibility',()=>{
     expect(()=>parseM3u('#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts')).toThrow(/HLS/i);
   });
 });
+
+describe('VLC / Kodi / IPTV options from real-world playlists',()=>{
+  it('never renders an inline EXTVLCOPT directive as a channel title',()=>{
+    const text='\uFEFF#EXTM3U\r\n#EXTINF:-1,#EXTVLCOPT:http-user-agent=smartlabs\r\nhttps://hls.goodgame.ru/hls/5346.m3u8\r\n';
+    const channel=parseM3u(text).channels[0]!;
+    expect(channel.name).toBe('hls.goodgame.ru · 5346');
+    expect(channel.name).not.toContain('#EXTVLCOPT');
+    expect(channel.iptv.userAgent).toBe('smartlabs');
+    expect(channel.iptv.vlcOptions['http-user-agent']).toBe('smartlabs');
+  });
+  it('preserves separate VLC/Kodi directives, radio, EPG and catchup metadata',()=>{
+    const text=[
+      '#EXTM3U x-tvg-url="https://epg.example.org/guide.xml"',
+      '#EXTINF:-1 tvg-id="news" tvg-name="International" tvg-chno="17" radio="true" catchup="append" catchup-days="7" catchup-source="&start={utc}" tvg-shift="3.5",International HD',
+      '#EXTGRP:News',
+      '#EXTVLCOPT:http-user-agent=My Smart TV',
+      '#EXTVLCOPT:http-referrer=https://player.example.org/',
+      '#KODIPROP:inputstream.adaptive.manifest_type=hls',
+      'https://stream.example.org/hls.m3u8'
+    ].join('\n');
+    const channel=parseM3u(text).channels[0]!;
+    expect(channel.name).toBe('International HD');
+    expect(channel.group).toBe('News');
+    expect(channel.iptv.channelNumber).toBe('17');
+    expect(channel.iptv.radio).toBe(true);
+    expect(channel.iptv.tvgShift).toBe('3.5');
+    expect(channel.iptv.epgUrls).toContain('https://epg.example.org/guide.xml');
+    expect(channel.iptv.catchup).toBe('append');
+    expect(channel.iptv.catchupDays).toBe('7');
+    expect(channel.iptv.userAgent).toBe('My Smart TV');
+    expect(channel.iptv.referer).toBe('https://player.example.org/');
+    expect(channel.iptv.kodiProps['inputstream.adaptive.manifest_type']).toBe('hls');
+    const restored=parseM3u(toM3u([channel])).channels[0]!;
+    expect(restored.iptv).toMatchObject({channelNumber:'17',radio:true,catchup:'append',catchupDays:'7',userAgent:'My Smart TV',referer:'https://player.example.org/'});
+    expect(restored.iptv.kodiProps).toEqual(channel.iptv.kodiProps);
+  });
+  it('takes only allowed HTTP hints out of EXHTTP and ignores private headers',()=>{
+    const c=parseM3u([
+      '#EXTM3U',
+      '#EXTINF:-1,Test',
+      '#EXTHTTP:{"User-Agent":"Player/1","Referer":"https://ref.example.org/","Authorization":"secret","Cookie":"private"}',
+      'https://media.example.org/live.m3u8'
+    ].join('\n')).channels[0]!;
+    expect(c.iptv.userAgent).toBe('Player/1');
+    expect(c.iptv.referer).toBe('https://ref.example.org/');
+    expect(JSON.stringify(c.iptv)).not.toContain('secret');
+    expect(JSON.stringify(c.iptv)).not.toContain('private');
+  });
+  it('reads pipe-style headers without changing the stream address',()=>{
+    const c=parseM3u('#EXTINF:-1,Music\nhttps://media.example.org/live.m3u8|User-Agent=App%2F1&Referer=https%3A%2F%2Fref.example.org%2F').channels[0]!;
+    expect(c.url).toBe('https://media.example.org/live.m3u8');
+    expect(c.iptv.userAgent).toBe('App/1');
+    expect(c.iptv.referer).toBe('https://ref.example.org/');
+  });
+  it('does not leak group or VLC options to a following station',()=>{
+    const [a,b]=parseM3u([
+      '#EXTINF:-1,Station A','#EXTGRP:Sports','#EXTVLCOPT:http-user-agent=A','https://media.example.org/a.m3u8',
+      '#EXTINF:-1,Station B','https://media.example.org/b.m3u8'
+    ].join('\n')).channels;
+    expect(a?.group).toBe('Sports');
+    expect(a?.iptv.userAgent).toBe('A');
+    expect(b?.group).toBe('');
+    expect(b?.iptv.userAgent).toBe('');
+  });
+});
+
+describe('Kodi IPTV interoperability',()=>{
+  it('allows a Kodi stream hint without mistaking the catalog for an HLS manifest',()=>{
+    const channels=parseM3u([
+      '#EXTM3U',
+      '#EXTINF:-1,Example VOD',
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      'https://media.example.org/movie.mkv'
+    ].join('\n')).channels;
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.name).toBe('Example VOD');
+  });
+});

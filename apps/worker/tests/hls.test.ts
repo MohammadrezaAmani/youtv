@@ -36,3 +36,14 @@ describe('allowed destinations',()=>{
     expect(()=>assertAllowedUrl('https://evil.com/segment',env)).toThrow(ProxyError);
   });
 });
+
+describe('IPTV HTTP hints',()=>{
+  it('keeps approved hints on each proxied segment and nested playlist',()=>{
+    const result=rewriteHls('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nhd.m3u8\n#EXTINF:4,\nvideo01.ts',source,proxy,token,{userAgent:'smartlabs',referer:'https://player.example.org/'});
+    for(const line of result.split('\n').filter(v=>v.startsWith('https://'))){
+      const url=new URL(line);
+      expect(url.searchParams.get('ua')).toBe('smartlabs');
+      expect(url.searchParams.get('ref')).toBe('https://player.example.org/');
+    }
+  });
+});

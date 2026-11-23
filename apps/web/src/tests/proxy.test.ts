@@ -9,3 +9,11 @@ it('builds a token-bearing, URL-encoded worker request',()=>{
   expect(new URL(result.url).searchParams.get('url')).toBe(channel.url);
   expect(proxyUrl(channel.url,worker,'text')).toContain('/text?');
 });
+
+it('carries per-channel IPTV HTTP hints through the Worker URL',()=>{
+  const worker={id:'w',name:'Personal',baseUrl:'https://worker.example.org/',token:'x'.repeat(32),enabled:true};
+  const channel=createChannel({name:'TV',url:'https://media.example.org/live.m3u8',iptv:{...createChannel({name:'X',url:'https://media.example.org/x'}).iptv,userAgent:'smartlabs',referer:'https://player.example.org/'},proxyMode:'proxy',workerId:'w'});
+  const url=new URL(resolveStream(channel,defaultState.settings,[worker]).url);
+  expect(url.searchParams.get('ua')).toBe('smartlabs');
+  expect(url.searchParams.get('ref')).toBe('https://player.example.org/');
+});

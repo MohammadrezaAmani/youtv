@@ -9,6 +9,29 @@ export const subtitleSourceSchema = z.object({
 });
 export type SubtitleSource = z.infer<typeof subtitleSourceSchema>;
 
+/** Preserve IPTV M3U metadata without confusing player-specific directives with names.
+ * Unknown attributes/properties are kept for round-tripping; only supported HTTP
+ * hints are ever sent to a Worker (no cookies, auth, or arbitrary headers).
+ */
+export const iptvMetadataSchema = z.object({
+  duration: z.number().nullable().default(null),
+  tvgName: z.string().default(''),
+  channelNumber: z.string().default(''),
+  radio: z.boolean().default(false),
+  tvgShift: z.string().default(''),
+  catchup: z.string().default(''),
+  catchupDays: z.string().default(''),
+  catchupSource: z.string().default(''),
+  epgUrls: z.array(z.string()).default([]),
+  userAgent: z.string().default(''),
+  referer: z.string().default(''),
+  vlcOptions: z.record(z.string(),z.string()).default({}),
+  kodiProps: z.record(z.string(),z.string()).default({}),
+  webProps: z.record(z.string(),z.string()).default({}),
+  attributes: z.record(z.string(),z.string()).default({})
+});
+export type IptvMetadata = z.infer<typeof iptvMetadataSchema>;
+
 export const channelSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(160),
@@ -19,6 +42,7 @@ export const channelSchema = z.object({
   language: z.string().default(''),
   country: z.string().default(''),
   tvgId: z.string().default(''),
+  iptv: iptvMetadataSchema.default(()=>iptvMetadataSchema.parse({})),
   favorite: z.boolean().default(false),
   tags: z.array(z.string().trim().min(1).max(48)).max(30).default([]),
   description: z.string().max(1000).default(''),

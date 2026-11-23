@@ -95,7 +95,7 @@ function corsHeaders(request, env) {
  * including additional LL-HLS and image playlist URI attributes.
  * Never rewrites metadata or actual media payload bytes.
  */
-function rewriteHls(manifest, sourceUrl, proxyUrl, token) {
+function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints) {
     if (!/^\uFEFF?\s*#EXTM3U(?:\r?\n|$)/.test(manifest)) {
         throw new Error('Response is not an HLS playlist (#EXTM3U missing)');
     }
@@ -106,6 +106,10 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token) {
         const out = new URL(proxyUrl);
         out.searchParams.set('url', resolved.toString());
         out.searchParams.set('key', token);
+        if (hints?.userAgent)
+            out.searchParams.set('ua', hints.userAgent);
+        if (hints?.referer)
+            out.searchParams.set('ref', hints.referer);
         return out.toString();
     };
     return manifest.split(/\r?\n/).map(line => {
@@ -288,8 +292,29 @@ async function fetchSource(url, request, env) {
             if (v)
                 headers.set(key, v);
         }
-        if (env.UPSTREAM_REFERER)
-            headers.set('Referer', env.UPSTREAM_REFERER);
+        // IPTV-specific HTTP hints are token-protected and restricted to approved
+        // upstream hosts. Never accept arbitrary headers such as Cookie/Auth.
+        const query = new URL(request.url).searchParams;
+        const agent = query.get('ua') || '';
+        const referer = query.get('ref') || env.UPSTREAM_REFERER || '';
+        if (agent.length > 512 || /[\r\n\x00-\x1f]/.test(agent))
+            throw new ProxyError(400, 'invalid_user_agent', 'Invalid User-Agent hint');
+        if (referer) {
+            if (referer.length > 2048 || /[\r\n\x00-\x1f]/.test(referer))
+                throw new ProxyError(400, 'invalid_referer', 'Invalid Referer hint');
+            let ref;
+            try {
+                ref = new URL(referer);
+            }
+            catch {
+                throw new ProxyError(400, 'invalid_referer', 'Invalid Referer URL');
+            }
+            if (!['http:', 'https:'].includes(ref.protocol) || ref.username || ref.password)
+                throw new ProxyError(400, 'invalid_referer', 'Referer must be HTTP(S)');
+            headers.set('Referer', ref.toString());
+        }
+        if (agent)
+            headers.set('User-Agent', agent);
         // Deliberately omit client cookies and authorization headers.
         const response = await fetch(current.toString(), { method: request.method === 'HEAD' ? 'HEAD' : 'GET', headers, redirect: 'manual', signal: request.signal });
         if (![301, 302, 303, 307, 308].includes(response.status))
@@ -328,7 +353,7 @@ async function proxy(request, env, reqUrl) {
     let rewritten;
     try {
         const proxyUrl = new URL('/proxy', request.url);
-        rewritten = rewriteHls(source, finalUrl, proxyUrl, key || '');
+        rewritten = rewriteHls(source, finalUrl, proxyUrl, key || '', { userAgent: reqUrl.searchParams.get('ua') || '', referer: reqUrl.searchParams.get('ref') || '' });
     }
     catch (error) {
         throw new ProxyError(502, 'invalid_manifest', error instanceof Error ? error.message : 'Invalid HLS manifest');

@@ -79,3 +79,5 @@
 .pro-player:not(.chrome-hidden):not(:hover):not(:focus-within) .pro-controls{opacity:1;pointer-events:auto}
 .pro-player.chrome-hidden .pro-controls,.pro-player.chrome-hidden:not(:hover):not(:focus-within) .pro-controls{opacity:0;pointer-events:none;transform:translateY(10px)}
 .pro-player:not(.chrome-hidden) .pro-controls{transform:none}
+.media-iptv-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;padding:11px 13px;background:var(--surface-2);border:1px solid var(--border);border-radius:11px;color:var(--text);font-size:12px}
+.media-iptv-toggle:hover{border-color:var(--accent)}
