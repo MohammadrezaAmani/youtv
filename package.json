@@ -1,0 +1,20 @@
+{
+  "name": "youtv",
+  "private": true,
+  "version": "0.6.0",
+  "packageManager": "bun@1.4.5",
+  "scripts": {
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run check && bun run --cwd apps/web build",
+    "check": "bun run --cwd packages/shared check && bun run --cwd apps/web check && bun run --cwd apps/worker check",
+    "test": "bun run --cwd apps/web test && bun run --cwd apps/worker test",
+    "worker:dev": "bun run --cwd apps/worker dev",
+    "worker:deploy": "bun run --cwd apps/worker deploy",
+    "dashboard:bundle": "bun scripts/build-dashboard.cjs",
+    "smoke": "bun test apps/worker/tests/smoke.test.mjs apps/web/src/tests/library.smoke.test.mjs apps/web/src/tests/media.smoke.test.mjs"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

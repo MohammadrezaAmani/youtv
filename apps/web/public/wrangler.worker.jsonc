@@ -1,0 +1,11 @@
+{
+  "name": "youtv-hls-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_HOSTS": "",
+    "ALLOWED_ORIGINS": "",
+    "UPSTREAM_REFERER": ""
+  }
+}

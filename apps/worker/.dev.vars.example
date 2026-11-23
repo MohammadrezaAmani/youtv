@@ -1,0 +1,2 @@
+# Copy this to .dev.vars ONLY for local development (never commit .dev.vars).
+PROXY_TOKEN=replace-with-long-random-secret

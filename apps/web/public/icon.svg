@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="YouTV">
+  <defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff8296"/><stop offset="1" stop-color="#f33e61"/></linearGradient></defs>
+  <rect width="64" height="64" rx="15" fill="#0b0c11"/>
+  <rect x="9" y="16" width="46" height="33" rx="11" fill="url(#a)"/>
+  <path d="M28 24c0-.9 1-1.4 1.8-.9L43 32l-13.2 8.7c-.8.5-1.8 0-1.8-.9V24z" fill="#fff"/>
+  <path d="M24 53h16" stroke="#ff839b" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+</svg>

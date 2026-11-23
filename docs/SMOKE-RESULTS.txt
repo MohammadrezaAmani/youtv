@@ -1,0 +1,118 @@
+TAP version 13
+# (node:3884) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: RTL-aware normalization and token-based search
+ok 1 - RTL-aware normalization and token-based search
+  ---
+  duration_ms: 4.392476
+  type: 'test'
+  ...
+# Subtest: filters intersect all dimensions without fake remote data
+ok 2 - filters intersect all dimensions without fake remote data
+  ---
+  duration_ms: 22.150071
+  type: 'test'
+  ...
+# Subtest: pinned channels and recent order
+ok 3 - pinned channels and recent order
+  ---
+  duration_ms: 0.704871
+  type: 'test'
+  ...
+# Subtest: unique tags and facets
+ok 4 - unique tags and facets
+  ---
+  duration_ms: 0.697771
+  type: 'test'
+  ...
+# (node:3885) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: SRT -> WebVTT: BOM, Windows lines and timestamp conversion
+ok 5 - SRT -> WebVTT: BOM, Windows lines and timestamp conversion
+  ---
+  duration_ms: 1.598948
+  type: 'test'
+  ...
+# Subtest: duration formatting is stable
+ok 6 - duration formatting is stable
+  ---
+  duration_ms: 0.35841
+  type: 'test'
+  ...
+# Subtest: Teletext requires HTTP(S), page template and 100..899
+ok 7 - Teletext requires HTTP(S), page template and 100..899
+  ---
+  duration_ms: 0.546694
+  type: 'test'
+  ...
+# Subtest: explicit format hint identifies extensionless HLS
+ok 8 - explicit format hint identifies extensionless HLS
+  ---
+  duration_ms: 0.339051
+  type: 'test'
+  ...
+# (node:3891) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: HLS rewrites nested playlists, segments, key and map URIs
+ok 9 - HLS rewrites nested playlists, segments, key and map URIs
+  ---
+  duration_ms: 2.58933
+  type: 'test'
+  ...
+# Subtest: SSRF guard requires allowlist and rejects IP literals
+ok 10 - SSRF guard requires allowlist and rejects IP literals
+  ---
+  duration_ms: 1.084814
+  type: 'test'
+  ...
+# Subtest: worker manifest response honors CORS and rewrite
+ok 11 - worker manifest response honors CORS and rewrite
+  ---
+  duration_ms: 29.657929
+  type: 'test'
+  ...
+# Subtest: binary data and HTTP 206 are passed through without modification
+ok 12 - binary data and HTTP 206 are passed through without modification
+  ---
+  duration_ms: 1.684888
+  type: 'test'
+  ...
+# Subtest: worker rejects bad origin and bad credentials
+ok 13 - worker rejects bad origin and bad credentials
+  ---
+  duration_ms: 1.336674
+  type: 'test'
+  ...
+# Subtest: worker enforces redirect allowlist
+ok 14 - worker enforces redirect allowlist
+  ---
+  duration_ms: 0.98915
+  type: 'test'
+  ...
+# Subtest: extensionless HLS URLs are rewritable with explicit hls hint
+ok 15 - extensionless HLS URLs are rewritable with explicit hls hint
+  ---
+  duration_ms: 1.367589
+  type: 'test'
+  ...
+# Subtest: Teletext/plain-text endpoint uses allowlist, auth and CORS without script execution
+ok 16 - Teletext/plain-text endpoint uses allowlist, auth and CORS without script execution
+  ---
+  duration_ms: 0.976762
+  type: 'test'
+  ...
+# Subtest: Teletext plaintext endpoint rejects unapproved destination
+ok 17 - Teletext plaintext endpoint rejects unapproved destination
+  ---
+  duration_ms: 0.457148
+  type: 'test'
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 437.202982
