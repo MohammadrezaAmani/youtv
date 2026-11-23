@@ -185,5 +185,43 @@ test('passwordless /probe, /text and CORS preflight work with localhost defaults
   assert.equal(textResponse.status,200);assert.match(await textResponse.text(),/#EXTM3U/);
   assert.equal(textResponse.headers.get('Access-Control-Allow-Origin'),origin);
   const health=await worker.fetch(new Request('https://youtv.workers.dev/health'),open);
-  assert.match((await health.json()).version,/^\d+\.\d+\.\d+$/);
+  assert.equal((await health.json()).version,'0.32.0');
+});
+
+// The Cloudflare installer in YouTV must not distribute an older Worker.
+// This also catches future updates that forgot to synchronize the published file.
+test('dashboard installer uses the same v0.32.0 Worker as the runtime',async()=>{
+  const fs=await import('node:fs');
+  const runtime=fs.readFileSync(new URL('../dashboard-worker.mjs',import.meta.url),'utf8');
+  const published=fs.readFileSync(new URL('../../web/public/dashboard-worker.mjs',import.meta.url),'utf8');
+  const guide=fs.readFileSync(new URL('../../web/src/features/proxy/CloudflareGuide.tsx',import.meta.url),'utf8');
+  assert.equal(published,runtime);
+  assert.match(published,/^\/\/ YouTV Worker bundle version: v0\.32\.0\n/);
+  assert.match(guide,/WORKER_RELEASE='0\.32\.0'/);
+  assert.match(guide,/dashboard-worker\.mjs\?v=/);
+  assert.match(guide,/YouTV-Worker-v/);
+});
+
+// Reproduces the exact server-side "ext-x-version:" rejection from Telewebion.
+test('Telewebion malformed HLS master is served by /proxy',async(t)=>{
+  const manifest = '#EXTM3U\nEXT-X-VERSION:6\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=2756600,RESOLUTION=1920x1080,CODECS="avc1.4d4028,mp4a.40.2",NAME="وضوح بالا (Full HD)"\n1080p/index.m3u8\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=1861200,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2",NAME="وضوح متوسط (HD)"\n720p/index.m3u8\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=1240800,RESOLUTION=854x480,CODECS="avc1.4d401f,mp4a.40.2",NAME="اقتصادی (480p)"\n480p/index.m3u8\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=655600,RESOLUTION=426x240,CODECS="avc1.4d4015,mp4a.40.2",NAME="وضوح کم (240p)"\n240p/index.m3u8';
+  const previous=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(manifest,{status:200,headers:{'Content-Type':'application/vnd.apple.mpegurl'}});
+  t.after(()=>{globalThis.fetch=previous;});
+  const endpoint=new URL('https://youtv.workers.dev/proxy');
+  endpoint.searchParams.set('url','https://ncdn.telewebion.ir/hdtest/live/playlist.m3u8');
+  endpoint.searchParams.set('hls','1');
+  const res=await worker.fetch(new Request(endpoint,{headers:{Origin:'https://mohammadrezaamani.github.io'}}),
+    {ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:'',PROXY_TOKEN:''});
+  assert.equal(res.status,200);
+  assert.equal(res.headers.get('Access-Control-Allow-Origin'),'https://mohammadrezaamani.github.io');
+  const rewritten=await res.text();
+  assert.match(rewritten,/^#EXTM3U\n#EXT-X-VERSION:6\n/);
+  for(const quality of ['1080p','720p','480p','240p'])
+    assert.ok(rewritten.includes(encodeURIComponent('https://ncdn.telewebion.ir/hdtest/live/'+quality+'/index.m3u8')),quality);
+  assert.doesNotMatch(rewritten,/^EXT-X-VERSION:/m);
 });

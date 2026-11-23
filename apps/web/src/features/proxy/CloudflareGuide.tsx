@@ -4,7 +4,8 @@ import {ActionButton} from '@/components/ui/action-button';
 import {useYoutv} from '@/stores/useYoutv';
 
 type CopyState='idle'|'loading'|'copied'|'error';
-const scriptUrl=()=>`${import.meta.env.BASE_URL}dashboard-worker.mjs`;
+const WORKER_RELEASE='0.32.0';
+const scriptUrl=()=>`${import.meta.env.BASE_URL}dashboard-worker.mjs?v=${WORKER_RELEASE}`;
 
 export default function CloudflareGuide(){
   const language=useYoutv(s=>s.settings.language),fa=language==='fa';
@@ -18,7 +19,7 @@ export default function CloudflareGuide(){
       const response=await fetch(scriptUrl(),{credentials:'same-origin',cache:'no-store'});
       if(!response.ok)throw new Error(`HTTP ${response.status}`);
       const code=await response.text();
-      if(code.length>250_000||!code.includes('export default'))throw new Error('Invalid Worker script');
+      if(code.length>250_000||!/(?:\bexport\s+default\b|\bas\s+default\b)/.test(code)||!code.startsWith(`// YouTV Worker bundle version: v${WORKER_RELEASE}\n`))throw new Error('Invalid or outdated Worker script');
       if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable');
       await navigator.clipboard.writeText(code);
       setCopyState('copied');
@@ -39,7 +40,7 @@ export default function CloudflareGuide(){
           {copyState==='copied'?<Check size={16}/>:<ClipboardCopy size={16}/>}
           {copyState==='loading'?(fa?'در حال خواندن...':'Loading...'):copyState==='copied'?(fa?'کد کپی شد':'Code copied'):(fa?'کپی کد Worker':'Copy Worker code')}
         </ActionButton>
-        <a className="ui-button ui-button-outline ui-button-sm" href={scriptUrl()} download="dashboard-worker.mjs"><Download size={15}/>{fa?'دانلود کد':'Download code'}</a>
+        <a className="ui-button ui-button-outline ui-button-sm" href={scriptUrl()} download={`YouTV-Worker-v${WORKER_RELEASE}.mjs`}><Download size={15}/>{fa?'دانلود کد':'Download code'}</a>
         <a className="ui-button ui-button-ghost ui-button-sm" href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/>{fa?'بازکردن Cloudflare':'Cloudflare dashboard'}</a>
       </div>
       {copyState==='error'&&<p role="alert" className="error-message">{fa?'کپی مستقیم انجام نشد؛ فایل را دانلود کن، در ویرایشگر متنی باز کن و محتوایش را کپی کن.':'Copy failed. Download the script and copy its content from a text editor.'}</p>}

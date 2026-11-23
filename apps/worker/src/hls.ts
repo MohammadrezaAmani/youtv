@@ -33,11 +33,15 @@ export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, toke
   return manifest.split(/\r?\n/).map(line => {
     const trimmed = line.trim();
     if (!trimmed) return line;
-    if (!trimmed.startsWith('#')) return replace(trimmed);
+    // Some IPTV origins omit '#' on HLS tags. Normalize only recognized HLS
+    // directive shapes, never arbitrary strings or URL schemes.
+    const bareTag = /^(?:EXTM3U$|EXTINF:|EXT-X-[A-Z0-9-]+(?::|$))/i.test(trimmed);
+    const normalized = bareTag ? line.replace(trimmed, `#${trimmed}`) : line;
+    if (!trimmed.startsWith('#') && !bareTag) return replace(trimmed);
     // e.g. #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
     // URI attributes can appear at any position, and may contain escaped quotes.
-    if (!/^#EXT-X-[\w-]+:/i.test(trimmed)) return line;
-    return line.replace(/(^|[,:])URI="((?:[^"\\]|\\.)*)"/g, (match: string, prefix: string, uri: string) => {
+    if (!/^#EXT-X-[\w-]+:/i.test(normalized.trim())) return normalized;
+    return normalized.replace(/(^|[,:])URI="((?:[^"\\]|\\.)*)"/g, (match: string, prefix: string, uri: string) => {
       const decoded = uri.replace(/\\"/g, '"');
       const updated = replace(decoded, true);
       // Do not alter quoting/escaping of inline data and DRM identifiers.

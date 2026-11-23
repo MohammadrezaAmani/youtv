@@ -52,6 +52,45 @@ describe('HLS manifest rewrite',()=>{
     }
     expect(()=>rewriteHls('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="javascript:alert(1)"',source,proxy,'')).toThrow(/Unsupported HLS URI scheme/);
   });
+  it('preserves inline HLS data without proxying it',()=>{
+    const manifest='#EXTM3U\n#EXT-X-SESSION-DATA:DATA-ID="meta",URI="data:application/json;base64,e30="\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://license/key"\n#EXTINF:3,\nseg.ts';
+    const result=rewriteHls(manifest,source,proxy,'');
+    expect(result).toContain('URI="data:application/json;base64,e30="');
+    expect(result).toContain('URI="skd://license/key"');
+    expect(result).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Fseg.ts');
+  });
+  it('rejects executable and file HLS URI schemes',()=>{
+    for(const uri of ['javascript:alert(1)','file:///etc/passwd','ftp://example.org/file'])
+      expect(()=>rewriteHls(`#EXTM3U\n#EXTINF:1,\n${uri}`,source,proxy,'')).toThrow(/Unsupported HLS URI scheme/);
+  });
+  it('repairs missing hash in Telewebion master playlist',()=>{
+    const telewebion = new URL('https://ncdn.telewebion.ir/hdtest/live/playlist.m3u8');
+    const input = '#EXTM3U\nEXT-X-VERSION:6\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=2756600,RESOLUTION=1920x1080,CODECS="avc1.4d4028,mp4a.40.2",NAME="وضوح بالا (Full HD)"\n1080p/index.m3u8\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=1861200,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2",NAME="وضوح متوسط (HD)"\n720p/index.m3u8\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=1240800,RESOLUTION=854x480,CODECS="avc1.4d401f,mp4a.40.2",NAME="اقتصادی (480p)"\n480p/index.m3u8\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=655600,RESOLUTION=426x240,CODECS="avc1.4d4015,mp4a.40.2",NAME="وضوح کم (240p)"\n240p/index.m3u8';
+    const output = rewriteHls(input, telewebion, proxy, '');
+    const lines = output.split('\n');
+    expect(lines[0]).toBe('#EXTM3U');
+    expect(lines[1]).toBe('#EXT-X-VERSION:6');
+    for (const quality of ['1080p','720p','480p','240p']){
+      const uri = lines.find(line=>line.startsWith('https://') && new URL(line).searchParams.get('url')?.includes('/'+quality+'/'));
+      expect(uri,quality).toBeDefined();
+      expect(new URL(uri!).searchParams.get('url')).toBe('https://ncdn.telewebion.ir/hdtest/live/'+quality+'/index.m3u8');
+      expect(new URL(uri!).searchParams.has('key')).toBe(false);
+    }
+    expect(output).not.toContain('ext-x-version:');
+  });
+  it('normalizes bare HLS directives without proxying them as URLs',()=>{
+    const input='#EXTM3U\nEXT-X-TARGETDURATION:6\nEXT-X-MEDIA-SEQUENCE:123\nEXTINF:6,\nsegment.ts\nEXT-X-ENDLIST';
+    const output=rewriteHls(input,source,proxy,'');
+    expect(output).toContain('#EXT-X-TARGETDURATION:6');
+    expect(output).toContain('#EXT-X-MEDIA-SEQUENCE:123');
+    expect(output).toContain('#EXTINF:6,');
+    expect(output).toContain('#EXT-X-ENDLIST');
+    expect(output).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Fsegment.ts');
+  });
   it('rejects not-HLS input',()=>expect(()=>rewriteHls('hello',source,proxy,token)).toThrow());
   it('detects HLS from path and mime',()=>{
     expect(isHls(source,'application/octet-stream')).toBe(true);
