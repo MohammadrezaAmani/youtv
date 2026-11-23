@@ -28,7 +28,7 @@ describe('HLS manifest rewrite',()=>{
 });
 
 describe('allowed destinations',()=>{
-  const env={ALLOWED_HOSTS:'live.example.com,*.example.net',ALLOWED_ORIGINS:'https://user.github.io',PROXY_TOKEN:'x'.repeat(32)};
+  const env={ALLOWED_HOSTS:'live.example.com,*.example.net',ALLOWED_ORIGINS:'https://mohammadrezaamani.github.io',PROXY_TOKEN:'x'.repeat(32)};
   it('permits explicit hosts',()=>expect(assertAllowedUrl(source.toString(),env).hostname).toBe('live.example.com'));
   it('permits explicitly wildcarded subdomains',()=>expect(assertAllowedUrl('https://a.example.net/x',env).hostname).toBe('a.example.net'));
   it('rejects private IP and unrelated hosts',()=>{

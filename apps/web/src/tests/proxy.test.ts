@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {createChannel,defaultState} from '@youtv/shared';
+import {createChannel,defaultState,workerSchema} from '@youtv/shared';
 import {resolveStream,proxyUrl} from '../lib/proxy';
 it('builds a token-bearing, URL-encoded worker request',()=>{
   const worker={id:'a',name:'Own',baseUrl:'https://worker.example.com/',token:'my-long-key',enabled:true};
@@ -31,4 +31,10 @@ it('allows a configured Worker without a client token and omits key for HLS and 
   expect(output.searchParams.get('hls')).toBe('1');
   expect(new URL(proxyUrl(channel.url,worker,'text')).searchParams.has('key')).toBe(false);
   expect(new URL(proxyUrl(channel.url,worker,'probe')).searchParams.has('key')).toBe(false);
+});
+
+it('new Worker profiles default to no access token when the field is absent',()=>{
+  const saved=workerSchema.parse({id:'no-secret',name:'Open worker',baseUrl:'https://demo.workers.dev/'});
+  expect(saved.token).toBe('');
+  expect(new URL(proxyUrl('https://media.example.com/live.m3u8',saved,'proxy',true)).searchParams.has('key')).toBe(false);
 });

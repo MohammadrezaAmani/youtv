@@ -57,7 +57,7 @@ export default function CloudflareGuide(){
       </div></div>
       <div className="cloudflare-step"><span className="guide-number">4</span><div>
         <h3>{fa?'اتصال YouTV':'Connect YouTV'}</h3>
-        <p>{fa?'آدرس workers.dev را در فرم افزودن Worker وارد کن؛ توکن را فقط وقتی در Cloudflare تنظیم کرده‌ای وارد کن. تست سلامت فقط در دسترس‌بودن Worker را بررسی می‌کند؛ برای آزمودن ALLOWED_HOSTS و پاسخ واقعی منبع، از «تست آدرس استریم» در مدیریت پروکسی استفاده کن.':'Enter the workers.dev URL in Add Worker. Only enter a token if PROXY_TOKEN is set in Cloudflare. Health check only verifies the Worker responds. Use the stream URL test in Proxy Manager to verify ALLOWED_HOSTS and actual upstream access.'}</p>
+        <p>{fa?'آدرس workers.dev را وارد کن. گزینه «این Worker توکن دسترسی دارد» در حالت پیش‌فرض خاموش است؛ فقط اگر PROXY_TOKEN را در Cloudflare تعریف کرده‌ای روشنش کن و توکن را وارد کن. تست سلامت فقط در دسترس‌بودن Worker را بررسی می‌کند؛ برای آزمودن ALLOWED_HOSTS و پاسخ واقعی منبع، از «تست آدرس استریم» در مدیریت پروکسی استفاده کن.':'Enter the workers.dev URL; the access-token option is OFF by default. Enable it only if you set PROXY_TOKEN in Cloudflare. Health check only verifies the Worker responds. Use the stream URL test in Proxy Manager to verify ALLOWED_HOSTS and actual upstream access.'}</p>
         <a href="https://developers.cloudflare.com/learning-paths/workers/get-started/first-worker/" target="_blank" rel="noopener noreferrer">{fa?'مستندات رسمی Cloudflare':'Official Cloudflare instructions'} <ExternalLink size={14}/></a>
       </div></div>
     </div>}

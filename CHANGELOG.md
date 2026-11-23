@@ -1,3 +1,9 @@
+## v0.25.0 — Explicit default origin and optional frontend access token
+- Fixed the built-in GitHub Pages Origin as `https://mohammadrezaamani.github.io` across Worker code, Cloudflare settings, and examples.
+- The add-Worker form hides the access-token field unless the user opts into token authentication; no key is sent by default.
+- Clarified built-in origin support for Cloudflare admin operations without weakening admin credentials or wildcard protection.
+- Added checks for passwordless Worker profiles and admin requests from the built-in Origin.
+
 ## v0.24.0 — Safari/iOS fullscreen & idle player chrome
 
 - Fixed the fullscreen action on iPhone with native `webkitEnterFullscreen()` and on older Safari with prefixed element fullscreen.

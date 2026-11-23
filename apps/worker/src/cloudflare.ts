@@ -10,9 +10,10 @@ function equalsToken(a:string,b:string){let diff=a.length^b.length;for(let i=0;i
 /** Narrow, authenticated Cloudflare API bridge. No generic URL, method or body passthrough. */
 export async function cloudflareAdmin(request:Request,env:AdminEnv):Promise<Response>{
   const origin=request.headers.get('Origin');
-  // Admin operations require a concrete browser origin; wildcard is explicitly forbidden.
-  if(!origin||!allowedOrigin(request,env)||(env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).includes('*'))
-    throw new ProxyError(403,'admin_origin','Configure an explicit ALLOWED_ORIGINS for the admin interface');
+  // The default GitHub Pages origin and loopback origins work without any ALLOWED_ORIGINS setting.
+  // Wildcard CORS may be used for public media, but must never enable admin operations.
+  if(!origin||!allowedOrigin(request,env)||(env.ALLOWED_ORIGINS||'').split(',').some(x=>x.trim()==='*'))
+    throw new ProxyError(403,'admin_origin','Use the built-in YouTV origin or an explicitly allowed origin; wildcard admin origins are forbidden');
   const adminSecret=env.ADMIN_TOKEN||'';
   const candidate=request.headers.get('X-YouTV-Admin-Token')||'';
   if(adminSecret.length<32||!equalsToken(candidate,adminSecret)||equalsToken(adminSecret,env.PROXY_TOKEN||''))

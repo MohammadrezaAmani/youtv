@@ -48,7 +48,7 @@ bun run dev
 2. در صفحه Edit Code محتوای فایل `apps/worker/dashboard-worker.mjs` را **کامل** جایگزین و Deploy کن. این فایل JS مستقل از Bun و آماده Paste در Dashboard است.
 3. در Settings → Variables and Secrets:
    - `ALLOWED_HOSTS`: فهرست دقیق میزبان‌های مجاز استریم، با کاما. برای هر میزبان جدید لازم است این مقدار را به‌روزرسانی کنی؛ استفاده عمومی از پروکسی بدون allowlist توصیه نمی‌شود.
-   - `ALLOWED_ORIGINS`: آدرس دقیق GitHub Pages با scheme، بدون slash انتهایی (مثلاً `https://USERNAME.github.io`). برای مدیریت API نباید `*` باشد.
+   - `ALLOWED_ORIGINS`: آدرس دقیق GitHub Pages با scheme، بدون slash انتهایی (مثلاً `https://mohammadrezaamani.github.io`). برای مدیریت API نباید `*` باشد.
    - `PROXY_TOKEN`: توکن مستقل و تصادفی، حداقل ۲۴ کاراکتر، به‌صورت Secret.
    - `ADMIN_TOKEN`: توکن **متفاوت** و تصادفی، حداقل ۳۲ کاراکتر، به‌صورت Secret.
 4. آدرس `https://YOUR-WORKER.workers.dev/` و `PROXY_TOKEN` را در YouTV → Proxy Manager → Add Worker اضافه کن.

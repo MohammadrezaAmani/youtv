@@ -48,6 +48,28 @@ test('Cloudflare admin fails closed with bad admin token and wildcard origins',a
   const wildcard=request('/admin/cloudflare',{method:'POST',headers:{Authorization:`Bearer ${cloudflare}`,'X-YouTV-Admin-Token':admin,'Content-Type':'application/json'},body:JSON.stringify({operation:'verify'})});
   assert.equal((await worker.fetch(wildcard,allowed)).status,403);
 });
+test('default GitHub Pages origin can manage a Worker with no ALLOWED_ORIGINS variable',async()=>{
+  const defaultOrigin='https://mohammadrezaamani.github.io';
+  const req=new Request('https://youtv.workers.dev/admin/cloudflare',{
+    method:'POST',
+    headers:{Origin:defaultOrigin,Authorization:`Bearer ${cloudflare}`,'X-YouTV-Admin-Token':admin,'Content-Type':'application/json'},
+    body:JSON.stringify({operation:'verify'})
+  });
+  await withFetch(async(url)=>{
+    assert.equal(url,'https://api.cloudflare.com/client/v4/user/tokens/verify');
+    return new Response(JSON.stringify({success:true}),{status:200});
+  },async()=>{
+    const result=await worker.fetch(req,{ALLOWED_HOSTS:'*',PROXY_TOKEN:'',ADMIN_TOKEN:admin});
+    assert.equal(result.status,200);
+    assert.equal(result.headers.get('Access-Control-Allow-Origin'),defaultOrigin);
+  });
+});
+test('default site origin rejects invalid admin credentials even without origin configuration',async()=>{
+  const response=await worker.fetch(new Request('https://youtv.workers.dev/admin/cloudflare',{
+    method:'POST',headers:{Origin:'https://mohammadrezaamani.github.io',Authorization:`Bearer ${cloudflare}`,'X-YouTV-Admin-Token':'bad'},body:'{}'
+  }),{ALLOWED_HOSTS:'*',ADMIN_TOKEN:admin});
+  assert.equal(response.status,401);
+});
 test('Cloudflare admin verifies API token against fixed Cloudflare host',async()=>{
   const data={success:true,result:{status:'active'}};
   await withFetch(async(url,init)=>{

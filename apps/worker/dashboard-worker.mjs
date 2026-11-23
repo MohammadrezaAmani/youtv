@@ -185,9 +185,10 @@ function equalsToken(a, b) { let diff = a.length ^ b.length; for (let i = 0; i <
 /** Narrow, authenticated Cloudflare API bridge. No generic URL, method or body passthrough. */
 async function cloudflareAdmin(request, env) {
     const origin = request.headers.get('Origin');
-    // Admin operations require a concrete browser origin; wildcard is explicitly forbidden.
-    if (!origin || !allowedOrigin(request, env) || (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).includes('*'))
-        throw new ProxyError(403, 'admin_origin', 'Configure an explicit ALLOWED_ORIGINS for the admin interface');
+    // The default GitHub Pages origin and loopback origins work without any ALLOWED_ORIGINS setting.
+    // Wildcard CORS may be used for public media, but must never enable admin operations.
+    if (!origin || !allowedOrigin(request, env) || (env.ALLOWED_ORIGINS || '').split(',').some(x => x.trim() === '*'))
+        throw new ProxyError(403, 'admin_origin', 'Use the built-in YouTV origin or an explicitly allowed origin; wildcard admin origins are forbidden');
     const adminSecret = env.ADMIN_TOKEN || '';
     const candidate = request.headers.get('X-YouTV-Admin-Token') || '';
     if (adminSecret.length < 32 || !equalsToken(candidate, adminSecret) || equalsToken(adminSecret, env.PROXY_TOKEN || ''))
@@ -289,7 +290,7 @@ async function cloudflareAdmin(request, env) {
 
 
 const MAX_REDIRECTS = 4;
-const VERSION = '0.23.0';
+const VERSION = '0.25.0';
 function json(request, env, value, status = 200) {
     const headers = corsHeaders(request, env);
     headers.set('Content-Type', 'application/json; charset=utf-8');

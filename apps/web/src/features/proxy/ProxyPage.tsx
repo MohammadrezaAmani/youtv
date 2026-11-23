@@ -16,7 +16,7 @@ import CloudflareGuide from './CloudflareGuide';
 export default function ProxyPage(){
   const {t}=useTranslation();
   const workers=useYoutv(s=>s.workers),settings=useYoutv(s=>s.settings),save=useYoutv(s=>s.saveWorker),remove=useYoutv(s=>s.removeWorker),update=useYoutv(s=>s.updateSettings);
-  const [name,setName]=useState(''),[url,setUrl]=useState(''),[token,setToken]=useState(''),[error,setError]=useState('');
+  const [name,setName]=useState(''),[url,setUrl]=useState(''),[token,setToken]=useState(''),[withToken,setWithToken]=useState(false),[error,setError]=useState('');
   const [results,setResults]=useState<Record<string,string>>({});
   const [probeSource,setProbeSource]=useState('');
   const [editingToken,setEditingToken]=useState<string>(''),[replacementToken,setReplacementToken]=useState('');
@@ -26,9 +26,10 @@ export default function ProxyPage(){
     try{
       const normalized=new URL(url.trim());if(!['http:','https:'].includes(normalized.protocol))throw new Error(t('invalidUrl'));
       if(normalized.protocol==='http:'&&!['localhost','127.0.0.1'].includes(normalized.hostname))throw new Error('HTTPS required for remote Workers');
-      const value=workerSchema.parse({id:crypto.randomUUID(),name:name.trim(),baseUrl:normalized.toString(),token,enabled:true});
+      if(withToken&&!token.trim())throw new Error(settings.language==='fa'?'توکن این Worker را وارد کن یا گزینه توکن را غیرفعال کن.':'Enter this Worker’s token or turn off the token option.');
+      const value=workerSchema.parse({id:crypto.randomUUID(),name:name.trim(),baseUrl:normalized.toString(),token:withToken?token.trim():'',enabled:true});
       save(value);if(!settings.defaultWorkerId)update({defaultWorkerId:value.id});
-      setName('');setUrl('');setToken('');
+      setName('');setUrl('');setToken('');setWithToken(false);
     }catch(e){setError(normalizeError(e));}
   };
   const editWorker=(id:string)=>{const worker=workers.find(w=>w.id===id);if(!worker)return;setEditingWorker(id);setEditName(worker.name);setEditUrl(worker.baseUrl);setError('');};
@@ -57,7 +58,7 @@ export default function ProxyPage(){
       const data=body as {ok?:boolean;status?:number;code?:string;error?:string};
       if(!response.ok){
         const hint=data.code==='host_not_allowed'?(settings.language==='fa'?'ALLOWED_HOSTS را روی * بگذار یا کد Worker جدید را Deploy کن':'Set ALLOWED_HOSTS to * or deploy the new Worker code'):
-          data.code==='origin_not_allowed'?(settings.language==='fa'?'ALLOWED_ORIGINS باید آدرس کامل سایت با https:// باشد':'Set ALLOWED_ORIGINS to your full HTTPS site origin'):
+          data.code==='origin_not_allowed'?(settings.language==='fa'?'سایت پیش‌فرض https://mohammadrezaamani.github.io باید بدون تنظیم دستی مجاز باشد؛ کد Worker را به‌روزرسانی کن':'The default https://mohammadrezaamani.github.io origin should work automatically; update the Worker code'):
           data.code==='unauthorized'?(settings.language==='fa'?'کلید ذخیره‌شده در YouTV با PROXY_TOKEN یکسان نیست':'YouTV token does not match PROXY_TOKEN'):
           data.error||data.code||'Request failed';
         throw new Error(`Worker HTTP ${response.status} (${data.code||'error'}): ${hint}`);
@@ -67,7 +68,7 @@ export default function ProxyPage(){
     }catch(e){
       const message=normalizeError(e);
       const browserFailure=/failed to fetch|load failed|networkerror|network request failed/i.test(message);
-      const hint=browserFailure?(settings.language==='fa'?'دسترسی مرورگر به Worker ممکن نیست؛ ALLOWED_ORIGINS (Origin کامل با https://)، اتصال و CORS را بررسی کن.':'The browser cannot access the Worker; check the full HTTPS ALLOWED_ORIGINS, network and CORS.') :message;
+      const hint=browserFailure?(settings.language==='fa'?'دسترسی مرورگر به Worker ممکن نیست؛ وضعیت استقرار Worker، اتصال و CORS را بررسی کن. Origin سایت به‌صورت پیش‌فرض مجاز است.':'The browser cannot access the Worker; verify its deployment, network and CORS. The YouTV site origin is allowed by default.') :message;
       setResults(current=>({...current,[worker.id]:`${settings.language==='fa'?'تست ناموفق':'Stream test failed'}: ${hint}`}));
     }
   };
@@ -90,13 +91,14 @@ export default function ProxyPage(){
       <form className="form-stack" onSubmit={add}>
         <label>{t('workerName')}<Input value={name} onChange={e=>setName(e.target.value)} required placeholder="My Worker"/></label>
         <label>{t('workerUrl')}<Input value={url} onChange={e=>setUrl(e.target.value)} type="url" dir="ltr" required placeholder="https://your-worker.workers.dev/"/></label>
-        <label>{t('accessToken')}<Input value={token} onChange={e=>setToken(e.target.value)} type="password" dir="ltr" placeholder="Optional PROXY_TOKEN (empty = no authentication)"/></label>
+        <label className="checkbox-row"><Checkbox checked={withToken} onChange={e=>{setWithToken(e.target.checked);if(!e.target.checked)setToken('');}}/>{settings.language==='fa'?'این Worker توکن دسترسی دارد (اختیاری)':'This Worker uses an access token (optional)'}</label>
+        {withToken&&<label>{t('accessToken')}<Input value={token} onChange={e=>setToken(e.target.value)} type="password" dir="ltr" autoComplete="off" required placeholder="PROXY_TOKEN"/></label>}
         {error&&<div className="error-message" role="alert">{error}</div>}
         <Button type="submit"><Plus size={17}/>{t('addWorker')}</Button>
       </form>
     </div><div className="panel-card"><h3><ShieldCheck size={20}/>{t('security')}</h3>
-      <p className="muted">{settings.language==='fa'?'این پروکسی فقط برای منابعی که اجازه استفاده از آن‌ها را داری تنظیم شود. دامنه‌های منبع را در Allowlist تعریف کن و هیچ توکن مدیریتی را در URL عمومی قرار نده.':'Use the Worker only for authorized sources. Restrict upstream hosts and keep management credentials out of public URLs.'}</p>
-      <div className="info-box">{settings.language==='fa'?'ALLOWED_HOSTS پیش‌فرض * است. GitHub Pages این پروژه و localhost به‌صورت پیش‌فرض Origin مجاز هستند. PROXY_TOKEN اختیاری است؛ اگر در Cloudflare تنظیم شد، همان مقدار را اینجا وارد کن.':'ALLOWED_HOSTS defaults to *. The project GitHub Pages site and localhost are allowed origins by default. PROXY_TOKEN is optional; if configured in Cloudflare, enter the same value here.'}</div>
+      <p className="muted">{settings.language==='fa'?'این پروکسی فقط برای منابع مجاز استفاده شود. دامنه‌های عمومی با ALLOWED_HOSTS=* پذیرفته می‌شوند؛ توکن مدیریتی Cloudflare را هرگز در URL عمومی قرار نده.':'Use the Worker only for authorized sources. ALLOWED_HOSTS=* permits public domains; never place Cloudflare management credentials in public URLs.'}</p>
+      <div className="info-box">{settings.language==='fa'?'ALLOWED_HOSTS پیش‌فرض * است. Origin اصلی https://mohammadrezaamani.github.io و localhost بدون نیاز به تنظیم ALLOWED_ORIGINS مجاز هستند. افزودن Worker بدون توکن، حالت پیش‌فرض است؛ فقط اگر PROXY_TOKEN را در Cloudflare ست کرده‌ای، گزینه توکن را روشن کن.':'ALLOWED_HOSTS defaults to *. https://mohammadrezaamani.github.io and localhost are allowed without configuring ALLOWED_ORIGINS. New Workers are token-free by default; enable the token option only if PROXY_TOKEN is set in Cloudflare.'}</div>
     </div></div>
     <div className="panel-card"><h3>{t('defaultWorker')}</h3>
       <div className="settings-row"><label>{t('proxyMode')}<Select value={settings.proxyMode} className="ui-input" onChange={e=>update({proxyMode:e.target.value as 'direct'|'proxy'|'auto'})}><SelectOption value="direct">{t('direct')}</SelectOption><SelectOption value="proxy">{t('viaProxy')}</SelectOption><SelectOption value="auto">{t('automatic')}</SelectOption></Select></label>
@@ -109,7 +111,7 @@ export default function ProxyPage(){
     </div>
     <div className="worker-list">{workers.length===0&&<div className="empty-subpanel"><Cloud size={25}/>{t('notConfigured')}</div>}
     {workers.map(w=><div key={w.id} className="worker-item">
-      <div className="worker-icon"><Cloud size={23}/></div><div className="worker-details"><b>{w.name}</b><small dir="ltr">{w.baseUrl}</small><small className="muted">{results[w.id]||''}</small></div>
+      <div className="worker-icon"><Cloud size={23}/></div><div className="worker-details"><b>{w.name}</b><small dir="ltr">{w.baseUrl}</small><small className="muted">{w.token?(settings.language==='fa'?'توکن تنظیم شده':'Access token configured'):(settings.language==='fa'?'بدون توکن دسترسی':'No access token')}</small><small className="muted">{results[w.id]||''}</small></div>
       <div className="row-wrap"><label className="checkbox-row"><Checkbox checked={w.enabled} onChange={e=>save({...w,enabled:e.target.checked})}/>{t('active')}</label>
         <Button variant="outline" size="sm" onClick={()=>void health(w.id,w.baseUrl)}><Activity size={16}/>{t('healthCheck')}</Button>
         <Button variant="outline" size="sm" disabled={!probeSource.trim()} onClick={()=>void probe(w)}>{settings.language==='fa'?'تست استریم':'Test stream'}</Button>
