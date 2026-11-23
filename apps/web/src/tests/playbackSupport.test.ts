@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from '../features/player/playbackSupport';
+import {isAppleMobileBrowser,isBlockedMixedMedia,isInterruptedPlay,needsUserPlayGesture,selectPlaybackEngine} from '../features/player/playbackSupport';
 
 describe('mobile playback choices',()=>{
   it('detects iOS Safari, in-app browsers, and desktop-mode iPads',()=>{
@@ -15,6 +15,14 @@ describe('mobile playback choices',()=>{
     expect(selectPlaybackEngine({isHls:true,nativeHls:true,hlsJsSupported:false,appleMobile:true})).toBe('native');
     expect(selectPlaybackEngine({isHls:true,nativeHls:false,hlsJsSupported:false,appleMobile:true})).toBe('unsupported');
     expect(selectPlaybackEngine({isHls:false,nativeHls:false,hlsJsSupported:false,appleMobile:true})).toBe('native');
+  });
+  it('does not report interrupted video play promises as permanent failures',()=>{
+    expect(isInterruptedPlay(Object.assign(new Error('The play() request was interrupted by a new load request.'),{name:'AbortError'}))).toBe(true);
+    expect(isInterruptedPlay(Object.assign(new Error('The play() request was interrupted by a call to pause().'),{name:'AbortError'}))).toBe(true);
+    expect(isInterruptedPlay(Object.assign(new Error('The operation was aborted.'),{name:'AbortError'}))).toBe(true);
+    expect(isInterruptedPlay(Object.assign(new Error('The request is not allowed'),{name:'NotAllowedError'}))).toBe(false);
+    expect(isInterruptedPlay(new Error('HTTP 403'))).toBe(false);
+    expect(isInterruptedPlay('AbortError')).toBe(false);
   });
   it('distinguishes mixed-content blocks and autoplay permissions',()=>{
     expect(isBlockedMixedMedia('https:','http://example.net/live.m3u8')).toBe(true);

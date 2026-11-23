@@ -14,7 +14,7 @@ import {TeletextPanel} from './TeletextPanel';
 import {useLocalRecorder} from '@/features/recording/useLocalRecorder';
 import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead} from './liveBuffer';
 import {readableBytes} from '@/features/recording/recorder';
-import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
+import {isAppleMobileBrowser,isBlockedMixedMedia,isInterruptedPlay,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 
 type ConnectionOverride='default'|'direct'|'proxy';
 type AudioOption={id:string;name:string;language:string};
@@ -62,6 +62,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   const hideChromeTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
   const retryCountRef=useRef(0);
   const playbackWantedRef=useRef(settings.autoplay);
+  const playbackEpochRef=useRef(0);
   const needsGestureRef=useRef(false);
   const userPausedRef=useRef(false);
   const lastProgressAtRef=useRef(Date.now());
@@ -119,6 +120,18 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     hideChromeTimerRef.current=setTimeout(()=>setShowChrome(false),2200);
   },[playing,menu,teletext,diagnostics]);
   useEffect(()=>()=>{if(retryTimerRef.current)clearTimeout(retryTimerRef.current);if(hideChromeTimerRef.current)clearTimeout(hideChromeTimerRef.current);},[]);
+  const reportPlayFailure=useCallback((reason:unknown,epoch:number)=>{
+    // A previous source can still reject play() after a new source has loaded.
+    if(epoch!==playbackEpochRef.current||isInterruptedPlay(reason))return;
+    playbackWantedRef.current=false;
+    needsGestureRef.current=needsUserPlayGesture(reason);
+    setStatus(needsGestureRef.current?'needs-gesture':'playback-failed');
+    if(!needsGestureRef.current)setError(reason instanceof Error?reason.message:String(reason));
+  },[]);
+  const requestPlayback=useCallback((video:HTMLVideoElement)=>{
+    const epoch=playbackEpochRef.current;
+    void video.play().catch(reason=>reportPlayFailure(reason,epoch));
+  },[reportPlayFailure]);
   const reset=useCallback((mode:ConnectionOverride=override)=>{
     clearRetry();retryCountRef.current=0;healthySinceRef.current=Date.now();
     setError('');setStatus('retry');setFallback(false);setOverride(mode);setAttempt(v=>v+1);
@@ -216,7 +229,10 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   },[audioOptions,updateSettings]);
 
   useEffect(()=>{
-    const video=videoRef.current;if(!video||!streamUrl)return;
+    const video=videoRef.current;
+    // Invalidate play() promises from an earlier source or retry.
+    const playbackEpoch=++playbackEpochRef.current;
+    if(!video||!streamUrl)return;
     recoverCount.current=0;let disposed=false;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();
     setStatus('loading');setError('');setQualities([]);setQuality(-1);setAudioOptions([]);setCaptions([]);setIsLive(false);setCurrent(0);setBufferedFragments(0);setLastFragmentMs(null);setStallCount(0);
     video.volume=settings.defaultVolume;video.playbackRate=settings.defaultPlaybackRate;
@@ -270,7 +286,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       if(playbackEngine==='unsupported'){setStatus('error');setError(tr('این مرورگر از فرمت HLS این منبع پشتیبانی نمی‌کند.','This browser cannot play this HLS stream.'));}
       else {video.src=streamUrl;video.load();}
     }
-    return()=>{disposed=true;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
+    return()=>{disposed=true;if(playbackEpochRef.current===playbackEpoch)playbackEpochRef.current++;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
     // Playback changes only when channel/URL/retry changes, not volume, language or settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[streamUrl,attempt,channel.id,hls,playbackEngine]);
@@ -292,12 +308,12 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   useEffect(()=>{
     if(!('mediaSession' in navigator)||typeof MediaMetadata==='undefined')return;
     navigator.mediaSession.metadata=new MediaMetadata({title:channel.name,artist:channel.group||'YouTV',album:'YouTV',artwork:channel.logo?[{src:channel.logo}]:[]});
-    navigator.mediaSession.setActionHandler('play',()=>{void videoRef.current?.play();});
+    navigator.mediaSession.setActionHandler('play',()=>{const video=videoRef.current;if(video){playbackWantedRef.current=true;userPausedRef.current=false;requestPlayback(video);}});
     navigator.mediaSession.setActionHandler('pause',()=>videoRef.current?.pause());
     navigator.mediaSession.setActionHandler('seekbackward',({seekOffset})=>{const v=videoRef.current;if(v)v.currentTime=Math.max(0,v.currentTime-(seekOffset||10));});
     navigator.mediaSession.setActionHandler('seekforward',({seekOffset})=>{const v=videoRef.current;if(v)v.currentTime=Math.min(v.duration||Infinity,v.currentTime+(seekOffset||10));});
     return()=>{for(const action of ['play','pause','seekbackward','seekforward'] as MediaSessionAction[]){try{navigator.mediaSession.setActionHandler(action,null);}catch{}}};
-  },[channel.name,channel.group,channel.logo]);
+  },[channel.name,channel.group,channel.logo,requestPlayback]);
   const refreshTimeline=useCallback(()=>{
     const v=videoRef.current;if(!v)return;
     if(v.currentTime!==lastTimeRef.current){lastTimeRef.current=v.currentTime;lastProgressAtRef.current=Date.now();
@@ -324,7 +340,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   const seek=(value:number)=>{const v=videoRef.current;if(v&&Number.isFinite(value))v.currentTime=value;};
   const togglePlay=()=>{
     const v=videoRef.current;if(!v)return;
-    if(v.paused){userPausedRef.current=false;playbackWantedRef.current=true;needsGestureRef.current=false;void v.play().catch(e=>{playbackWantedRef.current=false;needsGestureRef.current=needsUserPlayGesture(e);setStatus(needsGestureRef.current?'needs-gesture':'playback-failed');if(!needsGestureRef.current)setError(e instanceof Error?e.message:String(e));});}
+    if(v.paused){userPausedRef.current=false;playbackWantedRef.current=true;needsGestureRef.current=false;requestPlayback(v);}
     else {userPausedRef.current=true;playbackWantedRef.current=false;v.pause();}
   };
   useEffect(()=>{
@@ -339,7 +355,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
         syncPosition:engine?.liveSyncPosition??null,latency:engine?.latency??0,targetLatency:engine?.targetLatency??null,stalledForMs:stalledFor});
       if(recovery!==null&&now-lastRecoveryRef.current>7000){
         lastRecoveryRef.current=now;lastProgressAtRef.current=now;video.currentTime=recovery;
-        if(video.paused&&playbackWantedRef.current)void video.play().catch(()=>undefined);
+        if(video.paused&&playbackWantedRef.current)requestPlayback(video);
         return;
       }
       if(engine&&stalledFor>6000&&now-lastRecoveryRef.current>8000){
@@ -349,7 +365,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       if(stalledFor>22000){lastProgressAtRef.current=now;fail('Playback stalled for 22s');}
     },1200);
     return()=>clearInterval(id);
-  },[fail,status,isLive]);
+  },[fail,status,isLive,requestPlayback]);
   const toggleFullscreen=()=>{if(document.fullscreenElement)void document.exitFullscreen();else void playerRef.current?.requestFullscreen?.();};
   const rotateScreen=async()=>{
     const player=playerRef.current;if(!player)return;
@@ -410,7 +426,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
         <video ref={videoRef} playsInline preload={appleMobile?'metadata':'auto'} crossOrigin={playbackEngine==='hlsjs'?'anonymous':undefined} autoPlay={settings.autoplay&&!appleMobile} className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
           onTimeUpdate={refreshTimeline} onDurationChange={refreshTimeline} onProgress={refreshTimeline}
           onPlaying={()=>{userPausedRef.current=false;needsGestureRef.current=false;setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);setStatus(previous=>userPausedRef.current?'paused':['error','reconnecting','needs-gesture'].includes(previous)?previous:'paused');revealChrome(true);}} onWaiting={()=>{if(playbackWantedRef.current||playing){setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}}
-          onCanPlay={()=>{setStatus(needsGestureRef.current?'needs-gesture':'ready');updateVideoTracks();if(playbackWantedRef.current&&videoRef.current?.paused){void videoRef.current.play().catch(e=>{playbackWantedRef.current=false;needsGestureRef.current=needsUserPlayGesture(e);setStatus(needsGestureRef.current?'needs-gesture':'playback-failed');});}}}
+          onCanPlay={()=>{setStatus(needsGestureRef.current?'needs-gesture':'ready');updateVideoTracks();if(playbackWantedRef.current&&videoRef.current?.paused)requestPlayback(videoRef.current);}}
           onLoadedMetadata={()=>{refreshTimeline();updateVideoTracks();}}
           onVolumeChange={e=>{setVolume(e.currentTarget.volume);setMuted(e.currentTarget.muted);}}
           onRateChange={e=>setRate(e.currentTarget.playbackRate)}

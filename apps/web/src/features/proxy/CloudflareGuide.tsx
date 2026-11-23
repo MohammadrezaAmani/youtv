@@ -53,11 +53,11 @@ export default function CloudflareGuide(){
       </div></div>
       <div className="cloudflare-step"><span className="guide-number">3</span><div>
         <h3>{fa?'تنظیم Variables و Secrets':'Configure variables and secrets'}</h3>
-        <p>{fa?'در Settings → Variables and Secrets مقدار ALLOWED_HOSTS و ALLOWED_ORIGINS را برای دامنه‌های واقعی تنظیم کن؛ PROXY_TOKEN و ADMIN_TOKEN را جداگانه و محرمانه ایجاد کن.':'Under Settings → Variables and Secrets, configure ALLOWED_HOSTS and ALLOWED_ORIGINS for actual domains. Create distinct private PROXY_TOKEN and ADMIN_TOKEN values.'}</p>
+        <p>{fa?'ALLOWED_HOSTS باید دامنه واقعی منبع استریم باشد (مثلاً live.presstv.co.uk)، نه دامنه سایت خودت. ALLOWED_ORIGINS باید Origin کامل سایت به‌همراه https:// باشد (مثلاً https://USERNAME.github.io). چند دامنه را با ویرگول جدا کن. PROXY_TOKEN یک Secret تصادفی حداقل ۲۴ کاراکتری است؛ آدرس دامنه یا Cloudflare API Token را به‌جای آن ننویس.':'ALLOWED_HOSTS contains the real upstream stream host (e.g. live.presstv.co.uk), not your site domain. ALLOWED_ORIGINS contains the complete site origin including https:// (e.g. https://USERNAME.github.io). Separate multiple entries with commas. PROXY_TOKEN must be a random Secret of at least 24 characters, not a domain or Cloudflare API Token.'}</p>
       </div></div>
       <div className="cloudflare-step"><span className="guide-number">4</span><div>
         <h3>{fa?'اتصال YouTV':'Connect YouTV'}</h3>
-        <p>{fa?'آدرس workers.dev و PROXY_TOKEN را در فرم افزودن Worker وارد کن. برای مدیریت از مرورگر نیز Account ID و Cloudflare API Token محدود لازم است.':'Enter the workers.dev URL and PROXY_TOKEN in Add Worker. Optional browser management requires the Account ID and a scoped Cloudflare API Token.'}</p>
+        <p>{fa?'آدرس workers.dev و همان PROXY_TOKEN را در فرم افزودن Worker وارد کن. تست سلامت فقط در دسترس‌بودن Worker را بررسی می‌کند؛ برای آزمودن ALLOWED_HOSTS و پاسخ واقعی منبع، از «تست آدرس استریم» در مدیریت پروکسی استفاده کن.':'Enter the workers.dev URL and matching PROXY_TOKEN in Add Worker. Health check only verifies the Worker responds. Use the stream URL test in Proxy Manager to verify ALLOWED_HOSTS and actual upstream access.'}</p>
         <a href="https://developers.cloudflare.com/learning-paths/workers/get-started/first-worker/" target="_blank" rel="noopener noreferrer">{fa?'مستندات رسمی Cloudflare':'Official Cloudflare instructions'} <ExternalLink size={14}/></a>
       </div></div>
     </div>}

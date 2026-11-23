@@ -25,6 +25,15 @@ export function isBlockedMixedMedia(appProtocol: string, mediaUrl: string): bool
   return appProtocol === 'https:' && /^http:\/\//i.test(mediaUrl);
 }
 
+/** Loading another video or pausing before play() settles rejects the pending
+ * Promise with AbortError. It is not a persistent stream failure. */
+export function isInterruptedPlay(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return error.name === 'AbortError' &&
+    (/interrupted|aborted|abort|new load request|call to pause/.test(message) || message.length === 0);
+}
+
 /** User action is necessary when the browser rejects an autoplay attempt. */
 export function needsUserPlayGesture(error: unknown): boolean {
   return error instanceof Error && /NotAllowedError|user gesture|user interaction|play\(\) failed/i.test(`${error.name}: ${error.message}`);

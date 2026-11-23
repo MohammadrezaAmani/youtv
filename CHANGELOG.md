@@ -1,3 +1,8 @@
+## v0.22.0 — Worker setup diagnostics and interrupted-play recovery
+- Clarify upstream host, browser origin, and random playback token requirements with real examples in the Cloudflare guide.
+- Add per-Worker authenticated /probe checks against an entered original stream URL and show Worker error codes versus upstream HTTP status.
+- Ignore stale/aborted HTMLMediaElement.play() promises caused by loading or pausing during source changes, without hiding real media failures.
+
 ## v0.21.0 — Responsive player, related channels and connectivity status
 - Remove the extra HTTP/HLS and ICMP/CORS explanatory paragraphs from the signal monitor.
 - Report browser `Failed to fetch` (and its Safari/Firefox equivalents) as offline; preserve explicit cancellation and timeout as unknown and keep definitive DNS NXDOMAIN details.
