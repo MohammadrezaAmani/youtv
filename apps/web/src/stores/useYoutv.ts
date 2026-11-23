@@ -66,7 +66,7 @@ export const useYoutv = create<Store>()(persist((set) => ({
       for(const value of values){
         const old=previous.get(value.url);
         owned.set(value.url,old?{...value,id:old.id,sourceId,favorite:old.favorite,pinned:old.pinned,
-          tags:[...new Set([...old.tags,...value.tags])],createdAt:old.createdAt,updatedAt:Date.now()}:{...value,sourceId});
+          tags:[...new Set([...old.tags,...value.tags])],proxyMode:old.proxyMode,workerId:old.workerId,createdAt:old.createdAt,updatedAt:Date.now()}:{...value,sourceId});
       }
       return {channels:[...others,...owned.values()]};
     }
@@ -80,7 +80,7 @@ export const useYoutv = create<Store>()(persist((set) => ({
       if(sourceId===BUILTIN_PLAYLIST_ID&&same&&same.sourceId!==BUILTIN_PLAYLIST_ID)continue;
       if (same) {
         const merged = {...same, ...value, id:same.id, favorite:same.favorite, pinned:same.pinned, tags: [...new Set([...same.tags,...value.tags])],
-          createdAt:same.createdAt, sourceId:sourceId ?? value.sourceId};
+          createdAt:same.createdAt,proxyMode:same.proxyMode,workerId:same.workerId, sourceId:sourceId ?? value.sourceId};
         keyed.set(same.id, merged);
         currentByUrl.set(value.url, merged);
       } else {

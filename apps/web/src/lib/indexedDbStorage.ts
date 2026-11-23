@@ -93,6 +93,30 @@ async function deleteSnapshot(key:string):Promise<void>{
   });
 }
 
+/**
+ * Separate static-catalog records from the persisted application state.
+ * They share the same disk-backed IndexedDB object store, but never pass through
+ * Zustand's state schema, so a cache miss cannot reset the channel library.
+ */
+export type StaticCacheRecord={text:string;storedAt:number;nextCheckAt:number};
+export async function readStaticCacheRecord(key:string):Promise<StaticCacheRecord|null>{
+  const db=await openDatabase();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(OBJECT_STORE,'readonly');
+    const request=tx.objectStore(OBJECT_STORE).get(key);
+    request.onsuccess=()=>{
+      const record=request.result as Partial<StaticCacheRecord>|undefined;
+      resolve(record&&typeof record.text==='string'&&Number.isFinite(record.storedAt)&&Number.isFinite(record.nextCheckAt)
+        ?record as StaticCacheRecord:null);
+    };
+    request.onerror=()=>reject(request.error||new Error('Static catalog cache read failed'));
+    tx.onabort=()=>reject(tx.error||new Error('Static catalog cache read aborted'));
+  });
+}
+export function writeStaticCacheRecord(key:string,value:StaticCacheRecord):Promise<void>{
+  return writeSnapshots(new Map([[key,value]]));
+}
+
 /** A single last-write-wins snapshot per key, not a queue of giant copies. */
 const pending=new Map<string,unknown>();
 let timer:ReturnType<typeof setTimeout>|null=null;

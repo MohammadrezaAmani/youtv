@@ -1,5 +1,6 @@
 import { BUILTIN_PLAYLIST_ID, type Channel, type Settings } from '@youtv/shared';
 import { parseM3u } from './playlist';
+import {readCatalogAsset} from './catalogCache';
 
 export const DEFAULT_PLAYLIST_URL = `${import.meta.env.BASE_URL}default.m3u8`;
 export const FOLDER_SOURCE_PREFIX = 'youtv:folder:';
@@ -12,9 +13,8 @@ export function isVisibleChannel(channel: Channel, settings: Pick<Settings,'defa
   }
   return true;
 }
-export async function readBundledPlaylist(signal?: AbortSignal) {
-  const response = await fetch(DEFAULT_PLAYLIST_URL, {signal, credentials:'omit', cache:'no-cache'});
-  if (!response.ok) throw new Error(`Bundled playlist HTTP ${response.status}`);
-  const content = await response.text();
+export async function readBundledPlaylist(signal?: AbortSignal,force=false) {
+  const content=await readCatalogAsset('default.m3u8',{force});
+  if(signal?.aborted)throw new DOMException('Aborted','AbortError');
   return parseM3u(content);
 }

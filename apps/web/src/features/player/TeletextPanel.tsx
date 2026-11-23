@@ -4,7 +4,7 @@ import {useEffect,useState} from 'react';
 import {ChevronLeft,ChevronRight,RefreshCw,X,Info} from 'lucide-react';
 import type {WorkerProfile} from '@youtv/shared';
 import {makeTeletextUrl} from './mediaUtils';
-import {proxyUrl} from '@/lib/proxy';
+import {resolveTextSource} from '@/lib/proxy';
 import {useYoutv} from '@/stores/useYoutv';
 import {useTranslation} from 'react-i18next';
 
@@ -12,14 +12,15 @@ type Props={template:string;worker?:WorkerProfile;usingProxy:boolean;onClose:()=
 export function TeletextPanel({template,worker,usingProxy,onClose}:Props){
   const [page,setPage]=useState(100);const [input,setInput]=useState('100');const [reload,setReload]=useState(0);
   const [body,setBody]=useState('');const [loading,setLoading]=useState(false);const [error,setError]=useState('');
-  const language=useYoutv(s=>s.settings.language);const {t}=useTranslation();
+  const settings=useYoutv(s=>s.settings),workers=useYoutv(s=>s.workers);
+  const language=settings.language;const {t}=useTranslation();
   useEffect(()=>{
     const controller=new AbortController();
     const read=async()=>{
       setLoading(true);setError('');setBody('');
       try{
         const source=makeTeletextUrl(template,page);
-        const url=usingProxy&&worker?proxyUrl(source,worker,'text'):source;
+        const url=resolveTextSource(source,settings,workers,worker?.id||'',usingProxy).url;
         const response=await fetch(url,{signal:controller.signal});
         if(!response.ok)throw new Error(`HTTP ${response.status}`);
         const text=await response.text();
@@ -37,7 +38,7 @@ export function TeletextPanel({template,worker,usingProxy,onClose}:Props){
       }catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:String(e));}
       finally{if(!controller.signal.aborted)setLoading(false);}
     };void read();return()=>controller.abort();
-  },[template,page,reload,usingProxy,worker]);
+  },[template,page,reload,usingProxy,worker,settings,workers]);
   const change=(n:number)=>{if(n<100||n>899)return;setPage(n);setInput(String(n));};
   return <div className="ttx-panel" role="region" aria-label="Teletext" dir="ltr">
     <div className="ttx-top"><strong>TELETEXT <span>{page}</span></strong><ActionButton className="media-icon" onClick={onClose} aria-label={t('close')}><X size={18}/></ActionButton></div>

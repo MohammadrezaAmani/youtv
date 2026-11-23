@@ -43,7 +43,7 @@ function assertAllowedUrl(raw, env) {
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password)
         throw new ProxyError(400, 'invalid_url', 'Only HTTP(S) without embedded credentials is supported');
     if (blockedHost(url.hostname))
-        throw new ProxyError(403, 'blocked_host', 'IP literals and private/local hostnames are blocked');
+        throw new ProxyError(403, 'blocked_host', 'Cloudflare Workers cannot fetch IP-literal URLs directly; private and local hosts are also blocked. Use a public DNS hostname.');
     const allowed = entries(env.ALLOWED_HOSTS);
     if (!allowed.length)
         allowed.push('*');
@@ -290,7 +290,7 @@ async function cloudflareAdmin(request, env) {
 
 
 const MAX_REDIRECTS = 4;
-const VERSION = '0.25.0';
+const VERSION = '0.29.0';
 function json(request, env, value, status = 200) {
     const headers = corsHeaders(request, env);
     headers.set('Content-Type', 'application/json; charset=utf-8');

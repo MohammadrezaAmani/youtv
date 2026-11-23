@@ -9,6 +9,7 @@ import {SearchBox} from '@/components/ui/search-box';
 import {FOLDER_SOURCE_PREFIX} from '@/lib/builtin';
 import {parseM3u} from '@/lib/playlist';
 import {normalizeError} from '@/lib/utils';
+import {readCatalogAsset} from '@/lib/catalogCache';
 import {useYoutv} from '@/stores/useYoutv';
 
 type Source = {path:string;name:string;channelCount:number;bytes:number;kind:'playlist'|'hls'|'invalid'};
@@ -77,24 +78,28 @@ export default function FolderSources(){
   const [error,setError]=useState(''),[messages,setMessages]=useState<Record<string,string>>({});
   const [opened,setOpened]=useState<Record<string,boolean>>({'':true});
   const [readmeOpen,setReadmeOpen]=useState<Record<string,boolean>>({});
-  const reload=async()=>{
-    setLoading(true);setError('');
-    try{
-      const response=await fetch(`${import.meta.env.BASE_URL}sources/index.json`,{credentials:'omit',cache:'no-store'});
-      if(!response.ok)throw new Error(`HTTP ${response.status}`);
-      const data:unknown=await response.json();
+  const applyCatalog=(raw:string)=>{
+      const data:unknown=JSON.parse(raw);
       if(!data||typeof data!=='object'||!('sources' in data)||!Array.isArray(data.sources))throw new Error('Invalid source catalog');
       const entry=data as {version?:number;sources:unknown[];folders?:unknown[]};
       const sources=entry.sources.filter(isSource);
       const folders=Array.isArray(entry.folders)?entry.folders.filter(isFolder):[];
       setCatalog({version:entry.version||1,sources,folders});
+  };
+  const reload=async(force=false)=>{
+    setLoading(true);setError('');
+    try{
+      const raw=await readCatalogAsset('sources/index.json',{
+        force,onUpdated:text=>{try{applyCatalog(text);}catch{/* Keep last valid catalog. */}}
+      });
+      applyCatalog(raw);
     }catch(e){setError(normalizeError(e));}
     finally{setLoading(false);}
   };
   useEffect(()=>{
     void reload();
     if(import.meta.hot){
-      const listener=()=>{void reload();};
+      const listener=()=>{void reload(true);};
       import.meta.hot.on('youtv:sources-changed',listener);
       return()=>import.meta.hot?.off('youtv:sources-changed',listener);
     }
@@ -206,7 +211,7 @@ export default function FolderSources(){
   const root=effectiveFolders.find(folder=>folder.path==='')||{path:'',name:'sources',readme:null,fileCount:0,channelCount:0};
 
   return <section className="folder-sources" aria-label={fa?'منابع پوشه‌ای':'Folder sources'}>
-    <div className="folder-sources-heading"><div><h2><FolderOpen size={20}/>{fa?'منابع پوشه‌ای':'Folder sources'}</h2><p className="muted">{sources.length.toLocaleString()} {fa?'فایل':'files'} · {activeCount.toLocaleString()} {fa?'فعال':'enabled'} · {availableChannels.toLocaleString()} {fa?'ورودی شبکه':'channel entries'}</p></div><ActionButton className="folder-sources-reload" onClick={()=>void reload()} disabled={loading}><RefreshCw size={16}/>{fa?'به‌روزرسانی':'Refresh'}</ActionButton></div>
+    <div className="folder-sources-heading"><div><h2><FolderOpen size={20}/>{fa?'منابع پوشه‌ای':'Folder sources'}</h2><p className="muted">{sources.length.toLocaleString()} {fa?'فایل':'files'} · {activeCount.toLocaleString()} {fa?'فعال':'enabled'} · {availableChannels.toLocaleString()} {fa?'ورودی شبکه':'channel entries'}</p></div><ActionButton className="folder-sources-reload" onClick={()=>void reload(true)} disabled={loading}><RefreshCw size={16}/>{fa?'به‌روزرسانی':'Refresh'}</ActionButton></div>
     {sources.length>0&&<SearchBox size="compact" className="folder-source-search" value={query} onChange={setQuery} placeholder={fa?'جست‌وجوی پوشه یا فایل…':'Search folders and files…'}/>}
     {error&&<p className="folder-source-error" role="alert"><AlertTriangle size={16}/>{error}</p>}
     {loading&&<p className="folder-source-empty">{fa?'در حال خواندن منابع…':'Reading sources…'}</p>}

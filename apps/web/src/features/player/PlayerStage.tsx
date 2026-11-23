@@ -8,16 +8,15 @@ import Hls from 'hls.js';
 import {Activity,AlertTriangle,AudioLines,Circle,Square,Download,BookOpen,Check,ChevronDown,Cloud,Captions,Copy,ExternalLink,Heart,Keyboard,Languages,Maximize,Minimize,MonitorPlay,Pause,Pin,PictureInPicture,Play,Radio,RefreshCw,Settings2,RotateCw,MoreHorizontal,SkipBack,SkipForward,SlidersHorizontal,Subtitles,Volume2,VolumeX,Wifi,WifiOff,X} from 'lucide-react';
 import type {Channel,SubtitleSource,WorkerProfile} from '@youtv/shared';
 import {useYoutv} from '@/stores/useYoutv';
-import {activeWorker,proxyUrl,resolveStream} from '@/lib/proxy';
+import {activeWorker,proxyUrl,resolveStream,effectiveConnectionMode,needsHttpsRelay,type ConnectionOverride} from '@/lib/proxy';
 import {isProbablyHls,secondsToClock,srtToVtt} from './mediaUtils';
 import {TeletextPanel} from './TeletextPanel';
 import {useLocalRecorder} from '@/features/recording/useLocalRecorder';
-import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead} from './liveBuffer';
+import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead,hasActiveFragmentLoading} from './liveBuffer';
 import {readableBytes} from '@/features/recording/recorder';
 import {isAppleMobileBrowser,isBlockedMixedMedia,isInterruptedPlay,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 import {enterPlayerFullscreen,isElementFullscreen,isPlayerFullscreen,togglePlayerFullscreen} from './fullscreen';
 
-type ConnectionOverride='default'|'direct'|'proxy';
 type AudioOption={id:string;name:string;language:string};
 type CaptionOption={id:string;name:string;language:string};
 type QualityOption={id:number;name:string;height:number;bitrate:number};
@@ -70,6 +69,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   const healthySinceRef=useRef(Date.now());
   const lastTimeRef=useRef(0);
   const lastRecoveryRef=useRef(0);
+  const inFlightFragmentsRef=useRef<Map<string,number>>(new Map());
   const [bufferAhead,setBufferAhead]=useState(0);
   const [liveLatency,setLiveLatency]=useState<number|null>(null);
   const [bufferedFragments,setBufferedFragments]=useState(0);
@@ -96,10 +96,12 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   const sources=[channel.url,...(channel.alternateUrls||[])];
   const saveProgress=useYoutv(s=>s.saveProgress);
   const savedProgress=useYoutv(s=>s.resume[channel.id]||0);
-  const effectiveMode=override==='default'?channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode:override;
+  const effectiveMode=effectiveConnectionMode(channel,settings,override);
+  const httpNeedsProxy=needsHttpsRelay(sources[sourceIndex]||channel.url);
+  const displayedMode=httpNeedsProxy&&canProxy?'proxy':effectiveMode;
   const resolved=useMemo(()=>{
     try { const preferWorker=appleMobile&&effectiveMode==='auto'&&Boolean(activeWorker(channel,settings,workers))&&Boolean(channel.iptv.userAgent||channel.iptv.referer);
-      const value=resolveStream({...channel,url:sources[sourceIndex]||channel.url,proxyMode:override==='default'?channel.proxyMode:override},settings,workers,fallback||preferWorker);return {value,error:''}; }
+      const value=resolveStream({...channel,url:sources[sourceIndex]||channel.url,proxyMode:effectiveMode},settings,workers,fallback||preferWorker);return {value,error:''}; }
     catch(e){return {value:null,error:e instanceof Error?e.message:String(e)};}
   // Settings can change during playback, but only actual stream URL is used to initialize the engine.
   },[channel,settings,workers,override,fallback,sourceIndex,appleMobile,effectiveMode]);
@@ -164,6 +166,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
   // New channel resets reconnect state, not ordinary settings changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[channel.id,channel.url]);
+  useEffect(()=>{setOverride('default');setFallback(false);},[settings.proxyMode]);
   // Subtitle URLs may be proxied too; SRT sidecars are fetched and converted to WebVTT in-browser.
   useEffect(()=>{
     const controller=new AbortController();const objectUrls:string[]=[];
@@ -234,13 +237,13 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     // Invalidate play() promises from an earlier source or retry.
     const playbackEpoch=++playbackEpochRef.current;
     if(!video||!streamUrl)return;
-    recoverCount.current=0;let disposed=false;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();
+    recoverCount.current=0;inFlightFragmentsRef.current.clear();let disposed=false;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();
     setStatus('loading');setError('');setQualities([]);setQuality(-1);setAudioOptions([]);setCaptions([]);setIsLive(false);setCurrent(0);setBufferedFragments(0);setLastFragmentMs(null);setStallCount(0);
     video.volume=settings.defaultVolume;video.playbackRate=settings.defaultPlaybackRate;
     if(appleMobile)video.setAttribute('webkit-playsinline','');
     if(isBlockedMixedMedia(window.location.protocol,streamUrl)){
       if(effectiveMode==='auto'&&!fallback&&canProxy){setFallback(true);return;}
-      setStatus('error');setError(tr('این منبع HTTP است و روی سایت HTTPS مسدود می‌شود. از پروکسی HTTPS استفاده کن.','This HTTP stream is blocked on HTTPS. Use your HTTPS Worker proxy.'));return;
+      setStatus('error');setError(tr('این کانال HTTP است. برای پخش روی GitHub Pages یک Worker فعال با آدرس HTTPS لازم است؛ آدرس اصلی کانال را تغییر نده.','An active HTTPS Worker is required to relay this HTTP stream on GitHub Pages. Keep the original HTTP source URL.'));return;
     }
     if(playbackEngine==='hlsjs'){
       const engine=new Hls({...LIVE_HLS_PROFILE});hlsRef.current=engine;
@@ -267,11 +270,19 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       engine.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,()=>{if(!disposed)setCaptions(engine.subtitleTracks.map((track,i)=>({id:`hls:${i}`,name:track.name||track.lang||`Subtitle ${i+1}`,language:track.lang||''})));});
       engine.on(Hls.Events.LEVEL_LOADED,(_,data)=>{if(!disposed)setIsLive(data.details.live);});
       const fragmentStarted=new Map<string,number>();
-      engine.on(Hls.Events.FRAG_LOADING,(_,data)=>{fragmentStarted.set(`${data.frag.type}:${data.frag.sn}`,performance.now());});
+      engine.on(Hls.Events.FRAG_LOADING,(_,data)=>{
+        const key=`${data.frag.type}:${data.frag.sn}`;
+        fragmentStarted.set(key,performance.now());
+        inFlightFragmentsRef.current.set(key,Date.now());
+      });
+      engine.on(Hls.Events.FRAG_LOADED,(_,data)=>{
+        inFlightFragmentsRef.current.delete(`${data.frag.type}:${data.frag.sn}`);
+      });
       engine.on(Hls.Events.FRAG_BUFFERED,(_,data)=>{
         if(disposed)return;
         const key=`${data.frag.type}:${data.frag.sn}`;const started=fragmentStarted.get(key);
         if(started!==undefined){setLastFragmentMs(Math.round(performance.now()-started));fragmentStarted.delete(key);}
+        inFlightFragmentsRef.current.delete(key);
         if(data.frag.type==='main')setBufferedFragments(n=>n+1);
       });
       engine.on(Hls.Events.ERROR,(_,data)=>{
@@ -287,7 +298,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       if(playbackEngine==='unsupported'){setStatus('error');setError(tr('این مرورگر از فرمت HLS این منبع پشتیبانی نمی‌کند.','This browser cannot play this HLS stream.'));}
       else {video.src=streamUrl;video.load();}
     }
-    return()=>{disposed=true;if(playbackEpochRef.current===playbackEpoch)playbackEpochRef.current++;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
+    return()=>{disposed=true;inFlightFragmentsRef.current.clear();if(playbackEpochRef.current===playbackEpoch)playbackEpochRef.current++;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
     // Playback changes only when channel/URL/retry changes, not volume, language or settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[streamUrl,attempt,channel.id,hls,playbackEngine]);
@@ -358,11 +369,16 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
         if(video.paused&&playbackWantedRef.current)requestPlayback(video);
         return;
       }
-      if(engine&&stalledFor>6000&&now-lastRecoveryRef.current>8000){
-        // Resume the fragment loader before tearing down the media pipeline.
-        lastRecoveryRef.current=now;engine.startLoad(-1);
+      if(engine){
+        // A slow .ts fetch is not a dead stream. startLoad() can interrupt an
+        // in-flight request and repeatedly throw away data on slow connections.
+        const loading=hasActiveFragmentLoading(inFlightFragmentsRef.current.values(),now);
+        if(loading)return;
       }
-      if(stalledFor>22000){lastProgressAtRef.current=now;fail('Playback stalled for 22s');}
+      // Give hls.js time to finish its own timeout/retry policy. Only rebuild
+      // the player when no fragment is downloading and playback is truly stuck.
+      const limit=engine?90000:65000;
+      if(stalledFor>limit){lastProgressAtRef.current=now;fail(`Playback stalled for ${Math.round(limit/1000)}s`);}
     },1200);
     return()=>clearInterval(id);
   },[fail,status,isLive,requestPlayback]);
@@ -534,8 +550,8 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       <div className="player-tools"><ActionButton className={`player-quick-action ${channel.favorite?'action-on':''}`} aria-label="Favorite" aria-pressed={channel.favorite} onClick={()=>toggleFavorite(channel.id)}><Heart size={19} fill={channel.favorite?'currentColor':'none'}/></ActionButton><ActionButton className={`player-quick-action ${channel.pinned?'action-on':''}`} aria-label="Pin" aria-pressed={channel.pinned} onClick={()=>togglePinned(channel.id)}><Pin size={18}/></ActionButton><ActionButton className="player-quick-action" title="Copy URL" onClick={()=>void navigator.clipboard?.writeText(channel.url)}><Copy size={18}/></ActionButton>{bottomActions}<ActionButton className="player-quick-action" title="Shortcuts" onClick={()=>setMenu('keyboard')}><Keyboard size={18}/></ActionButton><ActionButton className={`player-quick-action ${diagnostics?'action-on':''}`} title="Diagnostics" onClick={()=>setDiagnostics(v=>!v)}><Activity size={18}/></ActionButton></div></div>
     {channel.description&&<p className="channel-about">{channel.description}</p>}
     {channel.tags.length>0&&<div className="watch-tag-row">{channel.tags.map(tag=><span key={tag}>#{tag}</span>)}</div>}
-    <div className="player-connection-toolbar"><div><span className="eyebrow">{tr('اتصال','CONNECTION')}</span><strong>{tr('مسیر پخش','Playback route')}</strong></div>
-      <div className="connection-toggle" role="group" aria-label="Proxy route"><ActionButton className={override==='default'?'selected':''} onClick={()=>reset('default')}>{t('automatic')}</ActionButton><ActionButton className={override==='direct'?'selected':''} onClick={()=>reset('direct')}>{t('direct')}</ActionButton><ActionButton className={override==='proxy'?'selected':''} disabled={!canProxy} onClick={()=>reset('proxy')}>{t('viaProxy')}</ActionButton></div>
+    <div className="player-connection-toolbar"><div><span className="eyebrow">{tr('اتصال','CONNECTION')}</span><strong>{tr('مسیر پخش','Playback route')}</strong>{httpNeedsProxy&&<small className="muted" role="status">{tr('HTTP با Worker','HTTP via Worker')}</small>}</div>
+      <div className="connection-toggle" role="group" aria-label="Proxy route"><ActionButton className={displayedMode==='auto'?'selected':''} aria-pressed={displayedMode==='auto'} onClick={()=>reset('auto')}>{t('automatic')}</ActionButton><ActionButton className={displayedMode==='direct'?'selected':''} aria-pressed={displayedMode==='direct'} disabled={httpNeedsProxy} onClick={()=>reset('direct')}>{t('direct')}</ActionButton><ActionButton className={displayedMode==='proxy'?'selected':''} aria-pressed={displayedMode==='proxy'} disabled={!canProxy} onClick={()=>reset('proxy')}>{t('viaProxy')}</ActionButton></div>
       <div className="row-wrap"><ActionButton className="player-quick-action" onClick={()=>reset()} title="Reload"><RefreshCw size={17}/></ActionButton><a className="player-quick-action" href={channel.url} target="_blank" rel="noreferrer" title="Open source"><ExternalLink size={17}/></a></div></div>
     {diagnostics&&<div className="player-diagnostics"><strong><Activity size={16}/> {tr('گزارش پلیر','Player diagnostics')}</strong><div><span>Protocol</span><b>{hls?'HLS':'Native'}</b></div><div><span>Status</span><b>{status}</b></div><div><span>Quality</span><b>{quality<0?'Auto':qualities.find(q=>q.id===quality)?.name||'Manual'}</b></div><div><span>Audio tracks</span><b>{audioOptions.length}</b></div><div><span>Caption tracks</span><b>{captionChoices.length}</b></div><div><span>Source</span><b>{sourceIndex+1} / {sources.length}</b></div><div><span>Proxy</span><b>{resolved.value?.mode||'unavailable'}</b></div><div><span>Time / Buffer</span><b>{secondsToClock(current)} / {secondsToClock(buffered)}</b></div><div><span>Buffered ahead</span><b>{bufferAhead.toFixed(1)}s</b></div><div><span>Live latency</span><b>{liveLatency===null?'—':`${liveLatency.toFixed(1)}s`}</b></div><div><span>Segments buffered</span><b>{bufferedFragments}</b></div><div><span>Last segment load</span><b>{lastFragmentMs===null?'—':`${lastFragmentMs}ms`}</b></div><div><span>Buffering events</span><b>{stallCount}</b></div></div>}
   </div>;

@@ -3,7 +3,8 @@ import Hls from 'hls.js';
 import {Maximize2,Minimize2,Pause,Play,RefreshCw,Volume2,VolumeX,X} from 'lucide-react';
 import type {Channel} from '@youtv/shared';
 import {ActionButton} from '@/components/ui/action-button';
-import {activeWorker,resolveStream} from '@/lib/proxy';
+import {activeWorker,resolveStream,effectiveConnectionMode} from '@/lib/proxy';
+import {LIVE_HLS_PROFILE} from './liveBuffer';
 import {isProbablyHls} from './mediaUtils';
 import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 import {useYoutv} from '@/stores/useYoutv';
@@ -22,7 +23,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
   const [forceProxy,setForceProxy]=useState(false);
   const appleMobile=typeof navigator!=='undefined'&&isAppleMobileBrowser(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const mode=useMemo(()=>{
-    try{const effective=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;const useWorker=appleMobile&&effective==='auto'&&Boolean(activeWorker(channel,settings,workers))&&Boolean(channel.iptv.userAgent||channel.iptv.referer);return {stream:resolveStream(channel,settings,workers,forceProxy||useWorker),error:''};}
+    try{const effective=effectiveConnectionMode(channel,settings);const useWorker=appleMobile&&effective==='auto'&&Boolean(activeWorker(channel,settings,workers))&&Boolean(channel.iptv.userAgent||channel.iptv.referer);return {stream:resolveStream(channel,settings,workers,forceProxy||useWorker),error:''};}
     catch(e){return {stream:null,error:e instanceof Error?e.message:String(e)};}
   },[channel,settings,workers,forceProxy,appleMobile]);
   const url=mode.stream?.url??'';
@@ -31,7 +32,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
   const nativeHls=useMemo(()=>typeof document!=='undefined'&&!!document.createElement('video').canPlayType('application/vnd.apple.mpegurl'),[]);
   const hlsJsSupported=useMemo(()=>Hls.isSupported(),[]);
   const playbackEngine=selectPlaybackEngine({isHls:sourceIsHls,nativeHls,hlsJsSupported,appleMobile});
-  const effectiveMode=channel.proxyMode==='inherit'?settings.proxyMode:channel.proxyMode;
+  const effectiveMode=effectiveConnectionMode(channel,settings);
   const canFallback=effectiveMode==='auto'&&!forceProxy&&Boolean(activeWorker(channel,settings,workers));
   useEffect(()=>{setForceProxy(false);},[channel.id]);
 
@@ -59,10 +60,10 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
     video.addEventListener('error',onError);
     if(isBlockedMixedMedia(window.location.protocol,url)){
       if(canFallback){setForceProxy(true);}
-      else {setStatus('error');setError('HTTP media is blocked on HTTPS. Configure an HTTPS Worker.');}
+      else {setStatus('error');setError('This HTTP media requires an active HTTPS Worker; keep its original HTTP URL.');}
     }else if(playbackEngine==='hlsjs'){
       video.crossOrigin='anonymous';
-      engine=new Hls({enableWorker:true,lowLatencyMode:false,maxBufferLength:18,maxMaxBufferLength:30,capLevelToPlayerSize:true});
+      engine=new Hls({...LIVE_HLS_PROFILE,maxBufferLength:24,maxMaxBufferLength:42,capLevelToPlayerSize:true});
       engine.on(Hls.Events.MANIFEST_PARSED,tryPlay);
       engine.on(Hls.Events.ERROR,(_event,data)=>{
         if(disposed||!data.fatal)return;

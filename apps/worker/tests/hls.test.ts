@@ -103,3 +103,24 @@ describe('browser origin defaults and optional token',()=>{
     for(const url of urls){expect(url).toBeDefined();expect(new URL(url!).searchParams.has('key')).toBe(false);}
   });
 });
+
+describe('plain HTTP sources through HTTPS worker',()=>{
+  const open={ALLOWED_HOSTS:'*',ALLOWED_ORIGINS:'',PROXY_TOKEN:''};
+  const http=new URL('http://media.example.com:8080/live/master.m3u8');
+  it('allows a public HTTP hostname without upgrading the upstream source',()=>{
+    expect(assertAllowedUrl(http.href,open).href).toBe(http.href);
+  });
+  it('rewrites HTTP playlists, segments and encryption keys back into HTTPS Worker URLs',()=>{
+    const input='#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nvariant/720p.m3u8\n#EXTINF:6,\nsegment0.ts';
+    const output=rewriteHls(input,http,proxy,'');
+    expect(output).not.toContain('URI="http://');
+    expect(output.split('\n').filter(s=>s.startsWith('https://'))).toHaveLength(2);
+    expect(output).toContain('http%3A%2F%2Fmedia.example.com%3A8080');
+    expect(output).not.toContain('key=');
+    expect(output).toContain('URI="https://');
+  });
+  it('rejects private addresses and direct IP literals (Cloudflare fetch limitation)',()=>{
+    for(const raw of ['http://127.0.0.1:80/x','http://192.168.0.1/x','http://1.1.1.1/x'])
+      expect(()=>assertAllowedUrl(raw,open)).toThrow(ProxyError);
+  });
+});

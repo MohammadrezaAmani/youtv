@@ -1,5 +1,6 @@
 import { type Channel, type HealthResult, type Settings, type WorkerProfile } from '@youtv/shared';
-import { activeWorker, proxyUrl } from './proxy';
+import { activeWorker, proxyUrl, needsHttpsRelay } from './proxy';
+import { readCatalogAsset } from './catalogCache';
 
 type ProbeAnswer = { ok?: boolean; status?: number; elapsedMs?: number; contentType?: string; error?: string };
 const TIMEOUT_MS = 8000;
@@ -13,35 +14,35 @@ function isFailedToFetch(error:unknown):boolean{
 }
 function isValidHttpUrl(value:string){try {const u=new URL(value);return u.protocol==='https:'||u.protocol==='http:';}catch{return false;}}
 
-// Public DoH makes a definitive NXDOMAIN observable even when a browser's HTTP
-// request is blocked by CORS. Other DNS failures must remain inconclusive.
-type DnsVerdict='resolved'|'nxdomain'|'no_address'|'uncertain';
-const dnsCache=new Map<string,{at:number;value:Promise<DnsVerdict>}>();
+// DNS negatives are produced by the real resolver in GitHub Actions and
+// published with the curated catalog. Never query a third-party DoH service
+// from the visitor's browser: such endpoints can be blocked in Iran.
+// readCatalogAsset is first-party, persisted in IndexedDB, and revalidated
+// no more than once per 6 hours (except an explicit user refresh).
+type DnsVerdict='nxdomain'|'no_address'|'uncertain';
+let verifiedReportRaw:string|undefined;
+let verifiedDeadHosts=new Map<string,Exclude<DnsVerdict,'uncertain'>>();
 async function checkDns(hostname:string):Promise<DnsVerdict>{
+  if(import.meta.env.VITE_YOUTV_CURATED!=='1')return 'uncertain';
   const host=hostname.replace(/\.$/,'').toLowerCase();
-  if(!host||host.includes(':')||/^\d+\.\d+\.\d+\.\d+$/.test(host))return 'uncertain';
-  const existing=dnsCache.get(host);
-  if(existing&&Date.now()-existing.at<300_000)return existing.value;
-  const lookup=(async():Promise<DnsVerdict>=>{
-    let noAddress=0;
-    for(const type of ['A','AAAA'] as const){
-      try{
-        const endpoint=new URL('https://dns.google/resolve');
-        endpoint.searchParams.set('name',host);endpoint.searchParams.set('type',type);
-        const response=await fetch(endpoint.toString(),{cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(4000)});
-        if(!response.ok)return 'uncertain';
-        const value=await response.json() as {Status?:number;Answer?:{type?:number}[]};
-        if(value.Status===3)return 'nxdomain';
-        if(value.Status!==0)return 'uncertain';
-        if(value.Answer?.some(answer=>answer.type===(type==='A'?1:28)))return 'resolved';
-        noAddress++;
-      }catch{return 'uncertain';}
+  if(!host)return 'uncertain';
+  try{
+    const raw=await readCatalogAsset('sources/_verified/dns-status.json');
+    if(raw!==verifiedReportRaw){
+      const report=JSON.parse(raw) as {nxdomain?:unknown;noAddress?:unknown};
+      if(!Array.isArray(report.nxdomain)||!Array.isArray(report.noAddress))return 'uncertain';
+      const next=new Map<string,Exclude<DnsVerdict,'uncertain'>>();
+      for(const item of report.nxdomain){
+        if(typeof item==='string')next.set(item.replace(/\.$/,'').toLowerCase(),'nxdomain');
+      }
+      for(const item of report.noAddress){
+        if(typeof item==='string')next.set(item.replace(/\.$/,'').toLowerCase(),'no_address');
+      }
+      verifiedDeadHosts=next;
+      verifiedReportRaw=raw;
     }
-    return noAddress===2?'no_address':'uncertain';
-  })();
-  dnsCache.set(host,{at:Date.now(),value:lookup});
-  void lookup.then(result=>{if(result==='uncertain'&&dnsCache.get(host)?.value===lookup)dnsCache.delete(host);});
-  return lookup;
+    return verifiedDeadHosts.get(host)??'uncertain';
+  }catch{return 'uncertain';}
 }
 async function dnsFailure(channel:Channel,started:number):Promise<HealthResult|undefined>{
   try{
@@ -54,13 +55,15 @@ async function dnsFailure(channel:Channel,started:number):Promise<HealthResult|u
 }
 
 /** Browser health checks are HTTP probes. Failed-to-fetch errors are reported offline. */
-export async function probeChannel(channel:Channel, settings:Settings, workers:WorkerProfile[], signal?:AbortSignal):Promise<HealthResult>{
+export async function probeChannel(channel:Channel, settings:Settings, workers:WorkerProfile[], signal?:AbortSignal, appProtocol=typeof window==='undefined'?'https:':window.location.protocol):Promise<HealthResult>{
   const started=performance.now();
   const worker=activeWorker(channel,settings,workers);
-  const useProxy=channel.proxyMode==='proxy'||(channel.proxyMode==='inherit'&&settings.proxyMode==='proxy');
+  const useProxy=needsHttpsRelay(channel.url,appProtocol)||channel.proxyMode==='proxy'||(channel.proxyMode==='inherit'&&settings.proxyMode==='proxy');
   if (!isValidHttpUrl(channel.url))return {status:'offline',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Invalid stream URL'};
   const viaProxy=async():Promise<HealthResult>=>{
     if(!worker) return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Worker unavailable'};
+    if(appProtocol==='https:'&&!/^https:\/\//i.test(worker.baseUrl))
+      return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'HTTPS Worker endpoint required for secure pages'};
     try{
       const endpoint=proxyUrl(channel.url,worker,'probe');
       const response=await fetch(endpoint,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(TIMEOUT_MS)]),credentials:'omit',cache:'no-store'});

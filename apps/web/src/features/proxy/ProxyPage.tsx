@@ -15,17 +15,18 @@ import CloudflareGuide from './CloudflareGuide';
 
 export default function ProxyPage(){
   const {t}=useTranslation();
-  const workers=useYoutv(s=>s.workers),settings=useYoutv(s=>s.settings),save=useYoutv(s=>s.saveWorker),remove=useYoutv(s=>s.removeWorker),update=useYoutv(s=>s.updateSettings);
+  const workers=useYoutv(s=>s.workers),settings=useYoutv(s=>s.settings),channels=useYoutv(s=>s.channels),save=useYoutv(s=>s.saveWorker),remove=useYoutv(s=>s.removeWorker),update=useYoutv(s=>s.updateSettings),bulkUpdate=useYoutv(s=>s.bulkUpdate);
   const [name,setName]=useState(''),[url,setUrl]=useState(''),[token,setToken]=useState(''),[withToken,setWithToken]=useState(false),[error,setError]=useState('');
   const [results,setResults]=useState<Record<string,string>>({});
   const [probeSource,setProbeSource]=useState('');
+  const customizedChannelIds=channels.filter(channel=>channel.proxyMode!=='inherit'||Boolean(channel.workerId)).map(channel=>channel.id);
   const [editingToken,setEditingToken]=useState<string>(''),[replacementToken,setReplacementToken]=useState('');
   const [editingWorker,setEditingWorker]=useState(''),[editName,setEditName]=useState(''),[editUrl,setEditUrl]=useState('');
   const add=(e:FormEvent)=>{
     e.preventDefault();setError('');
     try{
       const normalized=new URL(url.trim());if(!['http:','https:'].includes(normalized.protocol))throw new Error(t('invalidUrl'));
-      if(normalized.protocol==='http:'&&!['localhost','127.0.0.1'].includes(normalized.hostname))throw new Error('HTTPS required for remote Workers');
+      if(normalized.protocol==='http:'&&!['localhost','127.0.0.1'].includes(normalized.hostname))throw new Error(settings.language==='fa'?'آدرس خود Worker باید HTTPS باشد؛ اما آدرس کانال‌ها و Playlistها می‌تواند HTTP باشد و از Worker عبور کند.':'The Worker endpoint must use HTTPS; channel streams and playlists may still use HTTP through that Worker.');
       if(withToken&&!token.trim())throw new Error(settings.language==='fa'?'توکن این Worker را وارد کن یا گزینه توکن را غیرفعال کن.':'Enter this Worker’s token or turn off the token option.');
       const value=workerSchema.parse({id:crypto.randomUUID(),name:name.trim(),baseUrl:normalized.toString(),token:withToken?token.trim():'',enabled:true});
       save(value);if(!settings.defaultWorkerId)update({defaultWorkerId:value.id});
@@ -38,7 +39,7 @@ export default function ProxyPage(){
     try{
       const target=new URL(editUrl.trim());
       if(!['http:','https:'].includes(target.protocol)||target.username||target.password)throw new Error(t('invalidUrl'));
-      if(target.protocol==='http:'&&!['localhost','127.0.0.1'].includes(target.hostname))throw new Error('HTTPS required for remote Workers');
+      if(target.protocol==='http:'&&!['localhost','127.0.0.1'].includes(target.hostname))throw new Error(settings.language==='fa'?'آدرس خود Worker باید HTTPS باشد؛ اما آدرس کانال‌ها و Playlistها می‌تواند HTTP باشد و از Worker عبور کند.':'The Worker endpoint must use HTTPS; channel streams and playlists may still use HTTP through that Worker.');
       const parsed=workerSchema.parse({...worker,name:editName.trim(),baseUrl:target.toString()});
       save(parsed);setEditingWorker('');setError('');
     }catch(err){setError(normalizeError(err));}
@@ -57,7 +58,8 @@ export default function ProxyPage(){
       if(!body||typeof body!=='object')throw new Error(`Invalid Worker response (HTTP ${response.status})`);
       const data=body as {ok?:boolean;status?:number;code?:string;error?:string};
       if(!response.ok){
-        const hint=data.code==='host_not_allowed'?(settings.language==='fa'?'ALLOWED_HOSTS را روی * بگذار یا کد Worker جدید را Deploy کن':'Set ALLOWED_HOSTS to * or deploy the new Worker code'):
+        const hint=data.code==='blocked_host'?(settings.language==='fa'?'Cloudflare Worker آدرس‌های IP مستقیم و شبکه محلی را پشتیبانی نمی‌کند؛ برای منبع از نام دامنه عمومی استفاده کن.':'Cloudflare Worker fetch does not support direct IP sources or local hosts; use a public DNS hostname.'):
+          data.code==='host_not_allowed'?(settings.language==='fa'?'ALLOWED_HOSTS را روی * بگذار یا کد Worker جدید را Deploy کن':'Set ALLOWED_HOSTS to * or deploy the new Worker code'):
           data.code==='origin_not_allowed'?(settings.language==='fa'?'سایت پیش‌فرض https://mohammadrezaamani.github.io باید بدون تنظیم دستی مجاز باشد؛ کد Worker را به‌روزرسانی کن':'The default https://mohammadrezaamani.github.io origin should work automatically; update the Worker code'):
           data.code==='unauthorized'?(settings.language==='fa'?'کلید ذخیره‌شده در YouTV با PROXY_TOKEN یکسان نیست':'YouTV token does not match PROXY_TOKEN'):
           data.error||data.code||'Request failed';
@@ -103,10 +105,19 @@ export default function ProxyPage(){
     <div className="panel-card"><h3>{t('defaultWorker')}</h3>
       <div className="settings-row"><label>{t('proxyMode')}<Select value={settings.proxyMode} className="ui-input" onChange={e=>update({proxyMode:e.target.value as 'direct'|'proxy'|'auto'})}><SelectOption value="direct">{t('direct')}</SelectOption><SelectOption value="proxy">{t('viaProxy')}</SelectOption><SelectOption value="auto">{t('automatic')}</SelectOption></Select></label>
       <label>{t('defaultWorker')}<Select className="ui-input" value={settings.defaultWorkerId} onChange={e=>update({defaultWorkerId:e.target.value})}><SelectOption value="">—</SelectOption>{workers.filter(w=>w.enabled).map(w=><SelectOption value={w.id} key={w.id}>{w.name}</SelectOption>)}</Select></label></div>
+      <div className="row-wrap">
+        <Button variant="outline" type="button" disabled={!customizedChannelIds.length} onClick={()=>{
+          const message=settings.language==='fa'
+            ?`تنظیم مسیر و Worker اختصاصی ${customizedChannelIds.length} کانال حذف شود تا همگی از تنظیمات پیش‌فرض پیروی کنند؟`
+            :`Reset route and Worker overrides for ${customizedChannelIds.length} channels so they all inherit the saved defaults?`;
+          if(window.confirm(message))bulkUpdate(customizedChannelIds,{proxyMode:'inherit',workerId:''});
+        }}>{settings.language==='fa'?'اعمال تنظیمات پیش‌فرض به همه کانال‌ها':'Use saved defaults for all channels'}</Button>
+        <span className="muted">{settings.language==='fa'?`${customizedChannelIds.length} کانال دارای مسیر یا Worker اختصاصی`:`${customizedChannelIds.length} channels have custom routing`}</span>
+      </div>
     </div>
     <CloudflareManager/>
     <div className="panel-card form-stack"><h3>{settings.language==='fa'?'تست آدرس استریم از طریق Worker':'Test a stream URL through the Worker'}</h3>
-      <label>{settings.language==='fa'?'آدرس اصلی کانال (نه لینک /proxy)':'Original channel URL (not the /proxy link)'}<Input type="url" dir="ltr" value={probeSource} onChange={e=>setProbeSource(e.target.value)} placeholder="https://stream.example.com/live.m3u8"/></label>
+      <label>{settings.language==='fa'?'آدرس اصلی کانال (نه لینک /proxy)':'Original channel URL (not the /proxy link)'}<Input type="url" dir="ltr" value={probeSource} onChange={e=>setProbeSource(e.target.value)} placeholder="http://stream.example.com/live.m3u8"/></label>
       <p className="muted">{settings.language==='fa'?'تست سلامت فقط /health را بررسی می‌کند و تأییدی بر دسترسی به استریم نیست. برای بررسی واقعی دامنه، توکن و پاسخ سرور اصلی، نشانی بالا را وارد و روی «تست استریم» کنار Worker کلیک کن.':'Health checks only /health; they do not verify the source allowlist, token or upstream. Enter an original stream URL and click Test stream for a Worker.'}</p>
     </div>
     <div className="worker-list">{workers.length===0&&<div className="empty-subpanel"><Cloud size={25}/>{t('notConfigured')}</div>}

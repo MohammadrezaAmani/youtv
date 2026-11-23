@@ -10,7 +10,7 @@ import {Dialog,DialogContent,DialogTitle,DialogDescription} from '@/components/u
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {parseM3u} from '@/lib/playlist';
-import {proxyUrl} from '@/lib/proxy';
+import {resolveTextSource,needsHttpsRelay} from '@/lib/proxy';
 import {normalizeError} from '@/lib/utils';
 import {ui} from '@/lib/labels';
 import {useYoutv} from '@/stores/useYoutv';
@@ -20,13 +20,14 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
   const {t}=useTranslation();
   const [mergeMode,setMergeMode]=useState<'merge'|'skip'>('merge');
   const [previewPage,setPreviewPage]=useState(0);
+  const [previewWorkerId,setPreviewWorkerId]=useState('');
   const previewPageSize=50;
   const [kind,setKind]=useState<'file'|'url'>('file'),[url,setUrl]=useState(''),[name,setName]=useState(''),
     [fromWorker,setFromWorker]=useState(false),[workerId,setWorkerId]=useState(''),
     [results,setResults]=useState<Channel[]>([]),[warnings,setWarnings]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const workers=useYoutv(s=>s.workers),settings=useYoutv(s=>s.settings),channels=useYoutv(s=>s.channels);
   const savePlaylist=useYoutv(s=>s.savePlaylist),upsert=useYoutv(s=>s.upsertChannels);
-  const reset=()=>{setResults([]);setWarnings([]);setError('');setPreviewPage(0);};
+  const reset=()=>{setResults([]);setWarnings([]);setError('');setPreviewPage(0);setPreviewWorkerId('');};
   const parse=(text:string,source?:string)=>{
     const value=parseM3u(text,source);
     setResults(value.channels);setWarnings(value.warnings);setError('');
@@ -40,15 +41,15 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
     setBusy(true);reset();
     try{
       const source=new URL(url.trim());if(!/^https?:$/.test(source.protocol))throw new Error(t('invalidUrl'));
-      const profile=workers.find(w=>w.id===(workerId||settings.defaultWorkerId));
-      if(fromWorker&&(!profile||!profile.enabled))throw new Error(t('noWorker'));
-      const endpoint=fromWorker&&profile?proxyUrl(source.toString(),profile,'text'):source.toString();
+      const routed=resolveTextSource(source.toString(),settings,workers,workerId,fromWorker);
+      const endpoint=routed.url;
       const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),25000);
       try{
         const res=await fetch(endpoint,{signal:controller.signal,credentials:'omit'});
         if(!res.ok)throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         const text=await res.text();
         parse(text,source.toString());
+        setPreviewWorkerId(routed.workerId);
         if(!name)setName(source.hostname);
       }finally{clearTimeout(timeout);}
     }catch(e){setError(`${normalizeError(e)}. ${t('sourceRequiresCors')}`);}
@@ -63,7 +64,7 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
       !p.id.startsWith('youtv:folder:')&&p.id!=='youtv:builtin:default'&&
       (kind==='file'?!p.url&&p.name===(name.trim()||'') : !!p.url&&p.url===url.trim()));
     const id=existing?.id||crypto.randomUUID(),now=Date.now();
-    const source:Playlist={id,name:name.trim()||`Playlist ${new Date().toLocaleDateString()}`,url:kind==='url'?url.trim():'',importedAt:existing?.importedAt??now,refreshedAt:now,count:selected.length,refreshWorkerId:fromWorker?(workerId||settings.defaultWorkerId):''};
+    const source:Playlist={id,name:name.trim()||`Playlist ${new Date().toLocaleDateString()}`,url:kind==='url'?url.trim():'',importedAt:existing?.importedAt??now,refreshedAt:now,count:selected.length,refreshWorkerId:previewWorkerId};
     savePlaylist(source);
     upsert(selected.map(c=>createChannel({...c,sourceId:id})),id,true);
     setResults([]);setWarnings([]);setError('');setName('');setUrl('');onOpenChange(false);onImported?.();
@@ -78,6 +79,7 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
       {kind==='file' ? <label className="file-drop"><FileUp size={24}/><span>{t('selectFile')}</span><FileInput accept=".m3u,.m3u8,application/vnd.apple.mpegurl,text/plain" onChange={e=>void readFile(e.target.files?.[0])}/></label>
         : <><label>{t('playlistUrl')}<Input type="url" dir="ltr" placeholder="https://.../channels.m3u" value={url} onChange={e=>setUrl(e.target.value)}/></label>
           <label className="checkbox-row"><Checkbox checked={fromWorker} onChange={e=>setFromWorker(e.target.checked)}/>{t('importUsingProxy')}</label>
+          {needsHttpsRelay(url.trim())&&<small className="muted">{settings.language==='fa'?'این Playlist با HTTP است؛ هنگام دریافت، به‌صورت خودکار از Worker HTTPS استفاده می‌شود.':'This HTTP playlist is fetched automatically through an HTTPS Worker.'}</small>}
           {fromWorker&&<Select className="ui-input" value={workerId||settings.defaultWorkerId} onChange={e=>setWorkerId(e.target.value)}>
             <SelectOption value="">{t('selectProfile')}</SelectOption>{workers.filter(w=>w.enabled).map(w=><SelectOption key={w.id} value={w.id}>{w.name}</SelectOption>)}
           </Select>}

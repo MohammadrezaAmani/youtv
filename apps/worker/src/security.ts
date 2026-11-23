@@ -38,7 +38,7 @@ export function assertAllowedUrl(raw: string, env: ProxyEnv): URL {
   try { url = new URL(raw); } catch { throw new ProxyError(400, 'invalid_url', 'Invalid source URL'); }
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password)
     throw new ProxyError(400, 'invalid_url', 'Only HTTP(S) without embedded credentials is supported');
-  if (blockedHost(url.hostname)) throw new ProxyError(403, 'blocked_host', 'IP literals and private/local hostnames are blocked');
+  if (blockedHost(url.hostname)) throw new ProxyError(403, 'blocked_host', 'Cloudflare Workers cannot fetch IP-literal URLs directly; private and local hosts are also blocked. Use a public DNS hostname.');
   const allowed = entries(env.ALLOWED_HOSTS);
   if (!allowed.length) allowed.push('*');
   const host = url.hostname.toLowerCase().replace(/\.$/,'');
