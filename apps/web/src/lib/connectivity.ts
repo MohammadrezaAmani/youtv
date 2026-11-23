@@ -5,6 +5,12 @@ type ProbeAnswer = { ok?: boolean; status?: number; elapsedMs?: number; contentT
 const TIMEOUT_MS = 8000;
 function elapsed(start:number){return Math.max(0,Math.round(performance.now()-start));}
 function validStatus(status:number){return status>=200 && status<400;}
+// The browser surfaces failed network requests and CORS blocks as this same
+// error. In the channel monitor, the user explicitly wants these reported as
+// offline. Aborts/timeouts and other errors are still inconclusive.
+function isFailedToFetch(error:unknown):boolean{
+  return error instanceof Error && /(?:failed to fetch|networkerror when attempting to fetch resource|load failed)/i.test(error.message);
+}
 function isValidHttpUrl(value:string){try {const u=new URL(value);return u.protocol==='https:'||u.protocol==='http:';}catch{return false;}}
 
 // Public DoH makes a definitive NXDOMAIN observable even when a browser's HTTP
@@ -47,7 +53,7 @@ async function dnsFailure(channel:Channel,started:number):Promise<HealthResult|u
   }catch{return undefined;}
 }
 
-/** Browser health checks are HTTP probes, NOT ICMP. CORS failures are unknown, not "offline". */
+/** Browser health checks are HTTP probes. Failed-to-fetch errors are reported offline. */
 export async function probeChannel(channel:Channel, settings:Settings, workers:WorkerProfile[], signal?:AbortSignal):Promise<HealthResult>{
   const started=performance.now();
   const worker=activeWorker(channel,settings,workers);
@@ -64,7 +70,7 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
       }
       return {status:validStatus(value.status)?'online':'offline',mode:'proxy',httpStatus:value.status,elapsedMs:value.elapsedMs??elapsed(started),checkedAt:Date.now(),detail:value.contentType||''};
     }catch(error){
-      return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:signal?.aborted?'Cancelled':error instanceof Error?error.message:'Proxy unreachable'};
+      return {status:signal?.aborted?'unknown':isFailedToFetch(error)?'offline':'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:signal?.aborted?'Cancelled':error instanceof Error?error.message:'Proxy unreachable'};
     }
   };
   if(useProxy){
@@ -85,10 +91,11 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
       const result=await viaProxy();
       if(result.status!=='unknown')return result;
       const dns=await dnsFailure(channel,started);if(dns)return dns;
+      if(isFailedToFetch(error))return {status:'offline',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:error instanceof Error?error.message:'Failed to fetch'};
       return {...result,detail:result.detail||'Direct probe inconclusive; checked through Worker'};
     }
     const dns=await dnsFailure(channel,started);if(dns)return dns;
-    return {status:'unknown',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:signal?.aborted?'Cancelled':error instanceof Error?error.message:'CORS or network restriction'};
+    return {status:isFailedToFetch(error)?'offline':'unknown',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:error instanceof Error?error.message:'Network restriction'};
   }
 }
 

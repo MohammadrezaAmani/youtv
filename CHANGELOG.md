@@ -1,3 +1,10 @@
+## v0.21.0 — Responsive player, related channels and connectivity status
+- Remove the extra HTTP/HLS and ICMP/CORS explanatory paragraphs from the signal monitor.
+- Report browser `Failed to fetch` (and its Safari/Firefox equivalents) as offline; preserve explicit cancellation and timeout as unknown and keep definitive DNS NXDOMAIN details.
+- Make related channels wrap beneath the player on mid-size screens; constrain channel rows and truncate long titles without horizontal overflow.
+- Use video-width container queries to keep fullscreen always visible; move secondary player actions into the More menu at reduced widths.
+- Run Worker `.mjs` integration tests with Bun instead of Node's version-dependent `--experimental-transform-types` flag.
+
 ## v0.20.0 — DNS-aware status and curated GitHub Pages sources
 - Classify confirmed DNS NXDOMAIN/no A/AAAA as offline during browser scans (DoH fallback after inconclusive HTTP), not unknown. Never classify SERVFAIL/timeout as dead.
 - Merge IPTV sources with full EXTINF / VLC / Kodi metadata, remove duplicate stream identities without conflating different required HTTP headers, and resolve each distinct public hostname just once.

@@ -13,10 +13,11 @@ describe('channel connectivity probes',()=>{
     const result=await probeChannel(channel,settings,[]);
     expect(result.status).toBe('online');expect(result.httpStatus).toBe(200);
   });
-  it('treats blocked CORS as unknown instead of a confirmed offline result',async()=>{
+  it('classifies Failed to fetch as offline for the channel monitor',async()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>{throw new TypeError('Failed to fetch');}));
     const result=await probeChannel(channel,settings,[]);
-    expect(result.status).toBe('unknown');
+    expect(result.status).toBe('offline');
+    expect(result.detail).toContain('Failed to fetch');
   });
   it('can use /probe in personal Worker and record actual HTTP response',async()=>{
     const proxyChannel={...channel,proxyMode:'proxy' as const,workerId:worker.id};
@@ -38,7 +39,7 @@ describe('channel connectivity probes',()=>{
     expect(result.status).toBe('offline');
     expect(result.detail).toContain('NXDOMAIN');
   });
-  it('does not mark a DNS SERVFAIL or timeout as offline',async()=>{
+  it('classifies Failed to fetch as offline even if DNS returns SERVFAIL',async()=>{
     const unknown={...channel,id:'dns-servfail',url:'https://temp-dns.example.invalid/live.m3u8'};
     vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
       if(String(input).startsWith('https://dns.google/resolve'))
@@ -46,7 +47,35 @@ describe('channel connectivity probes',()=>{
       throw new TypeError('Failed to fetch');
     }));
     const result=await probeChannel(unknown,settings,[]);
+    expect(result.status).toBe('offline');
+  });
+  it('keeps genuine timeouts inconclusive instead of calling them Failed to fetch',async()=>{
+    const timedOut={...channel,id:'dns-timeout-unknown',url:'https://unknown-timeout.example.invalid/live.m3u8'};
+    vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
+      if(String(input).startsWith('https://dns.google/resolve'))
+        return new Response(JSON.stringify({Status:2,Answer:[]}),{status:200});
+      throw new DOMException('The operation timed out','TimeoutError');
+    }));
+    const result=await probeChannel(timedOut,settings,[]);
     expect(result.status).toBe('unknown');
+  });
+  it('classifies a failed-to-fetch Worker probe as offline',async()=>{
+    const proxyChannel={...channel,proxyMode:'proxy' as const,workerId:worker.id,url:'https://proxy-fetch-failure.example.invalid/live.m3u8'};
+    vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
+      if(String(input).startsWith('https://dns.google/resolve'))
+        return new Response(JSON.stringify({Status:2,Answer:[]}),{status:200});
+      throw new TypeError('Failed to fetch');
+    }));
+    const result=await probeChannel(proxyChannel,settings,[worker]);
+    expect(result.status).toBe('offline');
+    expect(result.mode).toBe('proxy');
+  });
+  it('keeps user-cancelled failed requests out of the offline count',async()=>{
+    const abort=new AbortController();
+    vi.stubGlobal('fetch',vi.fn(async()=>{abort.abort();throw new TypeError('Failed to fetch');}));
+    const result=await probeChannel(channel,settings,[],abort.signal);
+    expect(result.status).toBe('unknown');
+    expect(result.detail).toBe('Cancelled');
   });
   it('limits concurrent checks and emits progress for all channels',async()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>new Response(null,{status:200})));

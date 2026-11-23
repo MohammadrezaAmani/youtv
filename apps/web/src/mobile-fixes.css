@@ -183,3 +183,62 @@
 .preview-names-scroll{max-height:260px;overflow-y:auto;overscroll-behavior:contain;display:grid;gap:5px}
 .preview-names-scroll>span{display:block;min-width:0;overflow-wrap:anywhere;padding:5px 8px;border:1px solid var(--border);border-radius:7px}
 .preview-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding-top:8px;font-size:12px;color:var(--muted)}
+
+/* v0.21: related channels follow the workspace, not a fixed desktop sidebar.
+   The main shell reserves its own navigation column even on MacBook screens. */
+.yt-app-shell .watch-layout,
+.yt-app-shell .watch-main,
+.yt-app-shell .watch-rail{min-width:0;max-width:100%;box-sizing:border-box}
+.yt-app-shell .watch-rail-heading{min-width:0;gap:8px}
+.yt-app-shell .watch-rail-heading h3{min-width:0;overflow-wrap:anywhere}
+.yt-app-shell .watch-rail-heading button{flex:0 0 auto}
+.yt-app-shell .next-channel-row{width:100%;min-width:0;max-width:100%;gap:8px}
+.yt-app-shell .next-channel-row .next-channel{flex:1 1 0;min-width:0;max-width:100%;overflow:hidden;gap:8px}
+.yt-app-shell .next-channel-row .next-channel>span:nth-child(2){flex:1 1 0;min-width:0;overflow:hidden}
+.yt-app-shell .next-channel-row .next-channel b,
+.yt-app-shell .next-channel-row .next-channel small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yt-app-shell .next-channel-row .next-channel svg{flex-shrink:0}
+.yt-app-shell .next-channel-row .next-channel-image{width:clamp(60px,7vw,95px);height:auto;aspect-ratio:16/10;flex:0 0 clamp(60px,7vw,95px)}
+.yt-app-shell .next-channel-add{flex:0 0 32px}
+.yt-app-shell .watch-related-more{grid-column:1/-1;min-width:0}
+@media(min-width:741px) and (max-width:1540px){
+  .yt-app-shell .watch-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+  .yt-app-shell .watch-rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));column-gap:16px;row-gap:0;max-height:none;overflow:visible;margin-top:0}
+  .yt-app-shell .watch-rail-heading{grid-column:1/-1}
+}
+
+/* Size the player controls to the ACTUAL video width, not window width.
+   At desktop widths the related rail and the app sidebar both take space. */
+.pro-player{container:ytplayer / inline-size}
+.pro-control-row{width:100%;min-width:0;gap:clamp(3px,.7vw,12px)}
+.pro-control-row>.pro-control-group{gap:clamp(2px,.45vw,6px)}
+.pro-control-row>.pro-control-group:last-child{flex-shrink:0;justify-content:flex-end;margin-left:auto}
+.pro-control-group>.media-fullscreen{display:inline-grid!important;flex:0 0 34px;min-width:34px;position:relative;z-index:1}
+@container ytplayer (max-width:1120px){
+  .pro-control-group .media-menu-audio,
+  .pro-control-group .media-menu-captions,
+  .pro-control-group .media-menu-appearance,
+  .pro-control-group .media-menu-sources,
+  .pro-control-group .pro-extras,
+  .pro-control-group .pro-rotate{display:none!important}
+  .pro-more-button{display:inline-grid!important}
+  .pro-control-group>.media-icon{flex-shrink:0}
+}
+@container ytplayer (max-width:760px){
+  .pro-control-group .pro-seek-button,.pro-control-group .pro-volume{display:none!important}
+  .pro-controls{padding-inline:9px}
+  .pro-control-row{gap:3px}
+  .pro-control-row>.pro-control-group{gap:2px}
+  .pro-control-group>.media-icon{width:30px;min-width:30px;height:32px;padding:4px}
+  .pro-control-group>.media-fullscreen{flex-basis:30px;min-width:30px}
+  .pro-live-button{font-size:9px;padding:4px}
+}
+@container ytplayer (max-width:480px){
+  .pro-control-group .pro-record-button,
+  .pro-control-group .pro-caption-toggle,
+  .pro-control-group .media-menu-quality{display:none!important}
+  .pro-control-group>.media-icon{width:28px;min-width:28px}
+  .pro-control-group>.media-fullscreen{flex-basis:28px;min-width:28px}
+  .pro-clock{font-size:10px;padding:0 2px}
+  .pro-controls{padding-inline:6px}
+}

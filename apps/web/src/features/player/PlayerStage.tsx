@@ -439,7 +439,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
                 onClick={()=>setMenu(menu==='record'?null:'record')}>
                 {recordingActive?<Square size={17} fill="currentColor"/>:<Circle size={18} fill="currentColor"/>}
               </ActionButton>
-              <ActionButton className={`media-icon ${caption!=='off'?'is-on':''}`} onClick={()=>chooseCaption(caption==='off'&&captionChoices.length?captionChoices[0]!.id:'off')} title={tr('روشن/خاموش کردن زیرنویس','Toggle captions')}><Captions size={21}/></ActionButton>
+              <ActionButton className={`media-icon pro-caption-toggle ${caption!=='off'?'is-on':''}`} onClick={()=>chooseCaption(caption==='off'&&captionChoices.length?captionChoices[0]!.id:'off')} title={tr('روشن/خاموش کردن زیرنویس','Toggle captions')}><Captions size={21}/></ActionButton>
               {playerSettings('audio',tr('زبان صدا','Audio language'),<Languages size={19}/>)}
               {playerSettings('captions',tr('زیرنویس','Subtitles'),<Subtitles size={19}/>)}
               {playerSettings('quality',tr('کیفیت','Quality'),<SlidersHorizontal size={19}/>)}
@@ -450,7 +450,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
               <ActionButton className="media-icon pro-extras" title="Picture in picture" onClick={togglePip} disabled={!document.pictureInPictureEnabled}><PictureInPicture size={19}/></ActionButton>
               <ActionButton className="media-icon pro-extras" title="Theater mode" onClick={()=>setTheater(v=>!v)}><MonitorPlay size={19}/></ActionButton>
               <ActionButton className="media-icon pro-rotate" onClick={()=>void rotateScreen()} title={tr('چرخش صفحه','Rotate screen')} aria-label={tr('چرخش صفحه','Rotate screen')}><RotateCw size={19}/></ActionButton>
-              <ActionButton className="media-icon" onClick={toggleFullscreen} title="Fullscreen">{fullscreen?<Minimize size={19}/>:<Maximize size={19}/>}</ActionButton>
+              <ActionButton className="media-icon media-fullscreen" onClick={toggleFullscreen} title={tr(fullscreen?'خروج از تمام‌صفحه':'تمام‌صفحه',fullscreen?'Exit fullscreen':'Fullscreen')} aria-label={tr(fullscreen?'خروج از تمام‌صفحه':'تمام‌صفحه',fullscreen?'Exit fullscreen':'Fullscreen')}>{fullscreen?<Minimize size={19}/>:<Maximize size={19}/>}</ActionButton>
             </div>
           </div>
         </div>
@@ -458,12 +458,17 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
           <div className="pro-menu-head"><b>{({quality:tr('کیفیت ویدئو','Video quality'),audio:tr('زبان صدا','Audio language'),captions:tr('زیرنویس','Subtitles'),appearance:tr('شکل زیرنویس','Caption style'),speed:tr('سرعت','Speed'),sources:tr('منابع پخش','Stream sources'),keyboard:tr('میانبرها','Shortcuts'),record:tr('ضبط کانال','Recording'),more:tr('گزینه‌های بیشتر','More controls')})[menu]}</b><ActionButton className="media-icon" onClick={()=>setMenu(null)}><X size={18}/></ActionButton></div>
           <div className="pro-menu-options">
             {menu==='more'&&<div className="pro-more-list">
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('quality')}>{tr('کیفیت ویدئو','Video quality')} <SlidersHorizontal size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>setMenu('record')}>{tr('ضبط کانال','Recording controls')} <Circle size={17}/></ActionButton>
               <ActionButton className="media-menu-option" onClick={()=>setMenu('audio')}>{tr('زبان صدا','Audio language')} <Languages size={17}/></ActionButton>
               <ActionButton className="media-menu-option" onClick={()=>setMenu('captions')}>{tr('زیرنویس','Subtitles')} <Captions size={17}/></ActionButton>
               <ActionButton className="media-menu-option" onClick={()=>setMenu('appearance')}>{tr('تنظیمات زیرنویس','Caption settings')} <Settings2 size={17}/></ActionButton>
               {sources.length>1&&<ActionButton className="media-menu-option" onClick={()=>setMenu('sources')}>{tr('منابع پخش','Sources')} <AudioLines size={17}/></ActionButton>}
               <ActionButton className="media-menu-option" onClick={()=>{setTeletext(true);setMenu(null);}}>Teletext <BookOpen size={17}/></ActionButton>
               <ActionButton className="media-menu-option" onClick={()=>setMenu('speed')}>{tr('سرعت','Speed')} <ChevronDown size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>{setTheater(v=>!v);setMenu(null);}}>{tr('حالت سینما','Theater mode')} <MonitorPlay size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>{togglePip();setMenu(null);}} disabled={!document.pictureInPictureEnabled}>{tr('تصویر در تصویر','Picture in picture')} <PictureInPicture size={17}/></ActionButton>
+              <ActionButton className="media-menu-option" onClick={()=>{void rotateScreen();setMenu(null);}}>{tr('چرخش صفحه','Rotate screen')} <RotateCw size={17}/></ActionButton>
             </div>}
             {menu==='record'&&<div className="pro-record-options">
               <div className="pro-record-line"><span className={`youtv-record-indicator ${rec.phase==='recording'?'active':''}`}/><span>{rec.phase==='idle'?tr('آماده','Ready'):`${rec.phase} · ${Math.floor(rec.elapsedMs/1000)}s · ${readableBytes(rec.bytes)}`}</span></div>

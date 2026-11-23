@@ -1,4 +1,4 @@
-/** Zero-dependency functional smoke tests (Node 22+ --experimental-transform-types). */
+/** Zero-dependency functional smoke tests (Bun native test runner). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.ts';

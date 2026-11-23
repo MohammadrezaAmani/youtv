@@ -37,7 +37,7 @@ export default function ConnectivityPage({onWatch,onGroup}:{onWatch:(id:string)=
   const canScan=filtered.length>0&&!scan.running;
   return <section className="page-content diagnostics-page">
     <header className="diagnostics-heading"><div><div className="eyebrow">{fa?'پایش وضعیت شبکه‌ها':'CHANNEL MONITOR'}</div><h1><Activity size={27}/>{fa?'تست سیگنال و دسترسی':'Signal & connectivity'}</h1>
-      <p>{fa?'بررسی دسترسی HTTP/HLS برای همه شبکه‌ها یا فقط گروه انتخابی؛ نتیجه‌ها در کارت‌های کتابخانه نیز دیده می‌شوند.':'HTTP/HLS availability across all channels or any selected group. Results also appear in the channel library.'}</p></div>
+      </div>
       <div className="diagnostics-heading-actions"><Button disabled={!canScan} onClick={start}><RefreshCw size={17}/>{fa?'تست موارد فیلترشده':'Scan filtered'} ({filtered.length.toLocaleString()})</Button><Button disabled={!scan.running} variant="outline" onClick={stopScan}><StopCircle size={16}/>{fa?'توقف':'Stop'}</Button></div>
     </header>
     <div className="diagnostics-summary-grid" aria-label={fa?'خلاصه تست':'Scan summary'}>
@@ -50,7 +50,7 @@ export default function ConnectivityPage({onWatch,onGroup}:{onWatch:(id:string)=
         <label><span>{fa?'تگ':'Tag'}</span><Select value={tag} onChange={e=>{setTag(e.target.value);setPage(1);}}><SelectOption value="">{fa?'تمام تگ‌ها':'All tags'}</SelectOption>{options.tags.map(t=><SelectOption key={t} value={t}>{t}</SelectOption>)}</Select></label>
         <label><span>{fa?'منبع':'Source'}</span><Select value={source} onChange={e=>{setSource(e.target.value);setPage(1);}}><SelectOption value="">{fa?'تمام منابع':'All sources'}</SelectOption>{options.sources.map(s=><SelectOption key={s} value={s}>{s==='__personal'?(fa?'شخصی':'Personal'):s}</SelectOption>)}</Select></label>
       </div>
-      <div className="diagnostics-options"><label className="checkbox-row"><Checkbox checked={settings.healthCheckOnStartup} onChange={e=>useYoutv.getState().updateSettings({healthCheckOnStartup:e.target.checked})}/>{fa?'تست خودکار هنگام ورود':'Scan on startup'}</label><span>{fa?'تست HTTP جایگزین پینگ ICMP نیست؛ محدودیت CORS می‌تواند نتیجه را نامشخص کند.':'HTTP is not ICMP; browser CORS can make a result inconclusive.'}</span></div>
+      <div className="diagnostics-options"><label className="checkbox-row"><Checkbox checked={settings.healthCheckOnStartup} onChange={e=>useYoutv.getState().updateSettings({healthCheckOnStartup:e.target.checked})}/>{fa?'تست خودکار هنگام ورود':'Scan on startup'}</label></div>
       {(scan.running||scan.progress.total>0)&&<div className="diagnostics-progress"><ProgressBar value={scan.progress.completed} max={scan.progress.total||1}/><span>{scan.progress.completed.toLocaleString()} / {scan.progress.total.toLocaleString()} · {scan.running?(fa?'در حال بررسی':'Scanning'):(fa?'پایان اسکن':'Finished')}</span></div>}
       {scan.error&&<div role="alert" className="error-message">{scan.error}</div>}
     </div>
