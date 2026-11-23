@@ -131,3 +131,8 @@
 .yt-app-shell .multi-picker-results button svg{flex-shrink:0}
 .yt-app-shell .watch-related-more{display:flex;width:100%;min-height:36px;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--text);margin-top:10px;font-size:12px}
 .yt-app-shell .theme-mint{background:#ecfaf2;color:#20513e}
+
+/* v0.14: source catalog and saved playlists remain distinct sections. */
+.folder-source-search{width:100%;min-width:0}
+.imported-source-heading{margin-top:22px;margin-bottom:12px}
+.imported-source-heading h2{font-size:16px}

@@ -20,3 +20,29 @@ describe('IPTV lists',()=>{
     expect(toM3u([channel])).toContain('group-title="Live",User channel');
   });
 });
+
+describe('EXTINF interoperability',()=>{
+  it('extracts names when IPTV metadata is after the comma',()=>{
+    const text=[
+      '#EXTM3U',
+      '#EXTINF:0, tvg-id="" tvg-logo="" tvg-name="Manoto HD" group-title="" - Manoto HD',
+      'https://media.example.org/manoto/playlist.m3u8',
+      '#EXTINF:0, tvg-id="" tvg-logo="" tvg-name="iran international" group-title="" - iran international',
+      'https://media.example.org/iran/playlist.m3u8'
+    ].join('\r\n');
+    const parsed=parseM3u(text);
+    expect(parsed.channels.map(c=>c.name)).toEqual(['Manoto HD','iran international']);
+    expect(parsed.channels[0]?.name).not.toContain('tvg-id');
+    expect(parsed.channels[0]?.group).toBe('');
+  });
+  it('keeps commas within quoted TVG attributes',()=>{
+    const parsed=parseM3u('#EXTM3U\n#EXTINF:-1 tvg-name="News, World" group-title="News, International",News HD\nhttps://media.example.org/live.m3u8');
+    expect(parsed.channels[0]?.name).toBe('News HD');
+    expect(parsed.channels[0]?.group).toBe('News, International');
+  });
+  it('falls back to tvg-name without a visible title',()=>{
+    const parsed=parseM3u('#EXTM3U\n#EXTINF:0, tvg-id="alpha" tvg-name="Sample Sports" group-title="Sports"\nhttps://media.example.org/sports.m3u8');
+    expect(parsed.channels[0]?.name).toBe('Sample Sports');
+    expect(parsed.channels[0]?.tvgId).toBe('alpha');
+  });
+});

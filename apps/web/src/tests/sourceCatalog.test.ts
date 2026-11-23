@@ -1,23 +1,22 @@
 import {describe,it,expect} from 'vitest';
-import {mkdtemp,copyFile,rm,readFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {mkdtemp,writeFile,mkdir,rm} from 'node:fs/promises';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {tmpdir} from 'node:os';
 import {scanLocalSources} from '../../sourceCatalog';
 
-const actualDefault=fileURLToPath(new URL('../../public/default.m3u8',import.meta.url));
-
-describe('build-time folder playlist discovery',()=>{
-  it('counts real channels from the bundled playlist without registering fake channels',async()=>{
-    const root=await mkdtemp(join(tmpdir(),'youtv-sources-'));
+describe('folder source catalog',()=>{
+  it('finds nested, mixed-case and non-ASCII M3U files',async()=>{
+    const root=await mkdtemp(join(tmpdir(),'youtv-source-test-'));
     try{
-      await copyFile(actualDefault,join(root,'actual.m3u8'));
-      const manifest=await scanLocalSources(root);
-      const text=await readFile(actualDefault,'utf8');
-      const realCount=(text.match(/^#EXTINF:/gm)||[]).length;
-      expect(manifest).toHaveLength(1);
-      expect(manifest[0]?.channelCount).toBe(realCount);
-      expect(manifest[0]?.kind).toBe('playlist');
-    } finally {await rm(root,{recursive:true,force:true});}
+      await mkdir(join(root,'nested'));
+      await writeFile(join(root,'persian IPTV @wbnet(1).m3u8'),'#EXTM3U\r\n#EXTINF:0, tvg-name="Manoto HD" - Manoto HD\r\nhttps://example.org/live.m3u8\r\n');
+      await writeFile(join(root,'nested','80+TÜRK TV.M3U'),'#EXTM3U\n#EXTINF:-1,Türkçe TV\nhttps://example.org/live.m3u8\n');
+      await writeFile(join(root,'hls.m3u8'),'#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment.ts\n');
+      const sources=await scanLocalSources(root);
+      expect(sources.filter(s=>s.kind==='playlist')).toHaveLength(2);
+      expect(sources.find(s=>s.path==='persian IPTV @wbnet(1).m3u8')?.channelCount).toBe(1);
+      expect(sources.find(s=>s.path==='nested/80+TÜRK TV.M3U')?.channelCount).toBe(1);
+      expect(sources.find(s=>s.path==='hls.m3u8')?.kind).toBe('hls');
+    }finally{await rm(root,{recursive:true,force:true});}
   });
 });

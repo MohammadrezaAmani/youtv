@@ -11,7 +11,8 @@
     "worker:dev": "bun run --cwd apps/worker dev",
     "worker:deploy": "bun run --cwd apps/worker deploy",
     "dashboard:bundle": "bun scripts/build-dashboard.cjs",
-    "smoke": "bun test apps/worker/tests/smoke.test.mjs apps/web/src/tests/library.smoke.test.mjs apps/web/src/tests/media.smoke.test.mjs"
+    "smoke": "bun test apps/worker/tests/smoke.test.mjs apps/web/src/tests/library.smoke.test.mjs apps/web/src/tests/media.smoke.test.mjs",
+    "sources:check": "bun apps/web/scripts/check-sources.ts"
   },
   "workspaces": [
     "apps/*",

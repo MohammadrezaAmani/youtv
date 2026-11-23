@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import {parseExtinf} from '@/lib/playlist';
 import {
   defaultState, stateSchema, createChannel,
   type Channel, type Playlist, type WorkerProfile, type Settings, type AppState, type HealthResult, BUILTIN_PLAYLIST_ID
@@ -31,13 +32,22 @@ type Store = AppState & {
 
 const empty = structuredClone(defaultState);
 const parseState = (unknown: unknown): AppState => stateSchema.parse(unknown);
+/** Repair a legacy import that saved EXTINF attributes as a channel title. */
+export function repairLegacyMetadata(channel:Channel):Channel {
+  if(!/^(?:tvg-id|tvg-logo|tvg-name|group-title)\s*=/i.test(channel.name.trim()))return channel;
+  const {name,attrs}=parseExtinf(`#EXTINF:-1, ${channel.name}`);
+  if(!name||name===channel.name)return channel;
+  return {...channel,name,group:channel.group||attrs['group-title']||'',
+    logo:channel.logo||attrs['tvg-logo']||'',tvgId:channel.tvgId||attrs['tvg-id']||''};
+}
+
 export const useYoutv = create<Store>()(persist((set) => ({
   ...empty,
   addChannel: (value) => set(s => ({channels: [createChannel(value), ...s.channels]})),
   upsertChannels: (values, sourceId, replaceSource = false) => set(s => {
     // Each local folder file owns its own channel collection. Two sources may
     // contain the same stream URL, but disabling one must never hide the other.
-    if(sourceId?.startsWith('youtv:folder:')){
+    if(sourceId && sourceId!==BUILTIN_PLAYLIST_ID){
       const previous=new Map(s.channels.filter(c=>c.sourceId===sourceId).map(c=>[c.url,c]));
       const others=s.channels.filter(c=>c.sourceId!==sourceId);
       const owned=new Map<string,Channel>();
@@ -99,7 +109,7 @@ export const useYoutv = create<Store>()(persist((set) => ({
   partialize:s => ({version:s.version, channels:s.channels,playlists:s.playlists, workers:s.workers,recent:s.recent,resume:s.resume,health:s.health,settings:s.settings}),
   merge:(persisted,current) => {
     const parsed=stateSchema.safeParse(persisted);
-    return parsed.success?{...current,...parsed.data}:current;
+    return parsed.success?{...current,...parsed.data,channels:parsed.data.channels.map(repairLegacyMetadata)}:current;
   }
 }));
 

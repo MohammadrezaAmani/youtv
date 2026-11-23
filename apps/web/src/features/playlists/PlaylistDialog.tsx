@@ -60,10 +60,13 @@ export default function PlaylistDialog({open,onOpenChange,onImported}:Props){
   const commit=()=>{
     if(!results.length)return;
     const selected=mergeMode==='skip'?results.filter(c=>!existingUrls.has(c.url)):results;
-    const id=crypto.randomUUID(),now=Date.now();
-    const source:Playlist={id,name:name.trim()||`Playlist ${new Date().toLocaleDateString()}`,url:kind==='url'?url.trim():'',importedAt:now,refreshedAt:kind==='url'?now:null,count:selected.length,refreshWorkerId:fromWorker?(workerId||settings.defaultWorkerId):''};
+    const existing=useYoutv.getState().playlists.find(p=>
+      !p.id.startsWith('youtv:folder:')&&p.id!=='youtv:builtin:default'&&
+      (kind==='file'?!p.url&&p.name===(name.trim()||'') : !!p.url&&p.url===url.trim()));
+    const id=existing?.id||crypto.randomUUID(),now=Date.now();
+    const source:Playlist={id,name:name.trim()||`Playlist ${new Date().toLocaleDateString()}`,url:kind==='url'?url.trim():'',importedAt:existing?.importedAt??now,refreshedAt:now,count:selected.length,refreshWorkerId:fromWorker?(workerId||settings.defaultWorkerId):''};
     savePlaylist(source);
-    upsert(selected.map(c=>createChannel({...c,sourceId:id})),id);
+    upsert(selected.map(c=>createChannel({...c,sourceId:id})),id,true);
     setResults([]);setWarnings([]);setError('');setName('');setUrl('');onOpenChange(false);onImported?.();
   };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>

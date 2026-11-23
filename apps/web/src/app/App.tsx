@@ -206,6 +206,7 @@ function Shell(){
         {view==='proxy'?<ProxyPage/>:view==='settings'?<SettingsPage/>:view==='connectivity'?<ConnectivityPage onWatch={openWatch} onGroup={openGroup}/>:view==='groups'?<CategoriesPage onOpen={openGroup}/>:view==='playlists'?<section className="page-content">
           <div className="page-heading"><div><div className="eyebrow">PLAYLIST STUDIO</div><h1><ListVideo size={28}/>{t('playlists')}</h1><p>{t('playlistImportNote')}</p></div><Button onClick={()=>setPlaylistDialog(true)}><Upload size={17}/>{t('importPlaylist')}</Button></div>
           <FolderSources/>
+          <div className="folder-sources-heading imported-source-heading"><h2>{settings.language==='fa'?'منابع ثبت‌شده':'Imported playlists'}</h2><span className="muted">{playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).length.toLocaleString()} {settings.language==='fa'?'منبع':'sources'}</span></div>
           {playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).length>0&&
             <div className="playlist-grid">{playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).map(p=><div key={p.id} className="panel-card playlist-card"><div className="playlist-identity"><span className="playlist-icon"><ListVideo size={22}/></span><div><h3>{p.name}</h3><span className="muted">{p.count} {t('channelsCount')}</span></div></div>
               {p.id===BUILTIN_PLAYLIST_ID?<label className="checkbox-row"><Checkbox checked={settings.defaultPlaylistEnabled} onChange={e=>useYoutv.getState().updateSettings({defaultPlaylistEnabled:e.target.checked})}/> {settings.language==='fa'?'فعال بودن پلی‌لیست پیش‌فرض':'Enable bundled playlist'}</label>:p.url&&<div className="url-line" title={p.url}>{p.url}</div>}
@@ -257,7 +258,7 @@ function Shell(){
       {[primaryNav[0],primaryNav[1],primaryNav[2],primaryNav[3],systemNav[1]].map(item=>navButton(item,'mobile'))}
     </nav>
     <ChannelDialog open={channelDialog} onOpenChange={setChannelDialog} editing={edit}/>
-    <PlaylistDialog open={playlistDialog} onOpenChange={setPlaylistDialog} onImported={()=>{setToast(t('importSuccess'));navigate('/channels');}}/>
+    <PlaylistDialog open={playlistDialog} onOpenChange={setPlaylistDialog} onImported={()=>{setToast(t('importSuccess'));navigate('/playlists');}}/>
     {builtinError&&<div className="toast-notice" role="alert">Default playlist: {builtinError}<ActionButton onClick={()=>setBuiltinError('')}><X size={16}/></ActionButton></div>}
     {toast&&<div className="toast-notice" role="status">{toast}<ActionButton onClick={()=>setToast('')} aria-label={t('close')}><X size={16}/></ActionButton></div>}
   </div>;

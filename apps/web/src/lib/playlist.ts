@@ -7,23 +7,53 @@ export function isHlsManifest(text: string): boolean {
   return content.startsWith('#EXTM3U') && /^#EXT-X-(TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|VERSION|PART-INF|PLAYLIST-TYPE|MAP|KEY):?/m.test(content);
 }
 
-function titleAfterExtinf(line: string): string {
-  let quoted=false;
-  for(let i=0;i<line.length;i++) {
-    if(line[i]==='"' && line[i-1]!=='\\') quoted=!quoted;
-    if(line[i]===',' && !quoted) return line.slice(i+1).trim();
+/**
+ * IPTV producers use two incompatible EXTINF layouts:
+ *   #EXTINF:-1 tvg-name="Station" group-title="News",Station
+ *   #EXTINF:0, tvg-name="Station" group-title="News" - Station
+ * Metadata after the first comma belongs to the same EXTINF entry, not to
+ * the channel title. Attributes may contain embedded commas and spaces.
+ */
+function splitExtinf(line: string): {before: string; after: string} {
+  let quoted: '\"' | "'" | null = null;
+  for (let i=0;i<line.length;i++) {
+    const char=line[i];
+    if((char==='"'||char==="'")&&line[i-1]!=='\\') {
+      if(quoted===char) quoted=null;
+      else if(!quoted) quoted=char;
+    }
+    if(char===','&&!quoted)return {before:line.slice(0,i),after:line.slice(i+1).trim()};
   }
-  return '';
+  return {before:line,after:''};
 }
 
-function extractAttributes(line: string): Record<string,string> {
+function extractAttributes(input:string): Record<string,string> {
   const attrs:Record<string,string>={};
-  const regex=/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+))/g;
-  for(const match of line.matchAll(regex)) {
+  const regex=/(?:^|\s)([\w-]+)\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s,]+))/g;
+  for(const match of input.matchAll(regex)){
     attrs[match[1]!.toLowerCase()]=match[2]??match[3]??match[4]??'';
   }
   return attrs;
 }
+
+/** Return the cleaned name and the parsed metadata from an EXTINF line. */
+export function parseExtinf(line:string):{name:string;attrs:Record<string,string>} {
+  const {before,after}=splitExtinf(line);
+  const afterAttrs=extractAttributes(after);
+  const attrs={...extractAttributes(before),...afterAttrs};
+  const hasTrailingAttributes=Object.keys(afterAttrs).some(key=>key.startsWith('tvg-')||key==='group-title'||key==='youtv-tags');
+  let name=after;
+  if(hasTrailingAttributes){
+    // Remove valid key=value runs, including quoted values with spaces/commas.
+    name=after.replace(/(?:^|\s)[\w-]+\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,]+)/g,' ').trim();
+    // The nonstandard format often writes " - Display name" after attributes.
+    name=name.replace(/^\s*[-–—|:]+\s*/,'').trim();
+  }
+  // If the payload has no display name, use the authoritative tvg-name.
+  name=name||attrs['tvg-name']||'';
+  return {name,attrs};
+}
+
 export function parseM3u(text: string, baseUrl?:string): ParsedPlaylist {
   const cleaned=text.replace(/^\uFEFF/,'');
   if (!cleaned.trimStart().startsWith('#EXTM3U')) throw new Error('The file must start with #EXTM3U');
@@ -36,8 +66,7 @@ export function parseM3u(text: string, baseUrl?:string): ParsedPlaylist {
     if (!line)continue;
     if (line.startsWith('#EXTGRP:')) {fallbackGroup=line.slice(8).trim();continue;}
     if (line.startsWith('#EXTINF:')) {
-      const attrs=extractAttributes(line);
-      const name=titleAfterExtinf(line)||attrs['tvg-name']||'';
+      const {attrs,name}=parseExtinf(line);
       meta={name:name||attrs['tvg-name']||`Channel ${i+1}`,logo:attrs['tvg-logo']||'',group:attrs['group-title']||fallbackGroup,
         tvgId:attrs['tvg-id']||'',language:attrs['tvg-language']||'',country:attrs['tvg-country']||'',tags:attrs['youtv-tags']?.split('|').map(v=>v.trim()).filter(Boolean)||[]};
       continue;
