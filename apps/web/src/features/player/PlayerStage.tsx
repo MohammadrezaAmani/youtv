@@ -15,6 +15,7 @@ import {useLocalRecorder} from '@/features/recording/useLocalRecorder';
 import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead} from './liveBuffer';
 import {readableBytes} from '@/features/recording/recorder';
 import {isAppleMobileBrowser,isBlockedMixedMedia,isInterruptedPlay,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
+import {enterPlayerFullscreen,isElementFullscreen,isPlayerFullscreen,togglePlayerFullscreen} from './fullscreen';
 
 type ConnectionOverride='default'|'direct'|'proxy';
 type AudioOption={id:string;name:string;language:string};
@@ -335,7 +336,6 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     const v=videoRef.current;
     return isLive&&v?.seekable.length?v.seekable.start(0):0;
   },[isLive,current]);
-  const atLiveEdge=isLive&&progressMax-current<8;
   const jumpLive=()=>{const v=videoRef.current;if(!v)return;const edge=hlsRef.current?.liveSyncPosition??(v.seekable.length?v.seekable.end(v.seekable.length-1):0);if(edge)v.currentTime=edge;};
   const seek=(value:number)=>{const v=videoRef.current;if(v&&Number.isFinite(value))v.currentTime=value;};
   const togglePlay=()=>{
@@ -366,13 +366,14 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     },1200);
     return()=>clearInterval(id);
   },[fail,status,isLive,requestPlayback]);
-  const toggleFullscreen=()=>{if(document.fullscreenElement)void document.exitFullscreen();else void playerRef.current?.requestFullscreen?.();};
+  const toggleFullscreen=()=>{void togglePlayerFullscreen(playerRef.current,videoRef.current);};
   const rotateScreen=async()=>{
     const player=playerRef.current;if(!player)return;
-    if(!document.fullscreenElement){try{await player.requestFullscreen();}catch{/* Browser may not allow element fullscreen */}}
+    if(!isPlayerFullscreen(document,videoRef.current))await enterPlayerFullscreen(player,videoRef.current);
     const orientation=screen.orientation as ScreenOrientation & {lock?:(orientation:'landscape')=>Promise<void>};
+    if(!isElementFullscreen(document))return; // Native iOS video fullscreen handles orientation.
     if(!rotatedFallback&&orientation?.lock){try{await orientation.lock('landscape');setRotatedFallback(false);return;}catch{/* Fallback to CSS rotation */}}
-    if(document.fullscreenElement)setRotatedFallback(value=>!value);
+    if(isElementFullscreen(document))setRotatedFallback(value=>!value);
   };
   const togglePip=()=>{const v=videoRef.current;if(!v)return;if(document.pictureInPictureElement)void document.exitPictureInPicture();else if(document.pictureInPictureEnabled)void v.requestPictureInPicture().catch(()=>undefined);};
   const onVideoKey=(event:KeyEvent<HTMLDivElement>)=>{
@@ -406,7 +407,23 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     return()=>{video.removeEventListener('enterpictureinpicture',entered);video.removeEventListener('leavepictureinpicture',left);};
   },[]);
   useEffect(()=>{
-    const handler=()=>{setFullscreen(Boolean(document.fullscreenElement));if(!document.fullscreenElement){setRotatedFallback(false);try{screen.orientation?.unlock?.();}catch{/* Ignore unsupported unlock */}}};document.addEventListener('fullscreenchange',handler);return()=>document.removeEventListener('fullscreenchange',handler);
+    const video=videoRef.current;
+    const handler=()=>{
+      const active=isPlayerFullscreen(document,video);
+      setFullscreen(active);
+      if(!active){setRotatedFallback(false);try{screen.orientation?.unlock?.();}catch{/* Ignore unsupported unlock */}}
+    };
+    document.addEventListener('fullscreenchange',handler);
+    document.addEventListener('webkitfullscreenchange',handler);
+    video?.addEventListener('webkitbeginfullscreen',handler);
+    video?.addEventListener('webkitendfullscreen',handler);
+    handler();
+    return()=>{
+      document.removeEventListener('fullscreenchange',handler);
+      document.removeEventListener('webkitfullscreenchange',handler);
+      video?.removeEventListener('webkitbeginfullscreen',handler);
+      video?.removeEventListener('webkitendfullscreen',handler);
+    };
   },[]);
   useEffect(()=>{
     if(menu||teletext||diagnostics||!playing){revealChrome(true);return;}
@@ -422,7 +439,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
 
   return <div className={`player-wrapper professional-player ${theater?'is-theater':''}`}>
     <div className="player-shell">
-      <div className={`pro-player ${rotatedFallback?'rotated-fallback ':''}${showChrome?'':'chrome-hidden'}`} ref={playerRef} tabIndex={0} onKeyDown={onVideoKey} onMouseMove={()=>revealChrome()} onPointerDown={()=>revealChrome(true)} onTouchStart={()=>revealChrome(true)} onDoubleClick={e=>{if(e.target===videoRef.current)toggleFullscreen();}} dir="ltr" aria-label={`${channel.name} player`}>
+      <div className={`pro-player ${rotatedFallback?'rotated-fallback ':''}${showChrome?'':'chrome-hidden'}`} ref={playerRef} tabIndex={0} onKeyDown={onVideoKey} onMouseMove={()=>revealChrome()} onPointerDown={()=>revealChrome()} onDoubleClick={e=>{if(e.target===videoRef.current)toggleFullscreen();}} dir="ltr" aria-label={`${channel.name} player`}>
         <video ref={videoRef} playsInline preload={appleMobile?'metadata':'auto'} crossOrigin={playbackEngine==='hlsjs'?'anonymous':undefined} autoPlay={settings.autoplay&&!appleMobile} className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
           onTimeUpdate={refreshTimeline} onDurationChange={refreshTimeline} onProgress={refreshTimeline}
           onPlaying={()=>{userPausedRef.current=false;needsGestureRef.current=false;setPlaying(true);playbackWantedRef.current=true;lastProgressAtRef.current=Date.now();healthySinceRef.current=Date.now();setStatus('playing');setRetryInfo('');revealChrome();}} onPause={()=>{setPlaying(false);setStatus(previous=>userPausedRef.current?'paused':['error','reconnecting','needs-gesture'].includes(previous)?previous:'paused');revealChrome(true);}} onWaiting={()=>{if(playbackWantedRef.current||playing){setStatus('buffering');setStallCount(n=>n+1);revealChrome(true);}}}
@@ -434,8 +451,6 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
           >
           {videoTracks}{localTrack&&<track src={localTrack.url} label={localTrack.label} kind="subtitles" srcLang="und"/>}
         </video>
-        {isLive&&<span className="pro-live-pill"><span className="pro-live-dot"/>LIVE</span>}
-        {isLive&&<span className="pro-latency" title={tr('تأخیر تقریبی نسبت به لبه زنده پخش','Estimated latency relative to live edge')}>{tr('تأخیر','Delay')} {liveLatency!==null&&Number.isFinite(liveLatency)?`~${Math.round(liveLatency)}s`:'—'}</span>}
         {(status==='buffering'||status==='reconnecting')&&<div className="pro-buffer-indicator"><span className="pro-spinner"/>{retryInfo&&<span className="reconnect-info">{retryInfo}</span>}</div>}
         {(error||resolved.error)&&<div className="pro-error" role="alert"><AlertTriangle size={34}/><strong>{tr('پخش امکان‌پذیر نیست','Playback failed')}</strong><p dir="auto">{error||resolved.error}</p><div className="pro-error-actions"><ActionButton onClick={()=>reset()}><RefreshCw size={16}/>{t('retry')}</ActionButton>{canProxy&&<ActionButton onClick={()=>reset('proxy')}><Cloud size={16}/>{t('tryProxy')}</ActionButton>}</div></div>}
         {!error&&!resolved.error&&!playing&&(status==='paused'||status==='needs-gesture'||(appleMobile&&status==='loading')||(status==='ready'&&!playbackWantedRef.current))&&<ActionButton className="pro-center-play" onClick={togglePlay} aria-label={t('play')}><Play size={37} fill="currentColor"/></ActionButton>}
@@ -447,9 +462,9 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
               <ActionButton className="media-icon pro-seek-button" onClick={()=>seek(Math.min(progressMax,current+10))} title="+10 seconds"><SkipForward size={18}/></ActionButton>
               <ActionButton className="media-icon" onClick={()=>{const v=videoRef.current;if(v)v.muted=!v.muted;}} title={muted?'Unmute':'Mute'}>{muted||volume===0?<VolumeX size={19}/>:<Volume2 size={19}/>}</ActionButton>
               <Slider className="pro-volume" aria-label="Volume" min="0" max="1" step="0.01" value={volume} onChange={e=>{const v=videoRef.current;if(v){v.volume=Number(e.target.value);v.muted=false;}updateSettings({defaultVolume:Number(e.target.value)});}}/>
-              <span className="pro-clock">{secondsToClock(current)}{!isLive&&duration>0?` / ${secondsToClock(duration)}`:''}</span></div>
+              <span className="pro-clock">{secondsToClock(current)}{!isLive&&duration>0?` / ${secondsToClock(duration)}`:''}</span>
+              {isLive&&<ActionButton className="pro-latency-bottom" onClick={jumpLive} title={tr('بازگشت به لبه زنده پخش','Jump to live edge')} aria-label={tr('بازگشت به پخش زنده','Jump to live')}>{tr('تأخیر','Delay')} {liveLatency!==null&&Number.isFinite(liveLatency)?`~${Math.round(liveLatency)}s`:'—'}</ActionButton>}</div>
             <div className="pro-control-group">
-              {isLive&&<ActionButton onClick={jumpLive} className={`pro-live-button ${atLiveEdge?'at-live':''}`}>● LIVE</ActionButton>}
               <ActionButton className={`media-icon pro-record-button ${recordingActive?'is-on':''}`} aria-label={tr('تنظیمات ضبط','Recording controls')}
                 title={tr('ضبط کانال','Recording')}
                 onClick={()=>setMenu(menu==='record'?null:'record')}>

@@ -1,3 +1,11 @@
+## v0.24.0 — Safari/iOS fullscreen & idle player chrome
+
+- Fixed the fullscreen action on iPhone with native `webkitEnterFullscreen()` and on older Safari with prefixed element fullscreen.
+- Sync native iOS fullscreen lifecycle events with the player button.
+- Removed floating LIVE and latency overlays; moved latency into the control bar as a go-live action.
+- Automatically hide the cursor and controls after pointer/touch inactivity during playback.
+- Added fullscreen compatibility tests.
+
 ## v0.23.0 — Wildcard Worker and optional authentication
 
 - Accept `ALLOWED_HOSTS=*` and default to public DNS hosts when unset; SSRF guards still block IP literals/private names and apply after redirects.
