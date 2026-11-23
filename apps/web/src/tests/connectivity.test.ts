@@ -27,6 +27,27 @@ describe('channel connectivity probes',()=>{
     const result=await probeChannel(proxyChannel,settings,[worker]);
     expect(result.status).toBe('online');expect(result.httpStatus).toBe(206);expect(result.elapsedMs).toBe(42);
   });
+  it('classifies a definitive DNS NXDOMAIN as offline when CORS hides the HTTP error',async()=>{
+    const missing={...channel,id:'dead-dns',url:'https://removed-domain.example.invalid/live.m3u8'};
+    vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
+      if(String(input).startsWith('https://dns.google/resolve'))
+        return new Response(JSON.stringify({Status:3,Answer:[]}),{status:200});
+      throw new TypeError('Failed to fetch');
+    }));
+    const result=await probeChannel(missing,settings,[]);
+    expect(result.status).toBe('offline');
+    expect(result.detail).toContain('NXDOMAIN');
+  });
+  it('does not mark a DNS SERVFAIL or timeout as offline',async()=>{
+    const unknown={...channel,id:'dns-servfail',url:'https://temp-dns.example.invalid/live.m3u8'};
+    vi.stubGlobal('fetch',vi.fn(async(input:string|URL)=>{
+      if(String(input).startsWith('https://dns.google/resolve'))
+        return new Response(JSON.stringify({Status:2,Answer:[]}),{status:200});
+      throw new TypeError('Failed to fetch');
+    }));
+    const result=await probeChannel(unknown,settings,[]);
+    expect(result.status).toBe('unknown');
+  });
   it('limits concurrent checks and emits progress for all channels',async()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>new Response(null,{status:200})));
     const repeated=Array.from({length:9},(_,i)=>({...channel,id:`connectivity-${i}`}));

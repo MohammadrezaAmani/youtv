@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, stat, rm } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { join, relative, resolve, sep } from 'node:path';
 import type { Plugin } from 'vite';
@@ -58,7 +58,7 @@ async function classify(full: string): Promise<Pick<LocalSourceEntry, 'kind' | '
   return { kind: 'invalid', channelCount: 0 };
 }
 
-export async function scanSourceCatalog(root = defaultRoot()): Promise<LocalSourceCatalog> {
+export async function scanSourceCatalog(root = defaultRoot(), verifiedOnly = false): Promise<LocalSourceCatalog> {
   const sources: LocalSourceEntry[] = [];
   const folders: LocalSourceFolder[] = [];
   async function visit(dir: string): Promise<void> {
@@ -73,6 +73,10 @@ export async function scanSourceCatalog(root = defaultRoot()): Promise<LocalSour
     };
     folders.push(folder);
     for (const entry of children.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (verifiedOnly && dir === root && entry.name !== '_verified') continue;
+      // The aggregate is served as default.m3u8. Show only individual checked
+      // original sources in the folder UI, otherwise users see duplicates.
+      if (verifiedOnly && dir === join(root, '_verified') && entry.name === 'online.m3u8') continue;
       if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) { await visit(full); continue; }
@@ -105,9 +109,12 @@ export async function scanLocalSources(root = defaultRoot()): Promise<LocalSourc
 
 export function sourceCatalogPlugin(): Plugin {
   let root = defaultRoot();
+  let outputRoot = '';
+  const curated = process.env.YOUTV_CURATED === '1';
+  const catalog = () => scanSourceCatalog(root, curated);
   return {
     name: 'youtv-source-catalog',
-    configResolved(config) { root = resolve(config.root, 'public', 'sources'); },
+    configResolved(config) { root = resolve(config.root, 'public', 'sources'); outputRoot = resolve(config.root, config.build.outDir); },
     configureServer(server) {
       server.watcher.add(root);
       const publish = (path: string) => {
@@ -122,16 +129,31 @@ export function sourceCatalogPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         if (!(req.url || '').split('?')[0]?.endsWith('/sources/index.json')) return next();
         try {
-          const catalog = await scanSourceCatalog(root);
+          const result = await catalog();
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(JSON.stringify(catalog));
+          res.end(JSON.stringify(result));
         } catch (error) { next(error); }
       });
     },
     async generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'sources/index.json', source: JSON.stringify(await scanSourceCatalog(root)) });
+      if (curated && !existsSync(resolve(root, '_verified', 'summary.json'))) {
+        throw new Error('YOUTV_CURATED=1 requires a completed DNS curation report');
+      }
+      this.emitFile({ type: 'asset', fileName: 'sources/index.json', source: JSON.stringify(await catalog()) });
+    },
+    async closeBundle() {
+      // Vite copies public/ verbatim. Remove only the raw source files from the
+      // published bundle; originals remain untouched in git and on disk.
+      if (!curated || !outputRoot) return;
+      const published = resolve(outputRoot, 'sources');
+      if (!existsSync(published)) return;
+      for (const entry of await readdir(published)) {
+        if (entry !== '_verified' && entry !== 'index.json') {
+          await rm(resolve(published, entry), { recursive: true, force: true });
+        }
+      }
     }
   };
 }

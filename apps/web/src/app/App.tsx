@@ -53,6 +53,7 @@ function Shell(){
   const channels=allChannels.filter(c=>isVisibleChannel(c,settings));
   const [builtinError,setBuiltinError]=useState('');
   useEffect(()=>{
+    if(import.meta.env.VITE_YOUTV_CURATED === '1')return;
     if(!settings.defaultPlaylistEnabled || allChannels.some(c=>c.sourceId===BUILTIN_PLAYLIST_ID))return;
     const controller=new AbortController();
     void readBundledPlaylist(controller.signal).then(result=>{
@@ -64,6 +65,52 @@ function Shell(){
     return()=>controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[settings.defaultPlaylistEnabled]);
+  useEffect(()=>{
+    if(import.meta.env.VITE_YOUTV_CURATED !== '1' || !settings.defaultPlaylistEnabled)return;
+    const controller=new AbortController();
+    void (async()=>{
+      const response=await fetch(`${import.meta.env.BASE_URL}sources/_verified/summary.json`,
+        {signal:controller.signal,cache:'no-store',credentials:'omit'});
+      if(!response.ok)throw new Error(`DNS catalog HTTP ${response.status}`);
+      const summary=await response.json() as {digest?:string};
+      if(!summary.digest)throw new Error('Invalid DNS curation summary');
+      const title=`YouTV DNS verified ${summary.digest}`;
+      if(useYoutv.getState().playlists.some(playlist=>playlist.id===BUILTIN_PLAYLIST_ID&&playlist.name===title))return;
+      const result=await readBundledPlaylist(controller.signal);
+      if(controller.signal.aborted)return;
+      const store=useYoutv.getState();
+      store.upsertChannels(result.channels,BUILTIN_PLAYLIST_ID,true);
+      store.savePlaylist({id:BUILTIN_PLAYLIST_ID,name:title,url:'',importedAt:Date.now(),
+        refreshedAt:Date.now(),count:result.channels.length,refreshWorkerId:''});
+    })().catch(error=>{if(!controller.signal.aborted)setBuiltinError(normalizeError(error));});
+    return()=>controller.abort();
+  },[settings.defaultPlaylistEnabled]);
+
+  // Apply definitive DNS-negative results from the build-time scan to existing
+  // imported channels, too. Never mark timeouts, CORS errors or SERVFAIL dead.
+  useEffect(()=>{
+    if(import.meta.env.VITE_YOUTV_CURATED !== '1')return;
+    const controller=new AbortController();
+    void fetch(`${import.meta.env.BASE_URL}sources/_verified/dns-status.json`,
+      {signal:controller.signal,cache:'no-store',credentials:'omit'})
+      .then(async response=>{if(!response.ok)throw new Error('DNS report unavailable');return response.json() as Promise<{generatedAt:string;nxdomain:string[];noAddress:string[]}>;})
+      .then(report=>{
+        if(controller.signal.aborted)return;
+        const dead=new Set([...report.nxdomain,...report.noAddress]);
+        const updates:Record<string,import('@youtv/shared').HealthResult>={};
+        const checkedAt=Date.parse(report.generatedAt)||Date.now();
+        for(const channel of useYoutv.getState().channels){
+          let host='';try{host=new URL(channel.url).hostname.replace(/\.$/,'').toLowerCase();}catch{continue;}
+          if(!dead.has(host))continue;
+          const previous=useYoutv.getState().health[channel.id];
+          if(previous?.checkedAt && previous.checkedAt>checkedAt)continue;
+          updates[channel.id]={status:'offline',mode:'direct',elapsedMs:0,checkedAt,
+            detail:report.nxdomain.includes(host)?'DNS NXDOMAIN':'DNS no A/AAAA address'};
+        }
+        if(Object.keys(updates).length)useYoutv.getState().setHealth(updates);
+      }).catch(()=>{/* DNS report is optional outside curated deployments. */});
+    return()=>controller.abort();
+  },[allChannels.length]);
   const initialScanStarted=useRef(false);
   useEffect(()=>{
     if(!settings.healthCheckOnStartup||initialScanStarted.current||channels.length===0)return;

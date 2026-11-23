@@ -7,6 +7,46 @@ function elapsed(start:number){return Math.max(0,Math.round(performance.now()-st
 function validStatus(status:number){return status>=200 && status<400;}
 function isValidHttpUrl(value:string){try {const u=new URL(value);return u.protocol==='https:'||u.protocol==='http:';}catch{return false;}}
 
+// Public DoH makes a definitive NXDOMAIN observable even when a browser's HTTP
+// request is blocked by CORS. Other DNS failures must remain inconclusive.
+type DnsVerdict='resolved'|'nxdomain'|'no_address'|'uncertain';
+const dnsCache=new Map<string,{at:number;value:Promise<DnsVerdict>}>();
+async function checkDns(hostname:string):Promise<DnsVerdict>{
+  const host=hostname.replace(/\.$/,'').toLowerCase();
+  if(!host||host.includes(':')||/^\d+\.\d+\.\d+\.\d+$/.test(host))return 'uncertain';
+  const existing=dnsCache.get(host);
+  if(existing&&Date.now()-existing.at<300_000)return existing.value;
+  const lookup=(async():Promise<DnsVerdict>=>{
+    let noAddress=0;
+    for(const type of ['A','AAAA'] as const){
+      try{
+        const endpoint=new URL('https://dns.google/resolve');
+        endpoint.searchParams.set('name',host);endpoint.searchParams.set('type',type);
+        const response=await fetch(endpoint.toString(),{cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(4000)});
+        if(!response.ok)return 'uncertain';
+        const value=await response.json() as {Status?:number;Answer?:{type?:number}[]};
+        if(value.Status===3)return 'nxdomain';
+        if(value.Status!==0)return 'uncertain';
+        if(value.Answer?.some(answer=>answer.type===(type==='A'?1:28)))return 'resolved';
+        noAddress++;
+      }catch{return 'uncertain';}
+    }
+    return noAddress===2?'no_address':'uncertain';
+  })();
+  dnsCache.set(host,{at:Date.now(),value:lookup});
+  void lookup.then(result=>{if(result==='uncertain'&&dnsCache.get(host)?.value===lookup)dnsCache.delete(host);});
+  return lookup;
+}
+async function dnsFailure(channel:Channel,started:number):Promise<HealthResult|undefined>{
+  try{
+    const host=new URL(channel.url).hostname;
+    const result=await checkDns(host);
+    if(result!=='nxdomain'&&result!=='no_address')return undefined;
+    return {status:'offline',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),
+      detail:result==='nxdomain'?`DNS NXDOMAIN: ${host}`:`DNS has no A/AAAA record: ${host}`};
+  }catch{return undefined;}
+}
+
 /** Browser health checks are HTTP probes, NOT ICMP. CORS failures are unknown, not "offline". */
 export async function probeChannel(channel:Channel, settings:Settings, workers:WorkerProfile[], signal?:AbortSignal):Promise<HealthResult>{
   const started=performance.now();
@@ -27,7 +67,10 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
       return {status:'unknown',mode:'proxy',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:signal?.aborted?'Cancelled':error instanceof Error?error.message:'Proxy unreachable'};
     }
   };
-  if(useProxy)return viaProxy();
+  if(useProxy){
+    const result=await viaProxy();
+    return result.status==='unknown'&&!signal?.aborted?(await dnsFailure(channel,started))??result:result;
+  }
   try{
     const response=await fetch(channel.url,{method:'HEAD',mode:'cors',credentials:'omit',redirect:'follow',cache:'no-store',signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(TIMEOUT_MS)])});
     if(response.status===405||response.status===501){
@@ -37,7 +80,14 @@ export async function probeChannel(channel:Channel, settings:Settings, workers:W
     }
     return {status:validStatus(response.status)?'online':'offline',mode:'direct',httpStatus:response.status,elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'HTTP probe completed'};
   }catch(error){
-    if(worker?.token&&!signal?.aborted){const result=await viaProxy();return {...result,detail:result.detail||'Direct probe inconclusive; checked through Worker'};}
+    if(signal?.aborted)return {status:'unknown',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:'Cancelled'};
+    if(worker?.token){
+      const result=await viaProxy();
+      if(result.status!=='unknown')return result;
+      const dns=await dnsFailure(channel,started);if(dns)return dns;
+      return {...result,detail:result.detail||'Direct probe inconclusive; checked through Worker'};
+    }
+    const dns=await dnsFailure(channel,started);if(dns)return dns;
     return {status:'unknown',mode:'direct',elapsedMs:elapsed(started),checkedAt:Date.now(),detail:signal?.aborted?'Cancelled':error instanceof Error?error.message:'CORS or network restriction'};
   }
 }

@@ -9,3 +9,8 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 pnpm-debug.log
+# Regenerable DNS-vetted sources and recoverable CI archives
+apps/web/public/sources/_verified/
+.artifacts/
+__pycache__/
+*.pyc

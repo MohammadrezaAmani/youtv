@@ -5,7 +5,11 @@ export const DEFAULT_PLAYLIST_URL = `${import.meta.env.BASE_URL}default.m3u8`;
 export const FOLDER_SOURCE_PREFIX = 'youtv:folder:';
 export function isVisibleChannel(channel: Channel, settings: Pick<Settings,'defaultPlaylistEnabled'|'folderSourceEnabled'>): boolean {
   if(channel.sourceId===BUILTIN_PLAYLIST_ID)return settings.defaultPlaylistEnabled;
-  if(channel.sourceId.startsWith(FOLDER_SOURCE_PREFIX))return settings.folderSourceEnabled[channel.sourceId.slice(FOLDER_SOURCE_PREFIX.length)]===true;
+  if(channel.sourceId.startsWith(FOLDER_SOURCE_PREFIX)){
+    const file = channel.sourceId.slice(FOLDER_SOURCE_PREFIX.length);
+    if (import.meta.env.VITE_YOUTV_CURATED === '1' && !file.startsWith('_verified/')) return false;
+    return settings.folderSourceEnabled[file]===true;
+  }
   return true;
 }
 export async function readBundledPlaylist(signal?: AbortSignal) {

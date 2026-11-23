@@ -1,3 +1,12 @@
+## v0.20.0 — DNS-aware status and curated GitHub Pages sources
+- Classify confirmed DNS NXDOMAIN/no A/AAAA as offline during browser scans (DoH fallback after inconclusive HTTP), not unknown. Never classify SERVFAIL/timeout as dead.
+- Merge IPTV sources with full EXTINF / VLC / Kodi metadata, remove duplicate stream identities without conflating different required HTTP headers, and resolve each distinct public hostname just once.
+- Deploy only A/AAAA-resolved streams from GitHub Actions, keep original source files untouched, and publish a curation summary with verifiable provenance.
+- Preserve per-source enable toggles, folder structure and README.md documentation for DNS-screened collections.
+- Keep permanent originals in git and upload recoverable NXDOMAIN/no-address/uncertain/private/duplicate archives and audit reports as workflow artifacts.
+- Replace the built-in playlist only in the disposable CI checkout; refresh existing browser-local bundled lists by the curation digest without losing saved favorites.
+- Never treat DNS resolution as proof of HTTP access, codec support or working playback.
+
 ## v0.18.0 — Installable PWA, offline UI and iOS keyboard behavior
 - Built PWA manifest and service worker with GitHub Pages subpath awareness.
 - Added iOS Home Screen and Android/desktop PWA icon sets, including maskable artwork.
