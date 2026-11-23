@@ -7,9 +7,22 @@ export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, toke
   if (!/^\uFEFF?\s*#EXTM3U(?:\r?\n|$)/.test(manifest)) {
     throw new Error('Response is not an HLS playlist (#EXTM3U missing)');
   }
-  const replace = (uri: string): string => {
-    const resolved = new URL(uri, sourceUrl);
-    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') throw new Error('HLS URI must use HTTP(S)');
+  // HLS metadata and keys may contain non-network URIs (e.g. inline
+  // data: keys/session metadata, or skd: FairPlay identifiers). Those are
+  // consumed by the player, not fetched through this Worker. Keep them
+  // unchanged instead of rejecting the entire live playlist.
+  const replace = (uri: string, attribute = false): string => {
+    let resolved: URL;
+    try { resolved = new URL(uri, sourceUrl); }
+    catch { throw new Error('Invalid HLS URI'); }
+    if (resolved.protocol === 'data:' || (attribute && (resolved.protocol === 'skd:' || resolved.protocol === 'urn:'))) {
+      return uri;
+    }
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+      // Never emit dangerous or unsupported schemes (javascript:, file:,
+      // ftp:, etc.) into the browser's playable playlist.
+      throw new Error(`Unsupported HLS URI scheme: ${resolved.protocol}`);
+    }
     const out = new URL(proxyUrl);
     out.searchParams.set('url', resolved.toString());
     if (token) out.searchParams.set('key', token);
@@ -24,9 +37,11 @@ export function rewriteHls(manifest: string, sourceUrl: URL, proxyUrl: URL, toke
     // e.g. #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
     // URI attributes can appear at any position, and may contain escaped quotes.
     if (!/^#EXT-X-[\w-]+:/i.test(trimmed)) return line;
-    return line.replace(/(^|[,:])URI="((?:[^"\\]|\\.)*)"/g, (_match, prefix: string, uri: string) => {
+    return line.replace(/(^|[,:])URI="((?:[^"\\]|\\.)*)"/g, (match: string, prefix: string, uri: string) => {
       const decoded = uri.replace(/\\"/g, '"');
-      return `${prefix}URI="${replace(decoded)}"`;
+      const updated = replace(decoded, true);
+      // Do not alter quoting/escaping of inline data and DRM identifiers.
+      return updated === decoded ? match : `${prefix}URI="${updated}"`;
     });
   }).join(manifest.includes('\r\n') ? '\r\n' : '\n');
 }

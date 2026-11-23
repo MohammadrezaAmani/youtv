@@ -31,6 +31,29 @@ test('worker manifest response honors CORS and rewrite',async(t)=>{
   assert.equal(result.status,200);assert.equal(result.headers.get('Access-Control-Allow-Origin'),'https://mohammadrezaamani.github.io');
   const s=await result.text();assert.ok(s.includes('seg0.ts'));assert.ok(s.includes('youtv.workers.dev/proxy?'));
 });
+test('Worker keeps inline HLS metadata/keys, rewrites real URLs and returns CORS success',async(t)=>{
+  const previous=globalThis.fetch;
+  const realSource='https://ncdn.telewebion.ir/hdtest/live/playlist.m3u8';
+  const manifest=[
+    '#EXTM3U',
+    '#EXT-X-SESSION-DATA:DATA-ID="com.example.test",URI="data:application/json;base64,eyJvayI6dHJ1ZX0="',
+    '#EXT-X-KEY:METHOD=AES-128,URI="data:application/octet-stream;base64,AQID"',
+    '#EXTINF:5,',
+    'seg-001.ts',
+    '',
+  ].join('\n');
+  globalThis.fetch=async()=>new Response(manifest,{status:200,headers:{'Content-Type':'application/vnd.apple.mpegurl'}});
+  t.after(()=>{globalThis.fetch=previous;});
+  const url=new URL(endpoint);url.searchParams.set('url',realSource);url.searchParams.set('hls','1');
+  const response=await worker.fetch(new Request(url,{headers:{Origin:'https://mohammadrezaamani.github.io'}}),{ALLOWED_HOSTS:'*'});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://mohammadrezaamani.github.io');
+  const output=await response.text();
+  assert.ok(output.includes('URI="data:application/json;base64,eyJvayI6dHJ1ZX0="'));
+  assert.ok(output.includes('URI="data:application/octet-stream;base64,AQID"'));
+  const segment=output.split('\n')[4];
+  assert.equal(new URL(segment).searchParams.get('url'),'https://ncdn.telewebion.ir/hdtest/live/seg-001.ts');
+});
 test('binary data and HTTP 206 are passed through without modification',async(t)=>{
   const old=globalThis.fetch;
   globalThis.fetch=async () =>new Response(new Uint8Array([4,1,9]),{status:206,headers:{'Content-Range':'bytes 0-2/100','Content-Type':'video/mp2t'}});
@@ -162,5 +185,5 @@ test('passwordless /probe, /text and CORS preflight work with localhost defaults
   assert.equal(textResponse.status,200);assert.match(await textResponse.text(),/#EXTM3U/);
   assert.equal(textResponse.headers.get('Access-Control-Allow-Origin'),origin);
   const health=await worker.fetch(new Request('https://youtv.workers.dev/health'),open);
-  assert.equal((await health.json()).version,'0.25.0');
+  assert.match((await health.json()).version,/^\d+\.\d+\.\d+$/);
 });

@@ -20,6 +20,38 @@ describe('HLS manifest rewrite',()=>{
     expect(result).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Faudio%2Feng.m3u8');
     expect(result).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Fpart1.m4s');
   });
+  it('passes through inline data URI keys/session metadata while proxying Telewebion-style media segments',()=>{
+    const manifest=[
+      '#EXTM3U',
+      '#EXT-X-VERSION:6',
+      '#EXT-X-SESSION-DATA:DATA-ID="com.example.payload",URI="data:application/json;base64,eyJvayI6dHJ1ZX0="',
+      '#EXT-X-KEY:METHOD=AES-128,URI="data:application/octet-stream;base64,AQIDBA=="',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXTINF:6,',
+      'segment0001.ts?token=abc',
+      '',
+    ].join('\n');
+    const result=rewriteHls(manifest,new URL('https://ncdn.telewebion.ir/hdtest/live/playlist.m3u8'),proxy,'');
+    expect(result).toContain('URI="data:application/json;base64,eyJvayI6dHJ1ZX0="');
+    expect(result).toContain('URI="data:application/octet-stream;base64,AQIDBA=="');
+    const segment=result.split('\n')[6]!;
+    expect(new URL(segment).searchParams.get('url')).toBe('https://ncdn.telewebion.ir/hdtest/live/segment0001.ts?token=abc');
+    expect(new URL(segment).searchParams.has('key')).toBe(false);
+  });
+  it('leaves non-HTTP FairPlay key identifiers intact without accidentally proxying them',()=>{
+    const result=rewriteHls('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://license.example/key-id"\n#EXTINF:4,\nfrag.ts',source,proxy,token);
+    expect(result).toContain('URI="skd://license.example/key-id"');
+    expect(result).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Ffrag.ts');
+  });
+  it('allows inline data media without leaking a proxy URL but rejects dangerous schemes',()=>{
+    const manifest='#EXTM3U\n#EXTINF:1,\ndata:video/mp2t;base64,AQIDBA==';
+    const result=rewriteHls(manifest,source,proxy,'');
+    expect(result).toContain('data:video/mp2t;base64,AQIDBA==');
+    for(const path of ['javascript:alert(1)','file:///etc/passwd','ftp://public.example/media.ts']){
+      expect(()=>rewriteHls(`#EXTM3U\n#EXTINF:2,\n${path}`,source,proxy,'')).toThrow(/Unsupported HLS URI scheme/);
+    }
+    expect(()=>rewriteHls('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="javascript:alert(1)"',source,proxy,'')).toThrow(/Unsupported HLS URI scheme/);
+  });
   it('rejects not-HLS input',()=>expect(()=>rewriteHls('hello',source,proxy,token)).toThrow());
   it('detects HLS from path and mime',()=>{
     expect(isHls(source,'application/octet-stream')).toBe(true);

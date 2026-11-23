@@ -4,7 +4,7 @@ import {cloudflareAdmin} from './cloudflare.ts';
 
 export interface Env extends ProxyEnv {}
 const MAX_REDIRECTS = 4;
-const VERSION = '0.29.0';
+const VERSION = '0.30.1';
 
 function json(request: Request, env: Env, value: object, status = 200): Response {
   const headers = corsHeaders(request, env);
