@@ -102,7 +102,7 @@ function metadataFromAttrs(attrs:Record<string,string>,base:IptvMetadata):IptvMe
   appendEpgUrls(data.epgUrls,attrs['x-tvg-url']||attrs['url-tvg']||'');
   if(attrs['user-agent'])data.userAgent=attrs['user-agent'];
   if(attrs['http-user-agent'])data.userAgent=attrs['http-user-agent'];
-  if(attrs.referer||attrs.referrer)data.referer=attrs.referer||attrs.referrer;
+  if(attrs.referer||attrs.referrer)data.referer=attrs.referer||attrs.referrer||'';
   return data;
 }
 
