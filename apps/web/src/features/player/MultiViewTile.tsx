@@ -4,7 +4,7 @@ import {Maximize2,Minimize2,Pause,Play,RefreshCw,Volume2,VolumeX,X} from 'lucide
 import type {Channel} from '@youtv/shared';
 import {ActionButton} from '@/components/ui/action-button';
 import {activeWorker,resolveStream,effectiveConnectionMode} from '@/lib/proxy';
-import {LIVE_HLS_PROFILE} from './liveBuffer';
+import {getHlsProfile} from './liveBuffer';
 import {isProbablyHls} from './mediaUtils';
 import {isAppleMobileBrowser,isBlockedMixedMedia,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 import {useYoutv} from '@/stores/useYoutv';
@@ -63,7 +63,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
       else {setStatus('error');setError('This HTTP media requires an active HTTPS Worker; keep its original HTTP URL.');}
     }else if(playbackEngine==='hlsjs'){
       video.crossOrigin='anonymous';
-      engine=new Hls({...LIVE_HLS_PROFILE,maxBufferLength:24,maxMaxBufferLength:42,capLevelToPlayerSize:true});
+      engine=new Hls({...getHlsProfile(settings.hlsLatencyMode),maxBufferLength:settings.hlsLatencyMode==='low'?16:24,maxMaxBufferLength:settings.hlsLatencyMode==='low'?32:42,capLevelToPlayerSize:true});
       engine.on(Hls.Events.MANIFEST_PARSED,tryPlay);
       engine.on(Hls.Events.ERROR,(_event,data)=>{
         if(disposed||!data.fatal)return;
@@ -89,7 +89,7 @@ export default function MultiViewTile({channel,audible,onAudio,onFocus,onRemove,
     };
     // Reinitialization depends on channel/source and explicit retry, not on audio selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[channel.id,url,hls,retries,playbackEngine]);
+  },[channel.id,url,hls,retries,playbackEngine,settings.hlsLatencyMode]);
 
   return <section className={`multiview-tile ${primary?'is-primary':''} ${expanded?'is-expanded':''}`}>
     <div className="multiview-head">

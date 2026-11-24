@@ -63,6 +63,30 @@ export const LIVE_HLS_PROFILE = {
   capLevelToPlayerSize: false
 } as const;
 
+/** Explicit opt-in for LL-HLS. The default remains reliable, buffered playback.
+ * The Worker preserves the delivery directives needed by blocking reloads.
+ */
+export const LOW_LATENCY_HLS_PROFILE = {
+  ...SLOW_NETWORK_HLS_POLICY,
+  enableWorker: true,
+  startFragPrefetch: true,
+  autoStartLoad: true,
+  lowLatencyMode: true,
+  maxBufferLength: 16,
+  maxMaxBufferLength: 48,
+  maxBufferSize: 32 * 1024 * 1024,
+  backBufferLength: 12,
+  liveSyncDurationCount: 3,
+  liveMaxLatencyDurationCount: 7,
+  maxLiveSyncPlaybackRate: 1.1,
+  maxBufferHole: 0.35,
+  capLevelToPlayerSize: false
+} as const;
+
+export function getHlsProfile(mode: 'stable' | 'low') {
+  return mode === 'low' ? LOW_LATENCY_HLS_PROFILE : LIVE_HLS_PROFILE;
+}
+
 /** Suppress player resets while a media segment is actively downloading. */
 export function hasActiveFragmentLoading(starts:Iterable<number>,now:number,maximumMs=210000):boolean {
   for(const started of starts){

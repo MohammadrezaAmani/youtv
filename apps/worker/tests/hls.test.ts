@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rewriteHls, isHls } from '../src/hls.ts';
+import { rewriteHls, isHls, parseHlsVariables, rewriteSteeringJson } from '../src/hls.ts';
 import { assertAllowedUrl, assertToken, allowedOrigin, ProxyError } from '../src/security.ts';
 const source = new URL('https://live.example.com/hls/ch/main.m3u8?auth=abcd');
 const proxy = new URL('https://proxy.example.workers.dev/proxy');
@@ -90,6 +90,28 @@ describe('HLS manifest rewrite',()=>{
     expect(output).toContain('#EXTINF:6,');
     expect(output).toContain('#EXT-X-ENDLIST');
     expect(output).toContain('https%3A%2F%2Flive.example.com%2Fhls%2Fch%2Fsegment.ts');
+  });
+  it('resolves DEFINE variables before URI rewriting and propagates them to media playlists',()=>{
+    const text='#EXTM3U\n#EXT-X-DEFINE:NAME="folder",VALUE="sub"\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\n{$folder}/level.m3u8';
+    const output=rewriteHls(text,source,proxy,'');
+    const nested=new URL(output.split('\n').at(-1)!);
+    expect(nested.searchParams.get('url')).toBe('https://live.example.com/hls/ch/sub/level.m3u8');
+    expect(parseHlsVariables(nested.searchParams.get('vars')).folder).toBe('sub');
+  });
+  it('proxies PREFETCH, Content Steering and LL-HLS attribute URI resources',()=>{
+    const text='#EXTM3U\n#EXT-X-CONTENT-STEERING:SERVER-URI="steer.json"\n#EXT-X-PREFETCH:next.ts\n#EXT-X-PART:URI="part.m4s",DURATION=0.5';
+    const output=rewriteHls(text,source,proxy,'');
+    expect(output).toContain('steer=1');
+    expect(output).toContain('#EXT-X-PREFETCH:https://proxy.example.workers.dev/proxy?');
+    expect(output).toContain('part.m4s');
+    expect(output).toContain('next.ts');
+  });
+  it('preserves proxy host for Content Steering pathway clones',()=>{
+    const upstream=new URL('https://live.example.com/hls/steer.json');
+    const input=JSON.stringify({VERSION:1,'PATHWAY-PRIORITY':['clone'],'PATHWAY-CLONES':[{'BASE-ID':'base',ID:'clone','URI-REPLACEMENT':{HOST:'cdn.example.net'}}]});
+    const transformed=JSON.parse(rewriteSteeringJson(input,upstream,proxy,''));
+    expect(transformed['PATHWAY-CLONES'][0]['URI-REPLACEMENT'].HOST).toBeUndefined();
+    expect(transformed['PATHWAY-CLONES'][0]['URI-REPLACEMENT'].PARAMS._youtv_steer).toContain('cdn.example.net');
   });
   it('rejects not-HLS input',()=>expect(()=>rewriteHls('hello',source,proxy,token)).toThrow());
   it('detects HLS from path and mime',()=>{

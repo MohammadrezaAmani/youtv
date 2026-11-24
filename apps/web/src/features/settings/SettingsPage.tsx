@@ -72,6 +72,13 @@ export default function SettingsPage(){
           <label className="checkbox-row"><Checkbox checked={settings.autoReconnect} onChange={e=>update({autoReconnect:e.target.checked})}/>{settings.language==='fa'?'اتصال مجدد خودکار بدون زدن Continue':'Automatically reconnect on playback failure'}</label>
           <label>{settings.language==='fa'?'حداکثر تلاش مجدد':'Reconnect attempts'}<Select className="ui-input" value={settings.reconnectMaxAttempts} onChange={e=>update({reconnectMaxAttempts:Number(e.target.value)})}>{[3,5,8,12].map(n=><SelectOption key={n} value={n}>{n}</SelectOption>)}</Select></label>
           <label>{settings.language==='fa'?'کیفیت ترجیحی':'Preferred quality'}<Select className="ui-input" value={settings.preferredQuality} onChange={e=>update({preferredQuality:e.target.value==='auto'?'auto':Number(e.target.value)})}><SelectOption value="auto">Auto (adaptive)</SelectOption>{[240,360,480,720,1080,1440,2160].map(n=><SelectOption key={n} value={n}>{n}p</SelectOption>)}</Select></label>
+          <label>{settings.language==='fa'?'حالت پخش HLS':'HLS playback mode'}
+            <Select className="ui-input" value={settings.hlsLatencyMode} onChange={e=>update({hlsLatencyMode:e.target.value as Settings['hlsLatencyMode']})}>
+              <SelectOption value="stable">{settings.language==='fa'?'پایدار (مناسب اینترنت کند)':'Stable (recommended for slow networks)'}</SelectOption>
+              <SelectOption value="low">{settings.language==='fa'?'کم‌تأخیر (LL-HLS)':'Low latency (LL-HLS)'}</SelectOption>
+            </Select>
+          </label>
+          <p className="muted">{settings.language==='fa'?'حالت کم‌تأخیر فقط برای منابع سازگار با LL-HLS کاربرد دارد و ممکن است در اینترنت کند بافر بیشتری ایجاد کند.':'Low latency requires compatible HLS sources and may increase buffering on slow connections.'}</p>
           <label>{settings.language==='fa'?'بیت‌ریت ضبط':'Recording bitrate'}
             <Select className="ui-input" value={settings.recordingBitrate} onChange={e=>update({recordingBitrate:Number(e.target.value)})}>
               {[1_500_000,3_000_000,4_000_000,6_000_000,10_000_000].map(rate=><SelectOption key={rate} value={rate}>{rate/1_000_000} Mbps</SelectOption>)}

@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "tsc --noEmit",
-    "test": "vitest run tests/*.test.ts && bun test tests/smoke.test.mjs tests/dashboard.integration.test.mjs"
+    "test": "vitest run tests/*.test.ts && bun test tests/smoke.test.mjs tests/dashboard.integration.test.mjs tests/extended-hls.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261121.1",

@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead,hasActiveFragmentLoading} from '../features/player/liveBuffer';
+import {LIVE_HLS_PROFILE,getHlsProfile,recoveryTarget,secondsBufferedAhead,hasActiveFragmentLoading} from '../features/player/liveBuffer';
 function ranges(...items:[number,number][]):Pick<TimeRanges,'length'|'start'|'end'>{
   return {length:items.length,start:index=>items[index]![0],end:index=>items[index]![1]};
 }
@@ -43,5 +43,16 @@ describe('Slow HLS network tolerance',()=>{
     expect(LIVE_HLS_PROFILE.playlistLoadPolicy.default.maxTimeToFirstByteMs).toBeGreaterThan(8000);
     expect(LIVE_HLS_PROFILE.manifestLoadPolicy.default.maxLoadTimeMs).toBeGreaterThan(20000);
     expect(LIVE_HLS_PROFILE.lowLatencyMode).toBe(false);
+  });
+});
+
+describe('Selectable HLS latency profiles',()=>{
+  it('defaults to stable buffered HLS on slower connections',()=>{
+    expect(getHlsProfile('stable').lowLatencyMode).toBe(false);
+    expect(getHlsProfile('stable').maxBufferLength).toBeGreaterThan(30);
+  });
+  it('enables low latency explicitly without changing the stable profile',()=>{
+    expect(getHlsProfile('low').lowLatencyMode).toBe(true);
+    expect(getHlsProfile('low').maxBufferLength).toBeLessThan(getHlsProfile('stable').maxBufferLength);
   });
 });

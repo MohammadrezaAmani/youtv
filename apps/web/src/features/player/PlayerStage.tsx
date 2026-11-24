@@ -12,7 +12,7 @@ import {activeWorker,proxyUrl,resolveStream,effectiveConnectionMode,needsHttpsRe
 import {isProbablyHls,secondsToClock,srtToVtt} from './mediaUtils';
 import {TeletextPanel} from './TeletextPanel';
 import {useLocalRecorder} from '@/features/recording/useLocalRecorder';
-import {LIVE_HLS_PROFILE,recoveryTarget,secondsBufferedAhead,hasActiveFragmentLoading} from './liveBuffer';
+import {getHlsProfile,recoveryTarget,secondsBufferedAhead,hasActiveFragmentLoading} from './liveBuffer';
 import {readableBytes} from '@/features/recording/recorder';
 import {isAppleMobileBrowser,isBlockedMixedMedia,isInterruptedPlay,needsUserPlayGesture,selectPlaybackEngine} from './playbackSupport';
 import {enterPlayerFullscreen,isElementFullscreen,isPlayerFullscreen,togglePlayerFullscreen} from './fullscreen';
@@ -246,7 +246,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
       setStatus('error');setError(tr('این کانال HTTP است. برای پخش روی GitHub Pages یک Worker فعال با آدرس HTTPS لازم است؛ آدرس اصلی کانال را تغییر نده.','An active HTTPS Worker is required to relay this HTTP stream on GitHub Pages. Keep the original HTTP source URL.'));return;
     }
     if(playbackEngine==='hlsjs'){
-      const engine=new Hls({...LIVE_HLS_PROFILE});hlsRef.current=engine;
+      const engine=new Hls({...getHlsProfile(settings.hlsLatencyMode)});hlsRef.current=engine;
       engine.on(Hls.Events.MANIFEST_PARSED,(_,data)=>{
         if(disposed)return;
         const levels=data.levels.map((level,i)=>({id:i,height:level.height||0,bitrate:level.bitrate||0,name:[level.height?`${level.height}p`:'',level.bitrate?`${Math.round(level.bitrate/1000)} kbps`:''].filter(Boolean).join(' · ')||`Level ${i+1}`}));
@@ -301,7 +301,7 @@ export default function PlayerStage({channel,bottomActions}:{channel:Channel;bot
     return()=>{disposed=true;inFlightFragmentsRef.current.clear();if(playbackEpochRef.current===playbackEpoch)playbackEpochRef.current++;const engine=hlsRef.current;if(engine){engine.destroy();hlsRef.current=null;}video.removeAttribute('src');video.load();};
     // Playback changes only when channel/URL/retry changes, not volume, language or settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[streamUrl,attempt,channel.id,hls,playbackEngine]);
+  },[streamUrl,attempt,channel.id,hls,playbackEngine,settings.hlsLatencyMode]);
 
   useEffect(()=>{
     if(hls)return;

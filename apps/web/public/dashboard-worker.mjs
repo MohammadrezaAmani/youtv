@@ -1,4 +1,4 @@
-// YouTV Worker bundle version: v0.32.0
+// YouTV Worker bundle version: v0.33.1
 // apps/worker/src/security.ts
 class ProxyError extends Error {
   status;
@@ -94,23 +94,168 @@ function corsHeaders(request, env) {
 }
 
 // apps/worker/src/hls.ts
-function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints) {
-  if (!/^\uFEFF?\s*#EXTM3U(?:\r?\n|$)/.test(manifest)) {
-    throw new Error("Response is not an HLS playlist (#EXTM3U missing)");
+var VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+var VARIABLE_PATTERN = /\{\$([A-Za-z_][A-Za-z0-9_-]{0,63})\}/g;
+var MAX_VARIABLES = 32;
+var MAX_VARIABLE_BYTES = 3072;
+var MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+var URI_ATTRIBUTES = {
+  "EXT-X-KEY": ["URI"],
+  "EXT-X-SESSION-KEY": ["URI"],
+  "EXT-X-SESSION-DATA": ["URI"],
+  "EXT-X-MAP": ["URI"],
+  "EXT-X-MEDIA": ["URI"],
+  "EXT-X-I-FRAME-STREAM-INF": ["URI"],
+  "EXT-X-IMAGE-STREAM-INF": ["URI"],
+  "EXT-X-PART": ["URI"],
+  "EXT-X-PRELOAD-HINT": ["URI"],
+  "EXT-X-RENDITION-REPORT": ["URI"],
+  "EXT-X-CONTENT-STEERING": ["SERVER-URI"],
+  "EXT-X-DATERANGE": ["X-ASSET-URI", "X-ASSET-LIST"],
+  "EXT-X-INTERSTITIAL": ["URI"]
+};
+var PLAYLIST_URI_TAGS = new Set(["EXT-X-MEDIA", "EXT-X-I-FRAME-STREAM-INF", "EXT-X-IMAGE-STREAM-INF", "EXT-X-RENDITION-REPORT"]);
+var SAFE_INLINE_TAGS = new Set(["EXT-X-KEY", "EXT-X-SESSION-KEY", "EXT-X-SESSION-DATA"]);
+var INLINE_MEDIA_TAGS = new Set([
+  "EXT-X-MAP",
+  "EXT-X-PART",
+  "EXT-X-PRELOAD-HINT",
+  "EXT-X-PREFETCH",
+  "EXT-X-MEDIA",
+  "EXT-X-I-FRAME-STREAM-INF",
+  "EXT-X-IMAGE-STREAM-INF"
+]);
+function attributeParts(value) {
+  const parts = [];
+  let start = 0, quoted = false, escaped = false;
+  for (let i = 0;i < value.length; i++) {
+    const ch = value[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quoted) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (ch === "," && !quoted) {
+      parts.push(value.slice(start, i));
+      start = i + 1;
+    }
   }
-  const replace = (uri, attribute = false) => {
-    let resolved;
-    try {
-      resolved = new URL(uri, sourceUrl);
-    } catch {
-      throw new Error("Invalid HLS URI");
-    }
-    if (resolved.protocol === "data:" || attribute && (resolved.protocol === "skd:" || resolved.protocol === "urn:")) {
-      return uri;
-    }
-    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
-      throw new Error(`Unsupported HLS URI scheme: ${resolved.protocol}`);
-    }
+  parts.push(value.slice(start));
+  return parts;
+}
+function attribute(part) {
+  const eq = part.indexOf("=");
+  if (eq < 1)
+    return null;
+  const name = part.slice(0, eq).trim().toUpperCase();
+  const raw = part.slice(eq + 1).trim();
+  const quoted = raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2;
+  return { name, value: quoted ? raw.slice(1, -1).replace(/\\"/g, '"') : raw, quoted };
+}
+function attributes(value) {
+  const result = new Map;
+  for (const part of attributeParts(value)) {
+    const item = attribute(part);
+    if (item)
+      result.set(item.name, item.value);
+  }
+  return result;
+}
+function safeVariables(vars) {
+  if (!vars || typeof vars !== "object" || Array.isArray(vars))
+    throw new Error("Invalid HLS variable map");
+  const result = Object.create(null);
+  for (const [name, value] of Object.entries(vars)) {
+    if (!VARIABLE_NAME.test(name) || typeof value !== "string" || value.length > 1024)
+      throw new Error("Invalid HLS variable definition");
+    result[name] = value;
+    if (Object.keys(result).length > MAX_VARIABLES || JSON.stringify(result).length > MAX_VARIABLE_BYTES)
+      throw new Error("Too many HLS variables");
+  }
+  return result;
+}
+function parseHlsVariables(raw) {
+  if (!raw)
+    return Object.create(null);
+  if (raw.length > MAX_VARIABLE_BYTES * 3)
+    throw new Error("HLS variables are too large");
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid HLS variables");
+  }
+  return safeVariables(value);
+}
+function substitute(value, vars) {
+  let result = value;
+  for (let i = 0;i < 8; i++) {
+    let replaced = false;
+    result = result.replace(VARIABLE_PATTERN, (_match, name) => {
+      if (!Object.hasOwn(vars, name))
+        throw new Error(`Undefined HLS variable: ${name}`);
+      replaced = true;
+      return vars[name];
+    });
+    if (!replaced)
+      return result;
+  }
+  if (result.includes("{$"))
+    throw new Error("Recursive HLS variable definition");
+  return result;
+}
+function resourceUrl(uri, source, tag, attributeName) {
+  const input = uri.trim();
+  let resolved;
+  try {
+    resolved = new URL(input, source);
+  } catch {
+    throw new Error("Invalid HLS URI");
+  }
+  const inlineMedia = tag === "" && attributeName === "" || INLINE_MEDIA_TAGS.has(tag) && (attributeName === "URI" || tag === "EXT-X-PREFETCH" && attributeName === "");
+  if (resolved.protocol === "data:" && (SAFE_INLINE_TAGS.has(tag) && input.length <= 2048 || inlineMedia && input.length <= MAX_MANIFEST_BYTES))
+    return null;
+  if ((resolved.protocol === "skd:" || resolved.protocol === "urn:") && (tag === "EXT-X-KEY" || tag === "EXT-X-SESSION-KEY") && attributeName === "URI")
+    return null;
+  if (resolved.protocol !== "http:" && resolved.protocol !== "https:")
+    throw new Error(`Unsupported HLS URI scheme: ${resolved.protocol}`);
+  if (resolved.username || resolved.password)
+    throw new Error("Credentials in HLS URI are forbidden");
+  return resolved;
+}
+function normalizeDirective(line) {
+  const trimmed = line.trim();
+  if (trimmed.startsWith("#"))
+    return line;
+  if (/^(?:EXTM3U|EXTINF(?::.*)?|EXT-X-[A-Z0-9-]+(?::.*)?)$/i.test(trimmed))
+    return line.replace(trimmed, `#${trimmed}`);
+  return line;
+}
+function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints, inherited = {}) {
+  if (new TextEncoder().encode(manifest).byteLength > MAX_MANIFEST_BYTES)
+    throw new Error("HLS manifest too large");
+  const source = manifest.replace(/^\uFEFF/, "");
+  const originalLines = source.split(/\r?\n/);
+  if (normalizeDirective(originalLines[0] || "").trim() !== "#EXTM3U")
+    throw new Error("Response is not an HLS playlist (#EXTM3U missing)");
+  const parent = safeVariables(inherited);
+  const vars = Object.create(null);
+  const newline = manifest.includes(`\r
+`) ? `\r
+` : `
+`;
+  const rewriteUrl = (raw, tag, attrName = "", isPlaylist = false) => {
+    const expanded = substitute(raw, vars);
+    const resolved = resourceUrl(expanded, sourceUrl, tag, attrName);
+    if (!resolved)
+      return expanded;
     const out = new URL(proxyUrl);
     out.searchParams.set("url", resolved.toString());
     if (token)
@@ -119,44 +264,234 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints) {
       out.searchParams.set("ua", hints.userAgent);
     if (hints?.referer)
       out.searchParams.set("ref", hints.referer);
+    if (tag === "EXT-X-CONTENT-STEERING")
+      out.searchParams.set("steer", "1");
+    if (tag === "EXT-X-DATERANGE" && attrName === "X-ASSET-LIST")
+      out.searchParams.set("asset", "1");
+    if (isPlaylist) {
+      out.searchParams.set("hls", "1");
+      if (Object.keys(vars).length)
+        out.searchParams.set("vars", JSON.stringify(safeVariables(vars)));
+    }
     return out.toString();
   };
-  return manifest.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
+  let pendingPlaylistUri = false;
+  const output = originalLines.map((original) => {
+    const normalized = normalizeDirective(original);
+    const trimmed = normalized.trim();
     if (!trimmed)
-      return line;
-    const bareTag = /^(?:EXTM3U$|EXTINF:|EXT-X-[A-Z0-9-]+(?::|$))/i.test(trimmed);
-    const normalized = bareTag ? line.replace(trimmed, `#${trimmed}`) : line;
-    if (!trimmed.startsWith("#") && !bareTag)
-      return replace(trimmed);
-    if (!/^#EXT-X-[\w-]+:/i.test(normalized.trim()))
+      return original;
+    if (!trimmed.startsWith("#")) {
+      const isPlaylist = pendingPlaylistUri || /\.m3u8?(?:[?#]|$)/i.test(trimmed);
+      pendingPlaylistUri = false;
+      const uri = rewriteUrl(trimmed, "", "", isPlaylist);
+      return normalized.replace(trimmed, uri);
+    }
+    if (trimmed.startsWith("#EXT-X-STREAM-INF:"))
+      pendingPlaylistUri = true;
+    if (trimmed.startsWith("#EXTM3U"))
       return normalized;
-    return normalized.replace(/(^|[,:])URI="((?:[^"\\]|\\.)*)"/g, (match, prefix, uri) => {
-      const decoded = uri.replace(/\\"/g, '"');
-      const updated = replace(decoded, true);
-      return updated === decoded ? match : `${prefix}URI="${updated}"`;
+    const tagged = /^#([A-Z0-9-]+)(?::(.*))?$/i.exec(trimmed);
+    if (!tagged)
+      return normalized;
+    const tag = tagged[1].toUpperCase();
+    const parameter = tagged[2] ?? "";
+    if (tag === "EXT-X-DEFINE") {
+      const defs = attributes(parameter);
+      const importName = defs.get("IMPORT");
+      const declaredName = defs.get("NAME");
+      const queryName = defs.get("QUERYPARAM");
+      const name = declaredName || importName || queryName;
+      if (!name || !VARIABLE_NAME.test(name))
+        throw new Error("Invalid EXT-X-DEFINE variable name");
+      let value;
+      if (importName)
+        value = parent[importName];
+      else if (queryName)
+        value = sourceUrl.searchParams.get(queryName) ?? undefined;
+      else
+        value = defs.get("VALUE");
+      if (value === undefined)
+        throw new Error(`Missing HLS variable: ${name}`);
+      if (!Object.hasOwn(vars, name) && Object.keys(vars).length >= MAX_VARIABLES)
+        throw new Error("Too many HLS variables");
+      vars[name] = value;
+      safeVariables(vars);
+      if (queryName) {
+        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+        return normalized.replace(trimmed, `#EXT-X-DEFINE:NAME="${name}",VALUE="${escapedValue}"`);
+      }
+      return normalized;
+    }
+    if (tag === "EXT-X-PREFETCH") {
+      const uri = rewriteUrl(parameter.trim(), tag);
+      return normalized.replace(parameter, uri);
+    }
+    const names = URI_ATTRIBUTES[tag];
+    if (!names || !parameter)
+      return normalized;
+    const parts = attributeParts(parameter);
+    const kind = attributes(parameter).get("TYPE") || "";
+    const rewritten = parts.map((part) => {
+      const attr = attribute(part);
+      if (!attr || !names.includes(attr.name))
+        return part;
+      const playlist = PLAYLIST_URI_TAGS.has(tag) && (tag !== "EXT-X-MEDIA" || kind !== "SUBTITLES" || /\.m3u8?(?:[?#]|$)/i.test(attr.value)) || tag === "EXT-X-DATERANGE" && attr.name === "X-ASSET-URI";
+      const uri = rewriteUrl(attr.value, tag, attr.name, playlist);
+      const value = attr.quoted ? `"${uri.replace(/"/g, "\\\"")}"` : uri;
+      return part.replace(/^\s*[^=]+\s*=\s*.*$/, `${attr.name}=${value}`);
     });
-  }).join(manifest.includes(`\r
-`) ? `\r
-` : `
-`);
+    const next = `${trimmed.slice(0, trimmed.indexOf(":") + 1)}${rewritten.join(",")}`;
+    return normalized.replace(trimmed, next);
+  });
+  return output.join(newline);
+}
+function parseSteeringReplacement(raw) {
+  if (!raw)
+    return null;
+  if (raw.length > 3000)
+    throw new Error("Steering replacement too large");
+  let obj;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid steering replacement");
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj))
+    throw new Error("Invalid steering replacement");
+  const data = obj;
+  if (data.host !== undefined && (typeof data.host !== "string" || data.host.length > 255 || !/^[A-Za-z0-9.-]+$/.test(data.host)))
+    throw new Error("Invalid steering host");
+  if (data.pathPrefix !== undefined && (typeof data.pathPrefix !== "string" || data.pathPrefix.length > 512 || !data.pathPrefix.startsWith("/") || /[?#\\]/.test(data.pathPrefix)))
+    throw new Error("Invalid steering path prefix");
+  if (data.params !== undefined) {
+    if (typeof data.params !== "object" || !data.params || Array.isArray(data.params) || Object.keys(data.params).length > 16)
+      throw new Error("Invalid steering parameters");
+    for (const [k, v] of Object.entries(data.params)) {
+      if (!/^[A-Za-z0-9_.~-]{1,64}$/.test(k) || typeof v !== "string" || v.length > 512)
+        throw new Error("Invalid steering parameter");
+    }
+  }
+  return data;
+}
+function applySteeringReplacement(upstream, replacement) {
+  if (!replacement)
+    return upstream;
+  const result = new URL(upstream);
+  if (replacement.host)
+    result.hostname = replacement.host;
+  if (replacement.pathPrefix)
+    result.pathname = replacement.pathPrefix.replace(/\/$/, "") + "/" + result.pathname.replace(/^\//, "");
+  for (const [name, value] of Object.entries(replacement.params || {}))
+    result.searchParams.set(name, value);
+  return result;
+}
+function rewriteSteeringJson(text, upstream, proxy, token, hints = {}) {
+  if (text.length > 512000)
+    throw new Error("Steering manifest too large");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid Content Steering JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error("Invalid Content Steering JSON");
+  const steering = parsed;
+  if (typeof steering["RELOAD-URI"] === "string") {
+    const target = resourceUrl(steering["RELOAD-URI"], upstream, "EXT-X-CONTENT-STEERING", "SERVER-URI");
+    if (!target)
+      throw new Error("Invalid steering reload URL");
+    const reload = new URL(proxy);
+    reload.searchParams.set("url", target.href);
+    reload.searchParams.set("steer", "1");
+    if (token)
+      reload.searchParams.set("key", token);
+    if (hints.userAgent)
+      reload.searchParams.set("ua", hints.userAgent);
+    if (hints.referer)
+      reload.searchParams.set("ref", hints.referer);
+    steering["RELOAD-URI"] = reload.href;
+  }
+  if (Array.isArray(steering["PATHWAY-CLONES"])) {
+    steering["PATHWAY-CLONES"] = steering["PATHWAY-CLONES"].map((unknownClone) => {
+      if (!unknownClone || typeof unknownClone !== "object" || Array.isArray(unknownClone))
+        return unknownClone;
+      const clone = { ...unknownClone };
+      const original = clone["URI-REPLACEMENT"];
+      if (!original || typeof original !== "object" || Array.isArray(original))
+        return clone;
+      const value = original;
+      const translated = {};
+      if (typeof value.HOST === "string")
+        translated.host = value.HOST;
+      if (typeof value["PATH-PREFIX"] === "string")
+        translated.pathPrefix = value["PATH-PREFIX"];
+      if (value.PARAMS && typeof value.PARAMS === "object" && !Array.isArray(value.PARAMS))
+        translated.params = value.PARAMS;
+      parseSteeringReplacement(JSON.stringify(translated));
+      clone["URI-REPLACEMENT"] = { PARAMS: { _youtv_steer: JSON.stringify(translated) } };
+      return clone;
+    });
+  }
+  return JSON.stringify(steering);
+}
+function rewriteInterstitialAssetList(text, upstream, proxy, token, hints = {}) {
+  if (text.length > 512000)
+    throw new Error("HLS asset list too large");
+  let object;
+  try {
+    object = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid HLS asset list JSON");
+  }
+  if (!object || typeof object !== "object" || Array.isArray(object))
+    throw new Error("Invalid HLS asset list JSON");
+  const list = object;
+  if (!Array.isArray(list.ASSETS))
+    throw new Error("Missing HLS interstitial ASSETS");
+  list.ASSETS = list.ASSETS.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      return item;
+    const asset = { ...item };
+    if (typeof asset.URI !== "string")
+      return asset;
+    const resolved = resourceUrl(asset.URI, upstream, "EXT-X-DATERANGE", "X-ASSET-URI");
+    if (!resolved)
+      throw new Error("Invalid interstitial asset URL");
+    const target = new URL(proxy);
+    target.searchParams.set("url", resolved.href);
+    target.searchParams.set("hls", "1");
+    if (token)
+      target.searchParams.set("key", token);
+    if (hints.userAgent)
+      target.searchParams.set("ua", hints.userAgent);
+    if (hints.referer)
+      target.searchParams.set("ref", hints.referer);
+    asset.URI = target.href;
+    return asset;
+  });
+  return JSON.stringify(list);
 }
 function isHls(url, contentType) {
   const path = url.pathname.toLowerCase();
   const mime = contentType.toLowerCase().split(";")[0]?.trim() || "";
   return path.endsWith(".m3u8") || path.endsWith(".m3u") || ["application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/mpegurl", "audio/x-mpegurl"].includes(mime);
 }
-async function readTextStream(body) {
+async function readTextStream(body, maxBytes = MAX_MANIFEST_BYTES) {
   if (!body)
     return "";
   const reader = body.getReader();
   const decoder = new TextDecoder;
-  let text = "";
+  let text = "", bytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done)
         break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes)
+        throw new Error("HLS manifest too large");
       text += decoder.decode(value, { stream: true });
     }
     return text + decoder.decode();
@@ -200,10 +535,10 @@ async function cloudflareAdmin(request, env) {
     throw new ProxyError(413, "admin_request_too_large", "Admin request too large");
   let body;
   try {
-    const data2 = await request.text();
-    if (data2.length > 4000)
+    const data = await request.text();
+    if (data.length > 4000)
       throw new ProxyError(413, "admin_request_too_large", "Admin request too large");
-    body = JSON.parse(data2);
+    body = JSON.parse(data);
     if (!body || typeof body !== "object")
       throw Error("Body must be an object");
   } catch (error) {
@@ -280,17 +615,34 @@ async function cloudflareAdmin(request, env) {
 
 // apps/worker/src/index.ts
 var MAX_REDIRECTS = 4;
-var VERSION = "0.32.0";
+var VERSION = "0.33.1";
 function json(request, env, value, status = 200) {
   const headers = corsHeaders(request, env);
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   return new Response(JSON.stringify(value), { status, headers });
 }
-async function fetchSource(url, request, env) {
+function deliveryDirectives(query) {
+  const result = new URLSearchParams;
+  for (const name of ["_HLS_msn", "_HLS_part", "_HLS_skip"]) {
+    const value = query.get(name);
+    if (value === null)
+      continue;
+    const valid = name === "_HLS_skip" ? /^(?:YES|v2)$/i.test(value) : /^\d{1,15}$/.test(value);
+    if (!valid)
+      throw new ProxyError(400, "invalid_hls_directive", `Invalid ${name} delivery directive`);
+    result.set(name, value);
+  }
+  if (result.has("_HLS_part") && !result.has("_HLS_msn"))
+    throw new ProxyError(400, "invalid_hls_directive", "_HLS_part requires _HLS_msn");
+  return result;
+}
+async function fetchSource(url, request, env, directives = new URLSearchParams) {
   let current = url;
   for (let i = 0;i <= MAX_REDIRECTS; i++) {
     current = assertAllowedUrl(current.toString(), env);
+    for (const [name, value] of directives)
+      current.searchParams.set(name, value);
     const headers = new Headers;
     for (const key of ["Range", "If-Range", "Accept"]) {
       const v = request.headers.get(key);
@@ -333,8 +685,18 @@ async function proxy(request, env, reqUrl) {
   const rawUrl = reqUrl.searchParams.get("url");
   if (!rawUrl)
     throw new ProxyError(400, "missing_url", "url query parameter is required");
-  const upstream = assertAllowedUrl(rawUrl, env);
-  const { response, finalUrl } = await fetchSource(upstream, request, env);
+  const sourceUrl = assertAllowedUrl(rawUrl, env);
+  let replacement;
+  try {
+    replacement = parseSteeringReplacement(reqUrl.searchParams.get("_youtv_steer"));
+  } catch (error) {
+    throw new ProxyError(400, "invalid_steering_replacement", error instanceof Error ? error.message : "Invalid steering replacement");
+  }
+  const upstream = assertAllowedUrl(applySteeringReplacement(sourceUrl, replacement).toString(), env);
+  const maybeHls = reqUrl.searchParams.get("hls") === "1" || isHls(upstream, "");
+  const directives = maybeHls ? deliveryDirectives(reqUrl.searchParams) : new URLSearchParams;
+  const variables = parseHlsVariables(reqUrl.searchParams.get("vars"));
+  const { response, finalUrl } = await fetchSource(upstream, request, env, directives);
   const headers = corsHeaders(request, env);
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
@@ -343,14 +705,36 @@ async function proxy(request, env, reqUrl) {
     if (v)
       headers.set(name, v);
   }
-  if (request.method === "HEAD" || !response.ok || response.status === 206 || !(reqUrl.searchParams.get("hls") === "1" || isHls(finalUrl, response.headers.get("Content-Type") || ""))) {
+  if (reqUrl.searchParams.get("steer") === "1" && request.method !== "HEAD" && response.ok) {
+    const original = await readTextStream(response.body, 512000);
+    let data;
+    try {
+      data = rewriteSteeringJson(original, finalUrl, new URL("/proxy", request.url), key || "", { userAgent: reqUrl.searchParams.get("ua") || "", referer: reqUrl.searchParams.get("ref") || "" });
+    } catch (error) {
+      throw new ProxyError(502, "invalid_steering_manifest", error instanceof Error ? error.message : "Bad steering manifest");
+    }
+    headers.set("Content-Type", "application/vnd.apple.steering-list; charset=utf-8");
+    return new Response(data, { status: 200, headers });
+  }
+  if (reqUrl.searchParams.get("asset") === "1" && request.method !== "HEAD" && response.ok) {
+    const original = await readTextStream(response.body, 512000);
+    let data;
+    try {
+      data = rewriteInterstitialAssetList(original, finalUrl, new URL("/proxy", request.url), key || "", { userAgent: reqUrl.searchParams.get("ua") || "", referer: reqUrl.searchParams.get("ref") || "" });
+    } catch (error) {
+      throw new ProxyError(502, "invalid_asset_list", error instanceof Error ? error.message : "Invalid HLS asset list");
+    }
+    headers.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(data, { status: 200, headers });
+  }
+  if (request.method === "HEAD" || !response.ok || response.status === 206 || !(maybeHls || isHls(finalUrl, response.headers.get("Content-Type") || ""))) {
     return new Response(request.method === "HEAD" ? null : response.body, { status: response.status, statusText: response.statusText, headers });
   }
   const source = await readTextStream(response.body);
   let rewritten;
   try {
     const proxyUrl = new URL("/proxy", request.url);
-    rewritten = rewriteHls(source, finalUrl, proxyUrl, key || "", { userAgent: reqUrl.searchParams.get("ua") || "", referer: reqUrl.searchParams.get("ref") || "" });
+    rewritten = rewriteHls(source, finalUrl, proxyUrl, key || "", { userAgent: reqUrl.searchParams.get("ua") || "", referer: reqUrl.searchParams.get("ref") || "" }, variables);
   } catch (error) {
     throw new ProxyError(502, "invalid_manifest", error instanceof Error ? error.message : "Invalid HLS manifest");
   }
@@ -389,7 +773,7 @@ var src_default = {
       if (url.pathname === "/health" && request.method === "GET")
         return json(request, env, { name: "YouTV Proxy", version: VERSION, ok: true });
       if (url.pathname === "/capabilities" && request.method === "GET")
-        return json(request, env, { protocol: 1, hls: true, range: true, playlistImport: true, authentication: env.PROXY_TOKEN?.trim() ? "query-token" : "none" });
+        return json(request, env, { protocol: 1, hls: true, hlsVariables: true, llHlsDirectives: true, contentSteeringProxy: true, range: true, playlistImport: true, authentication: env.PROXY_TOKEN?.trim() ? "query-token" : "none" });
       if (url.pathname === "/text") {
         if (request.method !== "GET")
           throw new ProxyError(405, "method_not_allowed", "GET only");
