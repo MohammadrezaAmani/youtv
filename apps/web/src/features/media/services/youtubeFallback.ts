@@ -64,7 +64,7 @@ export async function resolveYouTubePublicPreview(
       if (typeof data.thumbnail_url === "string") {
         try {
           const url = new URL(data.thumbnail_url);
-          if (url.protocol === "https:" && !url.username && !url.password && ["i.ytimg.com", "img.youtube.com"].includes(url.hostname)) thumbnail = proxyUrl(url.toString(), worker);
+          if (url.protocol === "https:" && !url.username && !url.password && ["i.ytimg.com", "img.youtube.com"].includes(url.hostname)) thumbnail = url.toString();
         } catch { /* Ignore invalid thumbnails, not metadata. */ }
       }
       signal?.throwIfAborted();

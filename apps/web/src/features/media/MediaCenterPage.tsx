@@ -1,3 +1,5 @@
+import { RoutedImage, RoutedVideo } from "@/components/common/RoutedAsset";
+import { assetRoutes } from "@/lib/assetRoutes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -210,7 +212,8 @@ function YouTubeDashPreview({
   );
 }
 
-function YouTubeRestrictedPreview({ preview, allowDirect, loading, onRetry, fa }: {
+function YouTubeRestrictedPreview({ preview, imageUrls, allowDirect, loading, onRetry, fa }: {
+  imageUrls: string[];
   preview: YouTubePublicPreview;
   allowDirect: boolean;
   loading: boolean;
@@ -224,7 +227,7 @@ function YouTubeRestrictedPreview({ preview, allowDirect, loading, onRetry, fa }
   return (
     <section className="panel-card media-detail-card">
       <div className="media-result-heading">
-        {preview.metadata?.thumbnail && <img src={preview.metadata.thumbnail} alt="" />}
+        {preview.metadata?.thumbnail && <RoutedImage urls={imageUrls} alt="" />}
         <div>
           <span className="media-provider">YOUTUBE · {preview.metadata ? "PUBLIC METADATA" : "PREVIEW"}</span>
           <h2>{title}</h2>
@@ -291,8 +294,12 @@ export default function MediaCenterPage() {
   const candidates = useMemo(() => orderedMediaWorkers(workers, preferredWorkerId || settings.defaultWorkerId, automaticFallback), [workers, preferredWorkerId, settings.defaultWorkerId, automaticFallback]);
   const worker = resolvedWorkerId === "" ? undefined : candidates.find(item => item.id === resolvedWorkerId) || candidates[0];
   const activeCandidates = useMemo(() => worker ? [worker, ...candidates.filter(item => item.id !== worker.id)] : candidates, [worker, candidates]);
+  // Direct access is opt-in when a Worker route was selected, or when the
+  // global policy requires a proxy even if every Worker is now unavailable.
+  const allowAssetDirect = allowDirect || (!candidates.length && !settings.mediaWorkerId && settings.proxyMode !== "proxy");
+  const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers);
   const openAsset = (url: string, filename: string, signal?: AbortSignal) => {
-    const urls = mediaAssetUrls(url, activeCandidates, allowDirect || !activeCandidates.length, filename);
+    const urls = mediaAssetUrls(url, activeCandidates, allowAssetDirect, filename);
     if (resolvedWorkerId === "" && urls.includes(url)) return openMediaAsset([url, ...urls.filter(item => item !== url)], signal);
     return openMediaAsset(urls, signal);
   };
@@ -570,7 +577,7 @@ export default function MediaCenterPage() {
             setResolvedWorkerId("");
           }
         } else {
-          if (needsHttpsRelay(normalized)) throw new Error("HTTP media requires an active HTTPS Worker");
+          if (!allowAssetDirect || needsHttpsRelay(normalized)) throw new Error("Media requires an active compatible Worker or explicit direct fallback");
           setResolvedWorkerId("");
         }
         const kind = probe?.kind || guessMediaKind(normalized);
@@ -973,7 +980,8 @@ export default function MediaCenterPage() {
   const currentFormat = youtubeVideo?.formats.find(
     (item) => item.itag === selectedFormat,
   );
-  const directChannel = useMemo(() => direct ? createChannel({ name: "Media Center HLS", url: direct.url, format: "hls", proxyMode: worker ? "proxy" : "direct", workerId: worker?.id || "" }) : null, [direct?.url, worker?.id]);
+  const directPreviewAllowed = Boolean(worker) || allowAssetDirect;
+  const directChannel = useMemo(() => direct && directPreviewAllowed ? createChannel({ name: "Media Center HLS", url: direct.url, format: "hls", proxyMode: worker ? "proxy" : "direct", workerId: worker?.id || "" }) : null, [direct?.url, worker?.id, directPreviewAllowed]);
   const retryDirectPreview = () => {
     if (!direct) return;
     const current = worker?.id || "";
@@ -987,7 +995,7 @@ export default function MediaCenterPage() {
   const directProxy =
     direct && worker
       ? proxyUrl(direct.url, worker, "proxy", direct.kind === "hls")
-      : direct?.url || "";
+      : directPreviewAllowed ? direct?.url || "" : "";
   const dashProxy =
     direct && worker
       ? (() => {
@@ -995,7 +1003,7 @@ export default function MediaCenterPage() {
           value.searchParams.set("dash", "1");
           return value.toString();
         })()
-      : direct?.url || "";
+      : directPreviewAllowed ? direct?.url || "" : "";
   const toggle = (
     values: string[],
     value: string,
@@ -1099,6 +1107,7 @@ export default function MediaCenterPage() {
         <YouTubeRestrictedPreview
           key={`${target.preview.source.kind}:${target.preview.source.id}`}
           preview={target.preview}
+          imageUrls={imageUrls(target.preview.metadata?.thumbnail)}
           allowDirect={allowDirect}
           loading={loading}
           onRetry={() => void resolve(target.preview.canonicalUrl)}
@@ -1110,7 +1119,7 @@ export default function MediaCenterPage() {
         <div className="media-result-grid">
           <section className="panel-card media-detail-card">
             <div className="media-result-heading">
-              <img src={worker && youtubeVideo.thumbnail ? proxyUrl(youtubeVideo.thumbnail, worker) : youtubeVideo.thumbnail} alt="" />
+              <RoutedImage urls={imageUrls(youtubeVideo.thumbnail)} alt="" />
               <div>
                 <span className="media-provider">YOUTUBE VIDEO</span>
                 <h2>{youtubeVideo.title}</h2>
@@ -1329,7 +1338,7 @@ export default function MediaCenterPage() {
               )}
             </div>
           </div>
-          <div className="media-embed media-playlist-embed">
+          {allowDirect && <div className="media-embed media-playlist-embed">
             <iframe
               src={`https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(youtubePlaylist.id)}`}
               title={youtubePlaylist.title}
@@ -1338,7 +1347,7 @@ export default function MediaCenterPage() {
               loading="lazy"
               referrerPolicy="strict-origin-when-cross-origin"
             />
-          </div>
+          </div>}
           <div className="media-format-row">
             <label htmlFor="playlist-quality">
               {fa ? "کیفیت دانلود" : "Download quality"}
@@ -1364,7 +1373,7 @@ export default function MediaCenterPage() {
                     toggle(selectedItems, item.id, setSelectedItems)
                   }
                 />
-                <img src={worker && item.thumbnail ? proxyUrl(item.thumbnail, worker) : item.thumbnail} alt="" loading="lazy" />
+                <RoutedImage urls={imageUrls(item.thumbnail)} alt="" loading="lazy" />
                 <span className="media-row-index">{index + 1}</span>
                 <span className="media-row-title">
                   {item.title}
@@ -1452,15 +1461,15 @@ export default function MediaCenterPage() {
                     }
                   />
                   {asset.kind === "video" ? (
-                    <video
-                      src={worker ? proxyUrl(asset.url, worker) : asset.url}
-                      poster={worker && asset.thumbnail ? proxyUrl(asset.thumbnail, worker) : asset.thumbnail}
+                    <RoutedVideo
+                      urls={imageUrls(asset.url)}
+                      posters={imageUrls(asset.thumbnail)}
                       controls
                       preload="metadata"
                     />
                   ) : (
-                    <img
-                      src={worker ? proxyUrl(asset.url, worker) : asset.url}
+                    <RoutedImage
+                      urls={imageUrls(asset.url)}
                       alt="Instagram media"
                       loading="lazy"
                     />
@@ -1484,7 +1493,7 @@ export default function MediaCenterPage() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : allowDirect ? (
             <div className="media-embed">
               <iframe
                 src={`${instagramPost.url.replace(/\/$/, "")}/embed/`}
@@ -1494,6 +1503,8 @@ export default function MediaCenterPage() {
                 referrerPolicy="strict-origin-when-cross-origin"
               />
             </div>
+          ) : (
+            <p className="media-inline-warning">{fa ? "نمایش Embed اینستاگرام به اتصال مستقیم نیاز دارد؛ Fallback مستقیم غیرفعال است." : "Instagram embed needs a direct connection; direct fallback is disabled."}</p>
           )}
           <div className="media-actions">
             <Button
@@ -1549,10 +1560,10 @@ export default function MediaCenterPage() {
           {direct.kind === "hls" && !convertedPreviewUrl && directChannel && (
             <PlayerStage key={directChannel.id} channel={directChannel} onTerminalError={retryDirectPreview} />
           )}
-          {direct.kind === "dash" && (
+          {directPreviewAllowed && direct.kind === "dash" && (
             <DashPlayer key={dashProxy} src={dashProxy} title="DASH media" onError={retryDirectPreview} />
           )}
-          {direct.kind === "video" &&
+          {directPreviewAllowed && direct.kind === "video" &&
             (convertedPreviewUrl ? (
               <video
                 className="media-center-video"
@@ -1572,7 +1583,7 @@ export default function MediaCenterPage() {
                 preload="metadata"
               />
             ))}
-          {direct.kind === "audio" && (
+          {directPreviewAllowed && direct.kind === "audio" && (
             <audio
               className="media-center-audio"
               key={directProxy}
@@ -1582,7 +1593,7 @@ export default function MediaCenterPage() {
               preload="metadata"
             />
           )}
-          {direct.kind === "image" && (
+          {directPreviewAllowed && direct.kind === "image" && (
             <img
               className="media-direct-image"
               key={directProxy}
@@ -1591,7 +1602,7 @@ export default function MediaCenterPage() {
               alt="Direct media"
             />
           )}
-          {direct.kind === "document" && (
+          {directPreviewAllowed && direct.kind === "document" && (
             <iframe
               className="media-embed"
               style={{ width: "100%", minHeight: "450px", border: 0 }}

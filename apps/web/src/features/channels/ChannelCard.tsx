@@ -1,3 +1,4 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
 import { ActionButton } from "@/components/ui/action-button";
 import {
   Heart,
@@ -41,15 +42,11 @@ export default function ChannelCard({
   const { t } = useTranslation(),
     settings = useYoutv((s) => s.settings);
   const text = (key: Parameters<typeof ui>[0]) => ui(key, settings.language);
-  const [menu, setMenu] = useState(false),
-    [brokenLogo, setBrokenLogo] = useState(false);
+  const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const toggle = useYoutv((s) => s.toggleFavorite),
     pin = useYoutv((s) => s.togglePinned),
     remove = useYoutv((s) => s.deleteChannel);
-  useEffect(() => {
-    setBrokenLogo(false);
-  }, [channel.logo]);
   useEffect(() => {
     if (!menu) return;
     const click = (e: PointerEvent) => {
@@ -74,20 +71,15 @@ export default function ChannelCard({
         onClick={onOpen}
         aria-label={`${selectable ? text("select") : t("watch")} ${channel.name}`}
       >
-        {channel.logo && !brokenLogo ? (
-          <img
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            src={channel.logo}
-            alt=""
-            onError={() => setBrokenLogo(true)}
-          />
-        ) : (
-          <div className="poster-placeholder">
+        <ChannelImage
+          channel={channel}
+          loading="lazy"
+          alt=""
+          fallback={<div className="poster-placeholder">
             <span className="poster-pattern" />
             <Radio size={39} strokeWidth={1.2} />
-          </div>
-        )}
+          </div>}
+        />
         <span className="poster-vignette" />
         <span
           className={`channel-health-badge state-${healthStatus}`}

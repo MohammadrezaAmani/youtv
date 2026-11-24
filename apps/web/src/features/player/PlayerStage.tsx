@@ -1,3 +1,5 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
+import { channelAssetRoutes } from "@/lib/assetRoutes";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { FileInput } from "@/components/ui/file-input";
@@ -58,7 +60,6 @@ import type { Channel, SubtitleSource, WorkerProfile } from "@youtv/shared";
 import { useYoutv } from "@/stores/useYoutv";
 import {
   activeWorker,
-  proxyUrl,
   resolveStream,
   effectiveConnectionMode,
   needsHttpsRelay,
@@ -367,6 +368,8 @@ export default function PlayerStage({
   });
   const currentWorker =
     resolved.value?.mode === "proxy" ? resolved.value.worker : undefined;
+  const assetRoute = { mode: resolved.value?.mode ?? effectiveMode, worker: currentWorker };
+  const artworkUrl = channelAssetRoutes(channel.logo, channel, settings, workers, assetRoute)[0];
   const tr = useCallback(
     (fa: string, en: string) => fallbackTranslation(language, fa, en),
     [language],
@@ -521,6 +524,7 @@ export default function PlayerStage({
   useEffect(() => {
     const controller = new AbortController();
     const objectUrls: string[] = [];
+    setRemoteTracks([]);
     const prepare = async () => {
       const list: {
         id: string;
@@ -530,18 +534,25 @@ export default function PlayerStage({
       }[] = [];
       for (const track of channel.subtitles || []) {
         try {
-          let url = currentWorker
-            ? proxyUrl(track.url, currentWorker, "proxy")
-            : track.url;
-          if (track.format === "srt") {
-            const response = await fetch(url, { signal: controller.signal });
-            if (!response.ok) throw Error(`Subtitle HTTP ${response.status}`);
-            const source = await response.text();
-            url = URL.createObjectURL(
-              new Blob([srtToVtt(source)], { type: "text/vtt" }),
-            );
-            objectUrls.push(url);
+          const urls = channelAssetRoutes(track.url, channel, settings, workers, assetRoute);
+          if (!urls.length) continue;
+          // Fetch sidecars through the same routes as playback, including VTT.
+          // Blob URLs keep native track loading from silently retrying an origin.
+          let source: string | undefined;
+          for (const candidate of urls) {
+            try {
+              const response = await fetch(candidate, { signal: controller.signal, credentials: "omit" });
+              if (!response.ok || /text\/html/i.test(response.headers.get("content-type") || "")) {
+                await response.body?.cancel().catch(() => undefined);
+                continue;
+              }
+              source = await response.text();
+              break;
+            } catch { if (controller.signal.aborted) return; }
           }
+          if (source === undefined || controller.signal.aborted) continue;
+          const url = URL.createObjectURL(new Blob([track.format === "srt" ? srtToVtt(source) : source], { type: "text/vtt" }));
+          objectUrls.push(url);
           list.push({
             id: track.id,
             label: track.label,
@@ -562,8 +573,14 @@ export default function PlayerStage({
   }, [
     channel.id,
     channel.subtitles,
+    channel.url,
+    channel.workerId,
+    assetRoute.mode,
+    currentWorker?.id,
     currentWorker?.baseUrl,
     currentWorker?.token,
+    settings.defaultWorkerId,
+    workers,
   ]);
 
   const updateVideoTracks = useCallback(() => {
@@ -949,7 +966,7 @@ export default function PlayerStage({
       title: channel.name,
       artist: channel.group || "YouTV",
       album: "YouTV",
-      artwork: channel.logo ? [{ src: channel.logo }] : [],
+      artwork: artworkUrl ? [{ src: artworkUrl }] : [],
     });
     navigator.mediaSession.setActionHandler("play", () => {
       const video = videoRef.current;
@@ -989,7 +1006,7 @@ export default function PlayerStage({
         } catch {}
       }
     };
-  }, [channel.name, channel.group, channel.logo, requestPlayback]);
+  }, [channel.name, channel.group, artworkUrl, requestPlayback]);
   const refreshTimeline = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -2060,7 +2077,7 @@ export default function PlayerStage({
       <div className="player-channel-info">
         <div className="player-channel-icon">
           {channel.logo ? (
-            <img src={channel.logo} alt="" />
+            <ChannelImage channel={channel} route={assetRoute} alt="" />
           ) : (
             <Radio size={25} />
           )}

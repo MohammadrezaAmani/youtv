@@ -127,7 +127,7 @@ test("after extraction fails, public metadata uses the configured fallback Worke
   expect(result.metadata?.title).toBe("Public title");
   expect(result.metadata?.author).toBe("Public author");
   expect(result.metadataWorkerId).toBe("good");
-  expect(new URL(result.metadata!.thumbnail).searchParams.get("key")).toBe("good-secret");
+  expect(result.metadata!.thumbnail).toBe("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg");
   expect(result.embedUrl).toBe("https://www.youtube-nocookie.com/embed/abcdefghijk");
   expect(Object.hasOwn(result, "formats")).toBe(false);
   expect(calls).toEqual(["/old/proxy", "/good/proxy"]);

@@ -1,3 +1,5 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
+import type { Channel } from "@youtv/shared";
 import { useMemo, useState } from "react";
 import {
   ArrowUpRight,
@@ -33,7 +35,7 @@ export default function CategoriesPage({
         total: number;
         favorites: number;
         online: number;
-        logo: string;
+        logoChannel?: Channel;
       }
     >();
     for (const c of channels) {
@@ -44,12 +46,12 @@ export default function CategoriesPage({
         total: 0,
         favorites: 0,
         online: 0,
-        logo: "",
+        logoChannel: undefined,
       };
       item.total++;
       if (c.favorite) item.favorites++;
       if (health[c.id]?.status === "online") item.online++;
-      if (!item.logo && c.logo) item.logo = c.logo;
+      if (!item.logoChannel && c.logo) item.logoChannel = c;
       grouped.set(group, item);
     }
     return [...grouped.values()]
@@ -118,8 +120,8 @@ export default function CategoriesPage({
             }
           >
             <div className="category-tile-art">
-              {group.logo ? (
-                <img loading="lazy" src={group.logo} alt="" />
+              {group.logoChannel ? (
+                <ChannelImage loading="lazy" channel={group.logoChannel} alt="" fallback={<Radio size={32} />} />
               ) : (
                 <Radio size={32} />
               )}

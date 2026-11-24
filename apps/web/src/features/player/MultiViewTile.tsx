@@ -1,3 +1,4 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
 import {
@@ -238,7 +239,7 @@ export default function MultiViewTile({
     >
       <div className="multiview-head">
         <div className="multiview-identity">
-          {channel.logo && <img src={channel.logo} alt="" loading="lazy" />}
+          {channel.logo && <ChannelImage channel={channel} route={{ mode: mode.stream?.mode ?? effectiveMode, worker: mode.stream?.worker }} alt="" loading="lazy" />}
           <strong title={channel.name}>{channel.name}</strong>
         </div>
         <div className="multiview-actions">

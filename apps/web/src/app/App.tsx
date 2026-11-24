@@ -1,3 +1,4 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ui/action-button";
 import {
@@ -1005,7 +1006,7 @@ function Shell() {
                         >
                           <span className="next-channel-image">
                             {c.logo ? (
-                              <img loading="lazy" src={c.logo} alt="" />
+                              <ChannelImage loading="lazy" channel={c} alt="" />
                             ) : (
                               <Radio size={21} />
                             )}

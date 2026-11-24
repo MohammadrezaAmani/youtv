@@ -1,3 +1,4 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ui/action-button";
@@ -317,7 +318,7 @@ export default function ChannelLibrary({
               >
                 <span className="personal-mini-logo">
                   {c.logo ? (
-                    <img src={c.logo} loading="lazy" alt="" />
+                    <ChannelImage channel={c} loading="lazy" alt="" />
                   ) : (
                     <Radio size={28} />
                   )}
@@ -349,7 +350,7 @@ export default function ChannelLibrary({
               >
                 <span className="personal-mini-logo">
                   {c.logo ? (
-                    <img src={c.logo} loading="lazy" alt="" />
+                    <ChannelImage channel={c} loading="lazy" alt="" />
                   ) : (
                     <Heart size={27} />
                   )}

@@ -1,3 +1,4 @@
+import { ChannelImage } from "@/components/common/RoutedAsset";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchBox } from "@/components/ui/search-box";
@@ -348,7 +349,7 @@ export default function ConnectivityPage({
                 >
                   <span className="diagnostics-logo">
                     {c.logo ? (
-                      <img src={c.logo} alt="" loading="lazy" />
+                      <ChannelImage channel={c} alt="" loading="lazy" />
                     ) : (
                       <Radio size={20} />
                     )}
