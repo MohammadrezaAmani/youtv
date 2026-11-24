@@ -409,7 +409,7 @@ test("dashboard installer uses the same v0.36.1 Worker as the runtime", async ()
   );
   assert.equal(published, runtime);
   assert.match(published, /^\/\/ YouTV Worker bundle version: v0\.36\.1\n/);
-  assert.match(guide, /WORKER_RELEASE='0\.36\.1'/);
+  assert.match(guide, /^\s*const\s+WORKER_RELEASE\s*=\s*(["'])0\.36\.1\1\s*;?\s*$/m);
   assert.match(guide, /dashboard-worker\.mjs\?v=/);
   assert.match(guide, /YouTV-Worker-v/);
 });

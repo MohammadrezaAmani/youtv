@@ -159,22 +159,37 @@ test("SharedArrayBuffer chunks are copied into valid DOM file-write buffers", as
   assert.deepEqual(sink.writes.flat(), [4, 5, 6]);
   assert.equal(sink.closed, true);
 });
-test("generated HLS/DASH text streams do not depend on Blob.stream", async (t) => {
-  const original = Object.getOwnPropertyDescriptor(Blob.prototype, "stream");
-  Object.defineProperty(Blob.prototype, "stream", {
-    configurable: true,
-    value: undefined,
-  });
-  t.after(() => {
-    if (original) Object.defineProperty(Blob.prototype, "stream", original);
-    else delete Blob.prototype.stream;
-  });
-  for (const text of [
-    "#EXTM3U\n#EXTINF:4,شبکه\nsegment.ts\n#EXT-X-ENDLIST",
-    '<?xml version="1.0"?><MPD type="static"><Period/></MPD>',
-    "WEBVTT\n\nمتن زیرنویس",
-    "",
-  ]) {
-    assert.equal(await new Response(textByteStream(text)).text(), text);
+test("generated HLS/DASH text streams do not depend on Blob.stream", async () => {
+  // Bun can expose Blob.prototype.stream as non-configurable. Disable the
+  // global constructor instead of attempting to redefine its native methods.
+  const original = globalThis.Blob;
+  try {
+    globalThis.Blob = undefined;
+    assert.equal(globalThis.Blob, undefined);
+    for (const text of [
+      "#EXTM3U\n#EXTINF:4,شبکه\nsegment.ts\n#EXT-X-ENDLIST",
+      '<?xml version="1.0"?><MPD type="static"><Period/></MPD>',
+      "WEBVTT\n\nمتن زیرنویس",
+      "",
+    ]) {
+      // Read the stream directly: Response/Blob implementations are not part
+      // of the functionality under test and may use native Blob internals.
+      const reader = textByteStream(text).getReader();
+      const bytes = [];
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          assert.ok(value instanceof Uint8Array);
+          bytes.push(...value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      assert.deepEqual(bytes, [...new TextEncoder().encode(text)]);
+      assert.equal(new TextDecoder().decode(Uint8Array.from(bytes)), text);
+    }
+  } finally {
+    globalThis.Blob = original;
   }
 });

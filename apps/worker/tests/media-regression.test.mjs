@@ -210,6 +210,39 @@ test("large first upstream chunk is preserved exactly, even after prefix sniffin
     },
   );
 });
+test("SharedArrayBuffer-backed chunks survive bounded prefix sniffing", async () => {
+  const expected = Uint8Array.from(
+    { length: 12000 },
+    (_, index) => (index * 7) % 251,
+  );
+  const shared = new Uint8Array(new SharedArrayBuffer(expected.byteLength));
+  shared.set(expected);
+  await withFetch(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(shared);
+            controller.close();
+          },
+        }),
+        { headers: { "Content-Type": "application/octet-stream" } },
+      ),
+    async () => {
+      for (const implementation of [worker, bundled]) {
+        const response = await implementation.fetch(
+          new Request(url("https://cdn.example/shared-buffer")),
+          env,
+        );
+        assert.equal(response.status, 200);
+        assert.deepEqual(
+          new Uint8Array(await response.arrayBuffer()),
+          expected,
+        );
+      }
+    },
+  );
+});
 test("DASH XML external entities and fake HTML manifests are rejected", () => {
   for (const input of [
     "<html><MPD></MPD></html>",

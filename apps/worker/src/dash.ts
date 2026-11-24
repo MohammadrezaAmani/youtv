@@ -272,7 +272,8 @@ export function dashBaseTarget(requestUrl: URL, env: ProxyEnv): URL {
   const base = assertAllowedUrl(rawBase, env);
   const suffix = requestUrl.pathname.slice("/dash-base/".length);
   const target = suffix ? new URL("./" + suffix, base) : base;
-  for (const [key, value] of base.searchParams)
+  base.searchParams.forEach((value, key) => {
     if (!target.searchParams.has(key)) target.searchParams.set(key, value);
+  });
   return assertAllowedUrl(target.toString(), env);
 }

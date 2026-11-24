@@ -182,10 +182,24 @@ function upstreamFilename(disposition: string | null): string {
 async function peekStream(
   body: ReadableStream<Uint8Array> | null,
   limit = 4096,
-): Promise<{ prefix: Uint8Array; body: ReadableStream<Uint8Array> | null }> {
-  if (!body) return { prefix: new Uint8Array(), body: null };
+): Promise<{
+  prefix: Uint8Array<ArrayBuffer>;
+  body: ReadableStream<Uint8Array<ArrayBuffer>> | null;
+}> {
+  if (!body) return { prefix: new Uint8Array(new ArrayBuffer(0)), body: null };
   const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
+  // Cloudflare's stream types allow ArrayBufferLike-backed chunks, while the
+  // Response constructor expects ArrayBuffer-backed Uint8Arrays. Reuse normal
+  // ArrayBuffer views and copy only SharedArrayBuffer-backed chunks, avoiding
+  // an unnecessary second allocation for large upstream chunks.
+  const copyChunk = (value: Uint8Array): Uint8Array<ArrayBuffer> => {
+    if (value.buffer instanceof ArrayBuffer)
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    const copy = new Uint8Array(new ArrayBuffer(value.byteLength));
+    copy.set(value);
+    return copy;
+  };
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
   let total = 0,
     finished = false;
   try {
@@ -196,15 +210,16 @@ async function peekStream(
         break;
       }
       if (item.value?.length) {
-        chunks.push(item.value);
-        total += item.value.byteLength;
+        const chunk = copyChunk(item.value);
+        chunks.push(chunk);
+        total += chunk.byteLength;
       }
     }
   } catch (error) {
     reader.releaseLock();
     throw error;
   }
-  const prefix = new Uint8Array(Math.min(total, limit));
+  const prefix = new Uint8Array(new ArrayBuffer(Math.min(total, limit)));
   let offset = 0;
   for (const chunk of chunks) {
     const part = chunk.subarray(0, prefix.length - offset);
@@ -220,7 +235,7 @@ async function peekStream(
       reader.releaseLock();
     }
   };
-  const stream = new ReadableStream<Uint8Array>({
+  const stream = new ReadableStream<Uint8Array<ArrayBuffer>>({
     async pull(controller) {
       if (index < chunks.length) {
         controller.enqueue(chunks[index++]!);
@@ -236,7 +251,7 @@ async function peekStream(
         if (item.done) {
           controller.close();
           release();
-        } else if (item.value) controller.enqueue(item.value);
+        } else if (item.value) controller.enqueue(copyChunk(item.value));
       } catch (error) {
         controller.error(error);
         release();
@@ -377,9 +392,10 @@ async function platformRelay(
       );
     const headers = new Headers();
     if (platform === "youtube") {
-      for (const [name, value] of request.headers)
+      request.headers.forEach((value, name) => {
         if (YOUTUBE_REQUEST_HEADERS.has(name.toLowerCase()))
           headers.set(name, value);
+      });
       headers.set("Origin", "https://www.youtube.com");
       headers.set("Referer", "https://www.youtube.com/");
       headers.set(
@@ -498,8 +514,7 @@ async function fetchSource(
     current = assertAllowedUrl(current.toString(), env);
     // hls.js appends _HLS_* to the outer /proxy URL. The origin must receive
     // these as query parameters on its playlist URL, not on workers.dev.
-    for (const [name, value] of directives)
-      current.searchParams.set(name, value);
+    directives.forEach((value, name) => current.searchParams.set(name, value));
     const headers = new Headers();
     for (const key of ["Range", "If-Range", "Accept"]) {
       const v = request.headers.get(key);

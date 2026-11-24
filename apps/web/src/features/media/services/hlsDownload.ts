@@ -75,7 +75,7 @@ async function readManifest(
   return { text, url: response.url || url };
 }
 function parseRange(value: string): ByteRange {
-  const match = value.match(/^(\d+)(?:@(\d+))?$/);
+  const match = value.trim().match(/^(\d+)(?:@(\d+))?$/);
   if (!match) throw new Error("Invalid HLS BYTERANGE");
   const length = Number(match[1]);
   const implicit = match[2] === undefined;
@@ -101,12 +101,11 @@ function makeFetcher(
   const fetchEntry =
     (url: string, range?: ByteRange): ZipEntrySource["open"] =>
     async (entrySignal?: AbortSignal) => {
-      const headers = new Headers();
-      if (range)
-        headers.set(
-          "Range",
-          `bytes=${range.offset}-${range.offset + range.length - 1}`,
-        );
+      // Fetch accepts a sequence of header pairs without relying on the
+      // ambient Headers constructor (which differs in DOM test environments).
+      const headers: [string, string][] = range
+        ? [["range", `bytes=${range.offset}-${range.offset + range.length - 1}`]]
+        : [];
       const response = await fetch(url, {
         headers,
         credentials: "omit",
@@ -114,10 +113,22 @@ function makeFetcher(
         signal: entrySignal || signal,
       });
       if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);
-      if (range && response.status !== 206)
-        throw new Error(
-          "Origin ignored an HLS byte-range request; refusing to create a corrupt archive",
-        );
+      if (range) {
+        const end = range.offset + range.length - 1;
+        const contentRange = response.headers.get("content-range");
+        const returned = contentRange?.match(/^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i);
+        if (
+          response.status !== 206 ||
+          !returned ||
+          Number(returned[1]) !== range.offset ||
+          Number(returned[2]) !== end
+        ) {
+          await response.body?.cancel().catch(() => undefined);
+          throw new Error(
+            `Invalid HLS byte-range response: expected bytes ${range.offset}-${end}, got HTTP ${response.status} (${contentRange || "missing Content-Range"})`,
+          );
+        }
+      }
       if (!response.body) throw new Error("HLS resource has no body");
       return response.body;
     };

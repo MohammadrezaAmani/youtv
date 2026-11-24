@@ -259,10 +259,14 @@ describe("HLS offline archive", () => {
       if (target === "https://cdn.example/key.bin")
         return new Response(new Uint8Array([9, 8, 7]), { status: 200 });
       if (target === fileUrl) {
-        requests.push(new Headers(init?.headers).get("Range") || "");
-        return new Response(new Uint8Array(100), {
+        const range = new Request(url.toString(), init).headers.get("range") || "";
+        requests.push(range);
+        const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+        if (!match) return new Response(null, { status: 416 });
+        const start = Number(match[1]), end = Number(match[2]);
+        return new Response(new Uint8Array(end - start + 1).fill(start / 100 + 1), {
           status: 206,
-          headers: { "Content-Range": "bytes 0-99/1000" },
+          headers: { "Content-Range": `bytes ${start}-${end}/1000` },
         });
       }
       throw new Error(`Unexpected HLS range request: ${url}`);
@@ -286,13 +290,16 @@ describe("HLS offline archive", () => {
       expect(text).toContain('URI="keys/key-1.bin"');
       expect(text).toContain('URI="init-1.mp4"');
       expect(text).not.toContain("BYTERANGE");
+      const payloads: Uint8Array[] = [];
       for (const entry of result.entries.filter(
         (item) =>
           item.filename.endsWith(".mp4") || item.filename.endsWith(".ts"),
       )) {
         const stream = await entry.open();
-        await new Response(stream).arrayBuffer();
+        payloads.push(new Uint8Array(await new Response(stream).arrayBuffer()));
       }
+      expect(payloads.map((bytes) => bytes.length)).toEqual([100, 100, 100]);
+      expect(payloads.map((bytes) => bytes[0])).toEqual([1, 2, 3]);
       expect(requests).toEqual([
         "bytes=0-99",
         "bytes=100-199",
