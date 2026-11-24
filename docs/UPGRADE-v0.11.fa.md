@@ -8,6 +8,7 @@ git apply ~/Downloads/YouTV-v0.10.0-to-v0.11.0.patch
 ```
 
 تغییرات:
+
 - حذف دکمه پلی وسط هنگام buffering/reconnecting
 - Multi-view همزمان با tile های قابل resize
 - انتقال UI ضبط از پایین پلیر به پنل جمع‌وجور

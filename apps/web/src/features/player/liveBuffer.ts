@@ -7,13 +7,13 @@ const SLOW_FRAGMENT_RETRY = {
   maxNumRetry: 4,
   retryDelayMs: 1000,
   maxRetryDelayMs: 16000,
-  backoff: 'exponential'
+  backoff: "exponential",
 } as const;
 const SLOW_PLAYLIST_RETRY = {
   maxNumRetry: 3,
   retryDelayMs: 1000,
   maxRetryDelayMs: 8000,
-  backoff: 'exponential'
+  backoff: "exponential",
 } as const;
 export const SLOW_NETWORK_HLS_POLICY = {
   fragLoadPolicy: {
@@ -21,25 +21,25 @@ export const SLOW_NETWORK_HLS_POLICY = {
       maxTimeToFirstByteMs: 45000,
       maxLoadTimeMs: 180000,
       timeoutRetry: SLOW_FRAGMENT_RETRY,
-      errorRetry: SLOW_FRAGMENT_RETRY
-    }
+      errorRetry: SLOW_FRAGMENT_RETRY,
+    },
   },
   playlistLoadPolicy: {
     default: {
       maxTimeToFirstByteMs: 25000,
       maxLoadTimeMs: 45000,
       timeoutRetry: SLOW_PLAYLIST_RETRY,
-      errorRetry: SLOW_PLAYLIST_RETRY
-    }
+      errorRetry: SLOW_PLAYLIST_RETRY,
+    },
   },
   manifestLoadPolicy: {
     default: {
       maxTimeToFirstByteMs: 25000,
       maxLoadTimeMs: 45000,
       timeoutRetry: SLOW_PLAYLIST_RETRY,
-      errorRetry: SLOW_PLAYLIST_RETRY
-    }
-  }
+      errorRetry: SLOW_PLAYLIST_RETRY,
+    },
+  },
 } as const;
 
 /** Prefer reliable, buffered playback for ordinary IPTV HLS on slower networks.
@@ -60,7 +60,7 @@ export const LIVE_HLS_PROFILE = {
   liveMaxLatencyDurationCount: 14,
   maxLiveSyncPlaybackRate: 1.05,
   maxBufferHole: 0.35,
-  capLevelToPlayerSize: false
+  capLevelToPlayerSize: false,
 } as const;
 
 /** Explicit opt-in for LL-HLS. The default remains reliable, buffered playback.
@@ -80,25 +80,36 @@ export const LOW_LATENCY_HLS_PROFILE = {
   liveMaxLatencyDurationCount: 7,
   maxLiveSyncPlaybackRate: 1.1,
   maxBufferHole: 0.35,
-  capLevelToPlayerSize: false
+  capLevelToPlayerSize: false,
 } as const;
 
-export function getHlsProfile(mode: 'stable' | 'low') {
-  return mode === 'low' ? LOW_LATENCY_HLS_PROFILE : LIVE_HLS_PROFILE;
+export function getHlsProfile(mode: "stable" | "low") {
+  return mode === "low" ? LOW_LATENCY_HLS_PROFILE : LIVE_HLS_PROFILE;
 }
 
 /** Suppress player resets while a media segment is actively downloading. */
-export function hasActiveFragmentLoading(starts:Iterable<number>,now:number,maximumMs=210000):boolean {
-  for(const started of starts){
-    if(Number.isFinite(started)&&now>=started&&now-started<maximumMs)return true;
+export function hasActiveFragmentLoading(
+  starts: Iterable<number>,
+  now: number,
+  maximumMs = 210000,
+): boolean {
+  for (const started of starts) {
+    if (Number.isFinite(started) && now >= started && now - started < maximumMs)
+      return true;
   }
   return false;
 }
 
-export function secondsBufferedAhead(currentTime:number, ranges:Pick<TimeRanges,'length'|'start'|'end'>):number {
-  for(let i=0;i<ranges.length;i++){
-    if(currentTime>=ranges.start(i)-0.15&&currentTime<=ranges.end(i)+0.15){
-      return Math.max(0,ranges.end(i)-currentTime);
+export function secondsBufferedAhead(
+  currentTime: number,
+  ranges: Pick<TimeRanges, "length" | "start" | "end">,
+): number {
+  for (let i = 0; i < ranges.length; i++) {
+    if (
+      currentTime >= ranges.start(i) - 0.15 &&
+      currentTime <= ranges.end(i) + 0.15
+    ) {
+      return Math.max(0, ranges.end(i) - currentTime);
     }
   }
   return 0;
@@ -109,20 +120,45 @@ export function secondsBufferedAhead(currentTime:number, ranges:Pick<TimeRanges,
  * use the live sync point only after significant drift from the live edge.
  * Never invent missing fragments or jump past an unbuffered gap blindly.
  */
-export function recoveryTarget(args:{
-  current:number; ranges:Pick<TimeRanges,'length'|'start'|'end'>;
-  live:boolean; syncPosition:number|null; latency:number; targetLatency:number|null;
-  stalledForMs:number;
-}):number|null {
-  const {current,ranges,live,syncPosition,latency,targetLatency,stalledForMs}=args;
-  if(stalledForMs<2200)return null;
-  if(live&&syncPosition!=null&&Number.isFinite(syncPosition)&&targetLatency!=null&&targetLatency>0&&latency>targetLatency*2.25&&syncPosition>current+2){
+export function recoveryTarget(args: {
+  current: number;
+  ranges: Pick<TimeRanges, "length" | "start" | "end">;
+  live: boolean;
+  syncPosition: number | null;
+  latency: number;
+  targetLatency: number | null;
+  stalledForMs: number;
+}): number | null {
+  const {
+    current,
+    ranges,
+    live,
+    syncPosition,
+    latency,
+    targetLatency,
+    stalledForMs,
+  } = args;
+  if (stalledForMs < 2200) return null;
+  if (
+    live &&
+    syncPosition != null &&
+    Number.isFinite(syncPosition) &&
+    targetLatency != null &&
+    targetLatency > 0 &&
+    latency > targetLatency * 2.25 &&
+    syncPosition > current + 2
+  ) {
     return syncPosition;
   }
-  if(secondsBufferedAhead(current,ranges)>0.4)return null;
-  for(let i=0;i<ranges.length;i++){
-    const start=ranges.start(i);
-    if(start>current&&start-current<=1.25&&ranges.end(i)>start+0.25)return start+0.04;
+  if (secondsBufferedAhead(current, ranges) > 0.4) return null;
+  for (let i = 0; i < ranges.length; i++) {
+    const start = ranges.start(i);
+    if (
+      start > current &&
+      start - current <= 1.25 &&
+      ranges.end(i) > start + 0.25
+    )
+      return start + 0.04;
   }
   return null;
 }

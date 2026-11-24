@@ -6,6 +6,6 @@
   "vars": {
     "ALLOWED_HOSTS": "",
     "ALLOWED_ORIGINS": "",
-    "UPSTREAM_REFERER": ""
-  }
+    "UPSTREAM_REFERER": "",
+  },
 }

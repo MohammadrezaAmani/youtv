@@ -9,6 +9,7 @@
 - محدودیت Cloudflare: `fetch()` داخل Worker نمی‌تواند مستقیماً به آدرس‌های IP (مثلاً `http://1.2.3.4:8080/live.m3u8`) متصل شود. برای این منابع به یک پروکسی HTTPS مستقل با پشتیبانی IP و کنترل SSRF نیاز است. IPهای خصوصی و لوکال نیز همچنان مسدودند.
 
 ## نصب
+
 ```bash
 cd /Users/more/dev/youtv
 git apply --check ~/Downloads/YouTV-v0.28.0-to-v0.29.0.patch

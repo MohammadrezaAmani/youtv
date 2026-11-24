@@ -100,18 +100,15 @@ apps/worker/tests        HLS proxy tests
 
 See [LICENSE](./LICENSE). Nothing in this project grants a license to rebroadcast third-party channels.
 
-
 ## نسخه 0.4: Patch به‌جای ZIP
 
 مراحل ارتقا و قابلیت‌های Default Playlist، تست اتصال، مدیریت Cloudflare، اتصال خودکار مجدد و Backup کامل در [راهنمای فارسی v0.4](docs/UPGRADE-v0.4.fa.md) آمده است. فایل `apps/worker/dashboard-worker.mjs` برای کپی مستقیم در Cloudflare Dashboard فراهم است.
-
 
 ## YouTV 0.5 browser recording and UI design system
 
 This release adds local live-TV recording with MediaRecorder, optional direct file writing (where the browser supports the File System Access API), a bounded browser-memory fallback, a configurable recording bitrate that survives backup/restore, and shared custom React inputs, Radix selects, checkboxes, radios, sliders, file inputs, textareas, date picker and action buttons.
 
 **Recording is only available while a stream is actively playing and the browser tab remains open.** The recorded output is re-encoded by the browser and may omit subtitles/teletext; DRM, CORS restrictions and unsupported browsers prevent some sources from recording. See `docs/UPGRADE-v0.5.fa.md` for step-by-step installation and limitations.
-
 
 ## YouTV 0.18 PWA and iOS
 
@@ -120,7 +117,6 @@ This release adds local live-TV recording with MediaRecorder, optional direct fi
 ## YouTV 0.19 mobile playback
 
 The player now prefers native HLS on iOS/iPadOS, even when `hls.js` reports MediaSource support. Native playback does not request CORS-enabled video; browsers still enforce HTTPS mixed-content, codec, and source authorization restrictions. On iOS, start audio with a user tap. Multi-view controls are located with the player action icons, not in the page header. See `docs/UPGRADE-v0.19.fa.md` for deployment and limitations.
-
 
 ## Media Center
 

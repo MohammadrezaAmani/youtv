@@ -7,6 +7,6 @@
   "vars": {
     "ALLOWED_HOSTS": "*",
     "ALLOWED_ORIGINS": "https://mohammadrezaamani.github.io",
-    "UPSTREAM_REFERER": ""
-  }
+    "UPSTREAM_REFERER": "",
+  },
 }

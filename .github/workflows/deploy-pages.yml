@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * 1'
+    - cron: "17 3 * * 1"
 permissions:
   contents: read
   pages: write
@@ -27,7 +27,7 @@ jobs:
       - run: bun install
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Test and typecheck
         run: bun run check && bun run test
       - name: Run source-curation tests and install DNS resolver
@@ -79,8 +79,8 @@ jobs:
           fi
       - name: Build curated static app (no raw/dead sources published)
         env:
-          YOUTV_CURATED: '1'
-          VITE_YOUTV_CURATED: '1'
+          YOUTV_CURATED: "1"
+          VITE_YOUTV_CURATED: "1"
         run: bun run --cwd apps/web build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
