@@ -1,3 +1,5 @@
+// @vitest-environment node
+// Fetch, Headers, Blob and streams must use the same native implementation.
 import { expect, test, vi } from "vitest";
 import {
   HlsFragmentPrefetcher,
@@ -262,4 +264,52 @@ test("aborts stalled speculative downloads at the configured overall deadline", 
   expect(signal?.aborted).toBe(true);
   expect(p.getStats().active).toBe(0);
   release(); p.dispose();
+});
+
+
+test("prefetches an unranged hls.js fragment with zero offsets", async () => {
+  let receivedRange: string | null | undefined;
+  const p = new HlsFragmentPrefetcher((url) => url, {
+    waitForStartup: false,
+    fetcher: async (_url, init) => {
+      receivedRange = new Headers(init?.headers).get("Range");
+      return new Response(new Uint8Array([4, 5, 6]));
+    },
+  });
+  try {
+    const item = { ...fragment(2, 6), byteRangeStartOffset: 0, byteRangeEndOffset: 0 };
+    p.schedule([item], 0);
+    for (let attempt = 0; attempt < 20 && p.getStats().cached === 0; attempt++) await tick();
+    expect(receivedRange).toBeNull();
+    const result = await p.claim(item.url, 0, 0);
+    expect(result).not.toBeNull();
+    expect([...new Uint8Array(await result!.blob.arrayBuffer())]).toEqual([4, 5, 6]);
+  } finally {
+    p.dispose();
+  }
+});
+
+test("rejects incorrect byte-range responses without caching them", async () => {
+  for (const [status, contentRange, length] of [
+    [200, "bytes 100-199/1000", 100],
+    [206, "bytes 101-200/1000", 100],
+    [206, "bytes 100-199/1000", 99],
+  ] as const) {
+    const p = new HlsFragmentPrefetcher((url) => url, {
+      waitForStartup: false,
+      fetcher: async () => new Response(new Uint8Array(length), {
+        status, headers: { "content-type": "video/mp4", "content-range": contentRange },
+      }),
+    });
+    try {
+      const item = { ...fragment(2, 6), byteRangeStartOffset: 100, byteRangeEndOffset: 200 };
+      p.schedule([item], 0);
+      for (let attempt = 0; attempt < 20 && p.getStats().active > 0; attempt++) await tick();
+      expect(p.getStats().active).toBe(0);
+      expect(p.getStats().cached).toBe(0);
+      expect(p.take(item.url, 100, 200)).toBeNull();
+    } finally {
+      p.dispose();
+    }
+  }
 });

@@ -201,7 +201,10 @@ export class HlsFragmentPrefetcher {
       }
       const rawStart = fragment.byteRangeStartOffset;
       const rawEnd = fragment.byteRangeEndOffset;
-      const hasRange = Number.isFinite(rawStart) || Number.isFinite(rawEnd);
+      // hls.js may represent an ordinary (unranged) fragment as [0, 0].
+      // Keep this consistent with hlsPrefetchKey and the foreground loader.
+      const emptyRange = rawStart === 0 && rawEnd === 0;
+      const hasRange = !emptyRange && (rawStart !== undefined || rawEnd !== undefined);
       const rangeStart = hasRange ? rawStart : undefined;
       const rangeEnd = hasRange ? rawEnd : undefined;
       if (
@@ -419,9 +422,11 @@ export class HlsFragmentPrefetcher {
       for (let attempt = 0; attempt < 3; attempt++) {
         if (entry.controller.signal.aborted || this.disposed) return;
         try {
-          const headers = new Headers();
+          // A plain HeadersInit record avoids cross-realm Headers conversion
+          // (e.g. jsdom/undici) and preserves the exact inclusive HTTP end.
+          const headers: Record<string, string> = {};
           if (entry.rangeStart !== undefined && entry.rangeEnd !== undefined) {
-            headers.set("Range", `bytes=${entry.rangeStart}-${entry.rangeEnd - 1}`);
+            headers.Range = `bytes=${entry.rangeStart}-${entry.rangeEnd - 1}`;
           }
           const init = {
             method: "GET",
