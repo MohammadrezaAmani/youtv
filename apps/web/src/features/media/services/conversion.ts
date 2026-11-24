@@ -86,7 +86,7 @@ async function verifyHlsVOD(url: string, signal?: AbortSignal): Promise<void> {
 
 export async function convertToBrowserMp4(
   sourceUrl: string,
-  worker: WorkerProfile,
+  worker: WorkerProfile | undefined,
   kind: "video" | "hls",
   onProgress: ConversionProgress = () => {},
   signal?: AbortSignal,
@@ -112,12 +112,12 @@ export async function convertToBrowserMp4(
     temp = await createTempFile("media-convert");
     if (temp) tempWritable = await temp.handle.createWritable();
     const module = await import("mediabunny");
-    const sourceUrlThroughWorker = proxyUrl(
+    const sourceUrlThroughWorker = worker ? proxyUrl(
       sourceUrl,
       worker,
       "proxy",
       kind === "hls",
-    );
+    ) : sourceUrl;
     if (kind === "hls") await verifyHlsVOD(sourceUrlThroughWorker, signal);
     if (signal?.aborted)
       throw signal.reason || new DOMException("Aborted", "AbortError");

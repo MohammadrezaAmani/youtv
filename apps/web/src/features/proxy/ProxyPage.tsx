@@ -24,6 +24,7 @@ import { normalizeWorkerBaseUrl, proxyUrl, workerEndpoint } from "@/lib/proxy";
 import { ui } from "@/lib/labels";
 import CloudflareManager from "./CloudflareManager";
 import CloudflareGuide from "./CloudflareGuide";
+import MediaRouteControl from "@/features/media/components/MediaRouteControl";
 
 export default function ProxyPage() {
   const { t } = useTranslation();
@@ -591,14 +592,7 @@ export default function ProxyPage() {
       </div>
         <div className="panel-card form-stack">
           <h3>{fa ? "مسیر پیش‌فرض مرکز رسانه" : "Media Center default route"}</h3>
-          <label>{fa ? "Worker مرکز رسانه" : "Media Worker"}
-            <Select value={workers.some(w => w.enabled && w.id === settings.mediaWorkerId) ? settings.mediaWorkerId : ""} onChange={e => update({ mediaWorkerId: e.target.value })}>
-              <SelectOption value="">{fa ? "پیروی از Worker پیش‌فرض" : "Follow default Worker"}</SelectOption>
-              {workers.filter(w => w.enabled).map(w => <SelectOption key={w.id} value={w.id}>{w.name}</SelectOption>)}
-            </Select>
-          </label>
-          <label className="checkbox-row"><Checkbox checked={settings.mediaWorkerFallback} onChange={e => update({ mediaWorkerFallback: e.target.checked })} />{fa ? "جابه‌جایی خودکار بین Workerها" : "Automatic Worker fallback"}</label>
-          <label className="checkbox-row"><Checkbox checked={settings.mediaDirectFallback} onChange={e => update({ mediaDirectFallback: e.target.checked })} />{fa ? "اجازه اتصال مستقیم در صورت شکست پروکسی" : "Allow direct fallback"}</label>
+          <MediaRouteControl manage={false} />
           <p className="muted">{fa ? "این تنظیمات با مرکز رسانه مشترک هستند و پس از Reload باقی می‌مانند." : "Shared with Media Center and retained after reload."}</p>
         </div>
       </div>

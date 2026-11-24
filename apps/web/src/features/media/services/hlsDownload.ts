@@ -96,7 +96,7 @@ function mediaLines(text: string): boolean {
 function makeFetcher(
   entries: ZipEntrySource[],
   signal: AbortSignal | undefined,
-  worker: WorkerProfile,
+  worker: WorkerProfile | undefined,
   fallbacks: WorkerProfile[],
 ) {
   const keys = new Map<string, string>();
@@ -109,7 +109,7 @@ function makeFetcher(
       const headers: [string, string][] = range
         ? [["range", `bytes=${range.offset}-${range.offset + range.length - 1}`]]
         : [];
-      const response = await fetchArchiveResource(archiveResourceRoutes(url, worker, fallbacks), {
+      const response = await fetchArchiveResource(worker ? archiveResourceRoutes(url, worker, fallbacks) : [url], {
         headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
       }, response => {
         if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);
@@ -375,7 +375,7 @@ function parseMaster(text: string, url: string) {
 }
 export async function buildHlsArchiveEntries(
   sourceUrl: string,
-  worker: WorkerProfile,
+  worker: WorkerProfile | undefined,
   signal?: AbortSignal,
   fallbacks: WorkerProfile[] = [],
 ): Promise<{
@@ -384,7 +384,7 @@ export async function buildHlsArchiveEntries(
   segments: number;
   liveSnapshot: boolean;
 }> {
-  const initial = proxyUrl(sourceUrl, worker, "proxy", true);
+  const initial = worker ? proxyUrl(sourceUrl, worker, "proxy", true) : sourceUrl;
   const master = await readManifest(initial, signal);
   const entries: ZipEntrySource[] = [];
   const fetcher = makeFetcher(entries, signal, worker, fallbacks);

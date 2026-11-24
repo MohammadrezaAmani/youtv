@@ -562,37 +562,6 @@
   background: #fff;
 }
 
-/* Layout only; all controls use the shared design-system primitives. */
-.media-route-controls {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  margin-top: 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-2, var(--surface));
-  font-size: 13px;
-}
-.media-route-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.media-route-field {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
-  align-items: center;
-  gap: 10px;
-}
-.media-route-options { display: grid; gap: 10px; }
-.media-route-options .checkbox-row { align-items: flex-start; line-height: 1.6; }
-.media-route-status { color: var(--muted); overflow-wrap: anywhere; }
-@media (max-width: 600px) {
-  .media-route-field { grid-template-columns: minmax(0, 1fr); }
-}
-
 .media-preview-actions {
   flex-wrap: wrap;
   margin-top: 12px;
@@ -604,3 +573,23 @@
   overflow-wrap: anywhere;
 }
 .media-preview-details summary { cursor: pointer; }
+
+.media-selected-player { display: grid; gap: .65rem; min-width: 0; }
+.media-selected-player audio { width: 100%; }
+.media-format-list { display: grid; gap: .65rem; min-width: 0; }
+.media-format-item { display: grid; gap: .5rem; padding-block: .65rem; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.media-format-item small { display: block; font-size: .75rem; opacity: .8; }
+.media-format-item-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.media-youtube-playlist-row { grid-template-columns: auto auto auto minmax(0, 1fr) auto; }
+@media (max-width: 600px) {
+  .media-youtube-playlist-row { grid-template-columns: auto auto auto minmax(0, 1fr); }
+  .media-youtube-playlist-row > button:last-child { grid-column: 1 / -1; justify-self: end; }
+}
+
+.media-center-page .embedded-media-player { width: 100%; min-width: 0; margin-block: 8px; }
+.media-center-page .embedded-media-player .player-shell { box-shadow: none; }
+.media-center-page .embedded-media-player .pro-player { border-radius: 17px; }
+.media-instagram-poster.ui-button { position: relative; display: block; height: auto; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 8px; background: #08090c; aspect-ratio: 4/5; width: 100%; cursor: pointer; }
+.media-instagram-poster img { width: 100%; height: 100%; object-fit: cover; }
+.media-poster-play { position: absolute; inset: 0; display: grid; place-items: center; color: white; background: #0003; }
+.media-asset-card:has(> .embedded-media-player) { grid-column: 1 / -1; }

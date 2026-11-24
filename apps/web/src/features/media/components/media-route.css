@@ -1,0 +1,7 @@
+.media-route-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; min-width: 0; margin-block: 12px 0; }
+.media-route-label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.media-route-bar .ui-select-trigger { min-width: 0; width: 100%; }
+.media-route-bar .media-route-status { grid-column: 2 / -1; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.media-route-dialog-fields { margin-block-start: 12px; }
+.media-route-dialog-fields .checkbox-row { align-items: flex-start; line-height: 1.6; }
+@media (max-width: 460px) { .media-route-bar { grid-template-columns: minmax(0, 1fr) auto; } .media-route-label { grid-column: 1 / -1; } .media-route-bar .media-route-status { grid-column: 1 / -1; } }

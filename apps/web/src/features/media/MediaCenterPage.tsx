@@ -1,4 +1,4 @@
-import { RoutedImage, RoutedVideo } from "@/components/common/RoutedAsset";
+import { RoutedImage } from "@/components/common/RoutedAsset";
 import { assetRoutes } from "@/lib/assetRoutes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -12,18 +12,16 @@ import {
   Image,
   LoaderCircle,
   Search,
-  SquareArrowOutUpRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectOption } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Link } from "react-router-dom";
 import { ActionButton } from "@/components/ui/action-button";
 import { useYoutv } from "@/stores/useYoutv";
-import { createChannel } from "@youtv/shared";
+import type { WorkerProfile } from "@youtv/shared";
 import { needsHttpsRelay, proxyUrl } from "@/lib/proxy";
-import { orderedMediaWorkers, withMediaWorkers, requireMediaCapability, mediaAssetUrls, openMediaAsset, mediaError, primeMediaStream } from "./services/mediaRoutes";
+import { mediaRoutingPolicy, withMediaWorkers, requireMediaCapability, mediaAssetUrls, openMediaAsset, mediaError, primeMediaStream } from "./services/mediaRoutes";
 import {
   guessMediaKind,
   probeDirectMedia,
@@ -55,8 +53,10 @@ import {
 import { buildHlsArchiveEntries } from "./services/hlsDownload";
 import { buildDashArchiveEntries } from "./services/dashDownload";
 import { convertToBrowserMp4 } from "./services/conversion";
-import DashPlayer from "./components/DashPlayer";
-import PlayerStage from "@/features/player/PlayerStage";
+import MediaPlayer from "./components/MediaPlayer";
+import MediaRouteControl from "./components/MediaRouteControl";
+import SelectedYouTubePlayer from "./components/SelectedYouTubePlayer";
+import { chooseYouTubeAudio } from "./services/youtubePlayback";
 import "./media-center.css";
 
 type PlaylistData = {
@@ -118,7 +118,7 @@ function formatExtension(format: YouTubeFormat): string {
     : format.mimeType.includes("audio/")
       ? format.mimeType.includes("mp4")
         ? "m4a"
-        : "mp3"
+        : "webm"
       : "mp4";
 }
 function selectCombinedFormat(
@@ -161,6 +161,7 @@ function YouTubeDashPreview({
   manifest,
   title,
   videoId,
+  worker,
   allowDirect,
   onFailure,
   fa,
@@ -168,6 +169,7 @@ function YouTubeDashPreview({
   manifest: string;
   title: string;
   videoId: string;
+  worker?: WorkerProfile;
   allowDirect: boolean;
   onFailure: () => void;
   fa: boolean;
@@ -203,10 +205,12 @@ function YouTubeDashPreview({
   }
   if (!src) return null;
   return (
-    <DashPlayer
+    <MediaPlayer
       src={src}
+      sourceUrl={`https://www.youtube.com/watch?v=${videoId}`}
+      kind="dash"
+      worker={worker}
       title={title}
-      className="media-embed"
       onError={() => { setDashFailed(true); onFailure(); }}
     />
   );
@@ -240,6 +244,7 @@ function YouTubeRestrictedPreview({ preview, imageUrls, allowDirect, loading, on
           ? (fa ? "YouTube درخواست استخراج را با بررسی ضدربات رد کرد. همه Workerهای انتخاب‌شده برای استخراج امتحان شده‌اند؛ دانلود تا دریافت فرمت واقعی در دسترس نیست." : "YouTube rejected extraction with a bot check. All selected extraction routes were tried; downloads require real media formats.")
           : (fa ? "استخراج فرمت‌های رسانه موفق نبود. این نتیجه فقط پیش‌نمایش است و دانلود در دسترس نیست." : "Media format extraction failed. This is a preview only; downloading is unavailable.")}</span>
       </div>
+      {preview.detail && <p className="muted" role="status">{preview.detail}</p>}
       {(allowDirect || directRequested) ? (
         <>
           <p className="media-inline-warning">{fa ? "پلیر رسمی YouTube مستقیماً از مرورگر بارگیری می‌شود، نه از Worker. ممکن است به شبکه قابل دسترسی یا اجازه Embed نیاز داشته باشد." : "The official YouTube player connects directly from your browser, not through the Worker. Network access and embedding permission may be required."}</p>
@@ -280,23 +285,16 @@ export default function MediaCenterPage() {
   const settings = useYoutv((state) => state.settings),
     workers = useYoutv((state) => state.workers);
   const fa = settings.language === "fa";
-  const updateSettings = useYoutv((state) => state.updateSettings);
-  const preferredWorkerId = workers.some(w => w.id === settings.mediaWorkerId && w.enabled) ? settings.mediaWorkerId : "";
   const automaticFallback = settings.mediaWorkerFallback;
-  const allowDirect = settings.mediaDirectFallback;
-  const setPreferredWorkerId = (mediaWorkerId: string) => updateSettings({ mediaWorkerId });
-  const setAutomaticFallback = (mediaWorkerFallback: boolean) => updateSettings({ mediaWorkerFallback });
-  const setAllowDirect = (mediaDirectFallback: boolean) => updateSettings({ mediaDirectFallback });
+  const directMode = settings.mediaRouteMode === "direct";
+  const { candidates, allowDirect } = useMemo(() => mediaRoutingPolicy(workers, settings), [workers, settings.mediaRouteMode, settings.mediaWorkerId, settings.defaultWorkerId, settings.mediaWorkerFallback, settings.mediaDirectFallback]);
   const [resolvedWorkerId, setResolvedWorkerId] = useState<string | null>(null);
   const previewTried = useRef(new Set<string>());
   const previewRetrying = useRef(false);
   const resolutionGeneration = useRef(0);
-  const candidates = useMemo(() => orderedMediaWorkers(workers, preferredWorkerId || settings.defaultWorkerId, automaticFallback), [workers, preferredWorkerId, settings.defaultWorkerId, automaticFallback]);
   const worker = resolvedWorkerId === "" ? undefined : candidates.find(item => item.id === resolvedWorkerId) || candidates[0];
   const activeCandidates = useMemo(() => worker ? [worker, ...candidates.filter(item => item.id !== worker.id)] : candidates, [worker, candidates]);
-  // Direct access is opt-in when a Worker route was selected, or when the
-  // global policy requires a proxy even if every Worker is now unavailable.
-  const allowAssetDirect = allowDirect || (!candidates.length && !settings.mediaWorkerId && settings.proxyMode !== "proxy");
+  const allowAssetDirect = allowDirect;
   const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers);
   const openAsset = (url: string, filename: string, signal?: AbortSignal) => {
     const urls = mediaAssetUrls(url, activeCandidates, allowAssetDirect, filename);
@@ -313,12 +311,16 @@ export default function MediaCenterPage() {
   const [error, setError] = useState("");
   const [quality, setQuality] = useState("best");
   const [selectedFormat, setSelectedFormat] = useState<number | null>(null);
+  const [showYoutubeFormats, setShowYoutubeFormats] = useState(false);
+  const [playSelectedFormat, setPlaySelectedFormat] = useState(false);
   const [combineYoutubeAudio, setCombineYoutubeAudio] = useState(true);
   const [captionLanguages, setCaptionLanguages] = useState<string[]>([]);
   const [captionLanguage, setCaptionLanguage] = useState("");
   const [loadingPlaylistMore, setLoadingPlaylistMore] = useState(false);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
+  const [playingInstagram, setPlayingInstagram] = useState("");
+  const [instagramRouteIndex, setInstagramRouteIndex] = useState(0);
   const [jobs, setJobs] = useState<Job[]>(() => {
     try {
       return (
@@ -510,6 +512,10 @@ export default function MediaCenterPage() {
     setTarget(null);
     setCaptionLanguages([]);
     setCaptionLanguage("");
+    setShowYoutubeFormats(false);
+    setPlaySelectedFormat(false);
+    setPlayingInstagram("");
+    setInstagramRouteIndex(0);
     clearConvertedPreview();
     try {
       const parsed = new URL(raw);
@@ -524,6 +530,7 @@ export default function MediaCenterPage() {
       if (isYoutubeHost(parsed.hostname)) {
         const source = parseYouTubeUrl(raw);
         try {
+          if (directMode) throw new Error(fa ? "حالت مستقیم: استخراج فرمت‌های YouTube به‌دلیل محدودیت CORS مرورگر ممکن است در دسترس نباشد." : "Direct mode: YouTube format extraction may be unavailable due to browser CORS.");
           if (source.kind === "playlist") {
             const { worker: selected, value: playlist } = await withMediaWorkers(candidates, candidate => resolveYouTubePlaylist(candidate, source.id, 500));
             setResolvedWorkerId(selected.id);
@@ -545,25 +552,28 @@ export default function MediaCenterPage() {
             setCombineYoutubeAudio(true);
           }
         } catch (cause) {
-          const preview = await resolveYouTubePublicPreview(source, candidates, cause);
+          const preview = await resolveYouTubePublicPreview(source, candidates, cause, undefined, allowDirect);
           setResolvedWorkerId(preview.metadataWorkerId);
           setSelectedFormat(null);
           setTarget({ type: "youtube-preview", preview });
         }
       } else if (isInstagramHost(parsed.hostname)) {
-        if (!candidates.length)
-          throw new Error(
-            fa
-              ? "برای دریافت رسانه Instagram به Worker فعال نیاز است."
-              : "An active Worker is required for Instagram media.",
-          );
-        const { worker: selected, value: post } = await withMediaWorkers(candidates, async candidate => {
-          await requireMediaCapability(candidate, "instagramPublicRelay");
-          return resolveInstagramPost(candidate, raw);
-        });
-        setResolvedWorkerId(selected.id);
-        setTarget({ type: "instagram", post });
-        setSelectedAssets(post.assets.map((asset) => asset.id));
+        try {
+          const { worker: selected, value: post } = await withMediaWorkers(candidates, async candidate => {
+            await requireMediaCapability(candidate, "instagramPublicRelay");
+            return resolveInstagramPost(candidate, raw);
+          });
+          setResolvedWorkerId(selected.id);
+          setTarget({ type: "instagram", post });
+          setSelectedAssets(post.assets.map(asset => asset.id));
+        } catch (cause) {
+          if (!allowDirect) throw cause;
+          const path = parsed.pathname.match(/^\/(p|reel|tv)\/([A-Za-z0-9_-]+)\/?$/);
+          if (!path) throw new Error("Invalid Instagram post URL");
+          setResolvedWorkerId("");
+          setTarget({ type: "instagram", post: { url: `https://www.instagram.com/${path[1]}/${path[2]}/`, author: "", caption: "", thumbnail: "", assets: [] } });
+          setSelectedAssets([]);
+        }
       } else {
         const normalized = parsed.toString();
         let probe: DirectProbe | null = null;
@@ -626,12 +636,7 @@ export default function MediaCenterPage() {
     if (!format)
       throw new Error("Selected YouTube format is no longer available");
     const filename = `${cleanFilename(video.title)}.${formatExtension(format)}`;
-    const audioFormat =
-      format.kind === "video" && combineYoutubeAudio
-        ? video.formats
-            .filter((item) => item.kind === "audio")
-            .sort((a, b) => b.bitrate - a.bitrate)[0]
-        : undefined;
+    const audioFormat = chooseYouTubeAudio(video.formats, format, combineYoutubeAudio);
     if (audioFormat) {
       const muxFilename = `${cleanFilename(video.title)}.mp4`;
       await runJob(muxFilename, async (onProgress, signal) =>
@@ -877,7 +882,7 @@ export default function MediaCenterPage() {
   const convertDirect = async (
     targetValue: Extract<Target, { type: "direct" }>,
   ) => {
-    if (!worker) return;
+    if (!worker && !allowDirect) return;
     const kind = targetValue.kind === "hls" ? "hls" : "video";
     const filename = `${cleanFilename(new URL(targetValue.url).pathname.split("/").at(-1) || "media").replace(/\.[^.]+$/, "")}.mp4`;
     await runJob(filename, async (onProgress, signal) => {
@@ -912,11 +917,19 @@ export default function MediaCenterPage() {
     });
   };
 
+  const archiveWithRoutes = async <T,>(action: (candidate: WorkerProfile | undefined) => Promise<T>, signal?: AbortSignal): Promise<T> => {
+    if (activeCandidates.length) {
+      try { return (await withMediaWorkers(activeCandidates, action, signal)).value; }
+      catch (error) { signal?.throwIfAborted(); if (!allowDirect) throw error; }
+    }
+    if (!allowDirect) throw new Error("No usable media route");
+    return action(undefined);
+  };
   const downloadDirect = async (
     targetValue: Extract<Target, { type: "direct" }>,
   ) => {
-    if (!activeCandidates.length && (targetValue.kind === "hls" || targetValue.kind === "dash")) {
-      setError(fa ? "برای ساخت آرشیو HLS/DASH یک Worker فعال لازم است." : "HLS/DASH archiving requires an active Worker.");
+    if (!activeCandidates.length && !allowDirect && (targetValue.kind === "hls" || targetValue.kind === "dash")) {
+      setError(fa ? "برای آرشیو HLS/DASH یک مسیر فعال انتخاب کن." : "Select an available route for HLS/DASH archiving.");
       return;
     }
     if (targetValue.kind === "hls") {
@@ -930,7 +943,7 @@ export default function MediaCenterPage() {
       await runJob(archiveName, async (onProgress, signal) => {
         await downloadZipLazy(
           async (buildSignal) => {
-            const { value: result } = await withMediaWorkers(activeCandidates, candidate => buildHlsArchiveEntries(targetValue.url, candidate, buildSignal, activeCandidates), buildSignal);
+            const result = await archiveWithRoutes(candidate => buildHlsArchiveEntries(targetValue.url, candidate, buildSignal, activeCandidates), buildSignal);
             liveSnapshot = result.liveSnapshot;
             return result.entries;
           },
@@ -953,7 +966,7 @@ export default function MediaCenterPage() {
       await runJob(archiveName, (onProgress, signal) =>
         downloadZipLazy(
           async () =>
-            (await withMediaWorkers(activeCandidates, candidate => buildDashArchiveEntries(targetValue.url, candidate, signal, activeCandidates), signal)).value.entries,
+            (await archiveWithRoutes(candidate => buildDashArchiveEntries(targetValue.url, candidate, signal, activeCandidates), signal)).entries,
           archiveName,
           onProgress,
           signal,
@@ -980,8 +993,14 @@ export default function MediaCenterPage() {
   const currentFormat = youtubeVideo?.formats.find(
     (item) => item.itag === selectedFormat,
   );
+  const selectedAudio = chooseYouTubeAudio(youtubeVideo?.formats || [], currentFormat, combineYoutubeAudio);
+  const linkedPlaylistUrl = (() => {
+    try {
+      const source = parseYouTubeUrl(input, true);
+      return source.kind === "playlist" && source.videoId ? `https://www.youtube.com/playlist?list=${encodeURIComponent(source.id)}` : "";
+    } catch { return ""; }
+  })();
   const directPreviewAllowed = Boolean(worker) || allowAssetDirect;
-  const directChannel = useMemo(() => direct && directPreviewAllowed ? createChannel({ name: "Media Center HLS", url: direct.url, format: "hls", proxyMode: worker ? "proxy" : "direct", workerId: worker?.id || "" }) : null, [direct?.url, worker?.id, directPreviewAllowed]);
   const retryDirectPreview = () => {
     if (!direct) return;
     const current = worker?.id || "";
@@ -1026,8 +1045,8 @@ export default function MediaCenterPage() {
           </h1>
           <p>
             {fa
-              ? "پخش، استخراج اطلاعات و دانلود رسانه از YouTube، Instagram و لینک‌های مستقیم با همان Cloudflare Worker"
-              : "Resolve, play and download media from YouTube, Instagram and direct URLs through your existing Cloudflare Worker."}
+              ? "پخش، استخراج اطلاعات و دانلود رسانه از YouTube، Instagram و لینک‌های مستقیم با اتصال مستقیم یا Cloudflare Worker"
+              : "Resolve, play and download media from YouTube, Instagram and direct URLs directly or through your Cloudflare Worker."}
           </p>
         </div>
       </div>
@@ -1059,36 +1078,22 @@ export default function MediaCenterPage() {
             {fa ? "بررسی لینک" : "Resolve URL"}
           </Button>
         </div>
-        <div className="media-route-controls">
-          <div className="media-route-heading">
-            <strong>{fa ? "مسیریابی و پروکسی" : "Routing & proxy"}</strong>
-            <Button asChild variant="ghost" size="sm"><Link to="/proxy">{fa ? "مدیریت Workerها" : "Manage Workers"}</Link></Button>
-          </div>
-          <div className="media-route-field">
-          <label htmlFor="media-worker">{fa ? "مسیر پروکسی رسانه" : "Media proxy route"}</label>
-          <Select id="media-worker" value={preferredWorkerId} disabled={loading} onChange={event => { resolutionGeneration.current++; setPreferredWorkerId(event.target.value); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }}>
-            <SelectOption value="">{fa ? "Worker پیش‌فرض" : "Default Worker"}</SelectOption>
-            {workers.filter(item => item.enabled).map(item => <SelectOption key={item.id} value={item.id}>{item.name}</SelectOption>)}
-          </Select>
-          </div>
-          <div className="media-route-options">
-          <label className="checkbox-row"><Checkbox checked={automaticFallback} disabled={loading} onChange={event => { resolutionGeneration.current++; setAutomaticFallback(event.target.checked); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }} /> {fa ? "Fallback بین Workerهای فعال" : "Fallback across enabled Workers"}</label>
-          <label className="checkbox-row"><Checkbox checked={allowDirect} disabled={loading} onChange={event => setAllowDirect(event.target.checked)} /> {fa ? "Fallback مستقیم فایل‌ها و Embed یوتیوب (در صورت دسترسی)" : "Direct file and YouTube embed fallback (when accessible)"}</label>
-          </div>
-          <span className="media-route-status">{fa ? "مسیر فعلی:" : "Current route:"} {target?.type === "youtube-preview" ? (target.preview.metadataWorkerId ? `${workers.find(item => item.id === target.preview.metadataWorkerId)?.name || "Worker"} · ${fa ? "فقط اطلاعات" : "metadata only"}` : (fa ? "استخراج ناموفق" : "Extraction unavailable")) : worker?.name || (resolvedWorkerId === "" ? (fa ? "مستقیم" : "Direct") : "—")}</span>
-        </div>
+        {linkedPlaylistUrl && <div className="media-actions"><Button variant="outline" size="sm" disabled={loading} onClick={() => void resolve(linkedPlaylistUrl)}>{fa ? "بررسی کل پلی‌لیست به‌جای ویدئو" : "Resolve entire playlist instead"}</Button></div>}
+        <MediaRouteControl disabled={loading} onChange={() => {
+          resolutionGeneration.current++; setResolvedWorkerId(null); setTarget(null); setPlayingInstagram(""); clearConvertedPreview();
+        }} status={directMode ? (fa ? "اتصال مستقیم؛ بدون Worker" : "Direct connection; no Worker") : resolvedWorkerId === "" ? (fa ? "مسیر جایگزین: مستقیم" : "Fallback: direct") : worker ? `Worker: ${worker.name}` : (fa ? "Worker فعال موجود نیست" : "No active Worker")} />
         <div className="media-source-hints">
           <span>YouTube / Playlist</span>
           <span>Instagram Post / Reel</span>
           <span>MP4 · MKV · WEBM · MP3</span>
           <span>HLS · DASH</span>
         </div>
-        {!worker && (
+        {!worker && !directMode && (
           <p className="media-inline-warning">
             <AlertCircle size={15} />
             {fa
-              ? "Worker فعالی برای این مسیر انتخاب نشده؛ فایل مستقیم فقط در صورت دسترسی و مجاز بودن CORS قابل دانلود است. استخراج پلتفرم‌ها و آرشیو HLS/DASH به Worker نیاز دارند."
-              : "No active Worker is selected. Direct files require network access and CORS; platform extraction and HLS/DASH archiving require a Worker."}
+              ? "Worker فعالی برای این مسیر انتخاب نشده؛ فایل مستقیم فقط در صورت دسترسی و مجاز بودن CORS قابل دانلود است. استخراج پلتفرم‌ها معمولاً به Worker نیاز دارد."
+              : "No active Worker is selected. Direct files require network access and CORS; platform extraction generally requires a Worker."}
           </p>
         )}
       </div>
@@ -1137,20 +1142,26 @@ export default function MediaCenterPage() {
                 </p>
               </div>
             </div>
-            <YouTubeDashPreview
+            {playSelectedFormat && currentFormat ? <SelectedYouTubePlayer
+              key={`${youtubeVideo.id}:${currentFormat.itag}:${selectedAudio?.itag ?? "single"}`}
+              workers={activeCandidates} videoId={youtubeVideo.id} itag={currentFormat.itag}
+              audioItag={selectedAudio?.itag} title={youtubeVideo.title} fa={fa}
+            /> : <YouTubeDashPreview
               manifest={youtubeVideo.dashManifest}
               title={youtubeVideo.title}
               videoId={youtubeVideo.id}
+              worker={worker}
               allowDirect={allowDirect}
               onFailure={() => void retryYoutubePreview(youtubeVideo)}
               fa={fa}
-            />
+            />}
+            {playSelectedFormat && <Button variant="outline" size="sm" onClick={() => setPlaySelectedFormat(false)}>{fa ? "بازگشت به پخش خودکار" : "Return to automatic playback"}</Button>}
             {youtubeVideo.description && (
               <p className="media-description">{youtubeVideo.description}</p>
             )}
             <div className="media-format-row">
               <label htmlFor="youtube-format">
-                {fa ? "کیفیت و فرمت دانلود" : "Download format"}
+                {fa ? "کیفیت و فرمت پخش / دانلود" : "Playback / download format"}
               </label>
               <Select
                 id="youtube-format"
@@ -1203,8 +1214,8 @@ export default function MediaCenterPage() {
                     }
                   />
                   {fa
-                    ? "ترکیب بهترین صدای موجود و ساخت یک MP4"
-                    : "Mux best available audio into a single MP4"}
+                    ? "همراه بهترین صدای موجود (پخش DASH / دانلود MP4)"
+                    : "Include best available audio (DASH playback / MP4 download)"}
                 </label>
               )}
             {currentFormat && currentFormat.kind !== "combined" && (
@@ -1216,6 +1227,7 @@ export default function MediaCenterPage() {
               </p>
             )}
             <div className="media-actions">
+              <Button variant="outline" disabled={!worker || !currentFormat || playSelectedFormat} onClick={() => setPlaySelectedFormat(true)}><Clapperboard size={17} />{fa ? "پخش آنلاین همین فرمت" : "Play this format online"}</Button>
               <Button
                 disabled={!worker || !currentFormat}
                 onClick={() =>
@@ -1283,6 +1295,20 @@ export default function MediaCenterPage() {
                 <span>{fa ? "بیشترین ارتفاع" : "max height"}</span>
               </div>
             </div>
+            <Button variant="outline" size="sm" aria-expanded={showYoutubeFormats} onClick={() => setShowYoutubeFormats(value => !value)}>{showYoutubeFormats ? (fa ? "بستن فهرست فرمت‌ها" : "Hide format list") : (fa ? "نمایش همه گزینه‌های پخش و دانلود" : "Show all playback and download options")}</Button>
+            {showYoutubeFormats && <div className="media-format-list">
+              {youtubeVideo.formats.map(format => <div className="media-format-item" key={format.itag}>
+                <div><strong>{format.quality} · {format.height ? `${format.height}p` : format.kind === "audio" ? (fa ? "صوت" : "Audio") : "—"}</strong>
+                  <small dir="ltr">itag {format.itag} · {format.mimeType}</small>
+                  <small>{format.kind === "combined" ? (fa ? "صوت و تصویر" : "Video + audio") : format.kind === "video" ? (fa ? "فقط تصویر" : "Video only") : (fa ? "فقط صوت" : "Audio only")} · {format.bitrate ? `${Math.round(format.bitrate / 1000)} kbps` : "—"}{format.fps ? ` · ${format.fps} fps` : ""}{format.size ? ` · ${(format.size / 1048576).toFixed(1)} MiB` : ""}</small>
+                </div>
+                <div className="media-format-item-actions">
+                  <Button size="sm" variant={selectedFormat === format.itag && playSelectedFormat ? "default" : "outline"} disabled={!worker} onClick={() => { setSelectedFormat(format.itag); setPlaySelectedFormat(true); }}><Clapperboard size={15} />{fa ? "پخش" : "Play"}</Button>
+                  <Button size="sm" variant="outline" disabled={!worker} onClick={() => { setSelectedFormat(format.itag); void downloadYoutube(youtubeVideo, format.itag); }}><Download size={15} />{fa ? "دانلود" : "Download"}</Button>
+                </div>
+              </div>)}
+              {!youtubeVideo.formats.length && <p className="muted">{fa ? "فرمت فایل مستقلی از منبع دریافت نشد." : "No individual file formats were returned."}</p>}
+            </div>}
             <p className="muted">
               {fa
                 ? "فقط فرمت‌هایی که YouTube برای این ویدئو در اختیار Worker قرار داده نمایش داده می‌شوند. ویدئوهای DRM یا محدود ممکن است قابل دریافت نباشند."
@@ -1366,8 +1392,8 @@ export default function MediaCenterPage() {
           </div>
           <div className="media-video-list">
             {youtubePlaylist.items.map((item, index) => (
-              <label className="media-video-row" key={item.id}>
-                <Checkbox
+              <div className="media-video-row media-youtube-playlist-row" key={item.id}>
+                <Checkbox aria-label={item.title}
                   checked={selectedItems.includes(item.id)}
                   onChange={() =>
                     toggle(selectedItems, item.id, setSelectedItems)
@@ -1381,18 +1407,8 @@ export default function MediaCenterPage() {
                     {item.author} {item.duration && `· ${item.duration}`}
                   </small>
                 </span>
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(event: { stopPropagation: () => void }) =>
-                    event.stopPropagation()
-                  }
-                  aria-label="Open YouTube video"
-                >
-                  <SquareArrowOutUpRight size={15} />
-                </a>
-              </label>
+                <Button variant="outline" size="sm" disabled={loading} onClick={() => void resolve(item.url)}><Clapperboard size={15} />{fa ? "فرمت‌ها و پخش" : "Formats & play"}</Button>
+              </div>
             ))}
           </div>
           <div className="media-actions">
@@ -1461,12 +1477,16 @@ export default function MediaCenterPage() {
                     }
                   />
                   {asset.kind === "video" ? (
-                    <RoutedVideo
-                      urls={imageUrls(asset.url)}
-                      posters={imageUrls(asset.thumbnail)}
-                      controls
-                      preload="metadata"
-                    />
+                    playingInstagram === asset.id ? <MediaPlayer
+                      src={imageUrls(asset.url)[instagramRouteIndex] || ""}
+                      sourceUrl={asset.url} title={asset.filename} worker={activeCandidates[instagramRouteIndex]}
+                      poster={imageUrls(asset.thumbnail)[instagramRouteIndex]}
+                      onError={() => {
+                        if (instagramRouteIndex + 1 < imageUrls(asset.url).length) setInstagramRouteIndex(i => i === instagramRouteIndex ? i + 1 : i);
+                        else setError(fa ? "پخش این رسانه ناموفق بود." : "Media playback failed.");
+                      }} /> : <Button type="button" variant="ghost" className="media-instagram-poster" aria-label={fa ? "پخش ویدئو" : "Play video"} onClick={() => { setInstagramRouteIndex(0); setPlayingInstagram(asset.id); }}>
+                      {asset.thumbnail && <RoutedImage urls={imageUrls(asset.thumbnail)} alt="" />}<span className="media-poster-play"><Clapperboard size={24}/></span>
+                    </Button>
                   ) : (
                     <RoutedImage
                       urls={imageUrls(asset.url)}
@@ -1548,49 +1568,14 @@ export default function MediaCenterPage() {
               {direct.probe?.contentType || extensionLabel(direct.url)}
             </span>
           </div>
-          {direct.kind === "hls" && convertedPreviewUrl && (
-            <video
-              className="media-center-video"
-              src={convertedPreviewUrl}
-              controls
-              playsInline
-              preload="metadata"
-            />
-          )}
-          {direct.kind === "hls" && !convertedPreviewUrl && directChannel && (
-            <PlayerStage key={directChannel.id} channel={directChannel} onTerminalError={retryDirectPreview} />
-          )}
-          {directPreviewAllowed && direct.kind === "dash" && (
-            <DashPlayer key={dashProxy} src={dashProxy} title="DASH media" onError={retryDirectPreview} />
-          )}
-          {directPreviewAllowed && direct.kind === "video" &&
-            (convertedPreviewUrl ? (
-              <video
-                className="media-center-video"
-                src={convertedPreviewUrl}
-                controls
-                playsInline
-                preload="metadata"
-              />
-            ) : (
-              <video
-                className="media-center-video"
-                key={directProxy}
-                src={directProxy}
-                onError={retryDirectPreview}
-                controls
-                playsInline
-                preload="metadata"
-              />
-            ))}
-          {directPreviewAllowed && direct.kind === "audio" && (
-            <audio
-              className="media-center-audio"
-              key={directProxy}
-              src={directProxy}
-              onError={retryDirectPreview}
-              controls
-              preload="metadata"
+          {directPreviewAllowed && (["hls", "dash", "video", "audio"] as MediaKind[]).includes(direct.kind) && (
+            <MediaPlayer
+              src={convertedPreviewUrl || (direct.kind === "dash" ? dashProxy : directProxy)}
+              sourceUrl={direct.url}
+              title={directName || mediaKindLabel(direct.kind, fa)}
+              kind={convertedPreviewUrl ? "video" : direct.kind as "hls" | "dash" | "video" | "audio"}
+              worker={convertedPreviewUrl ? undefined : worker}
+              onError={convertedPreviewUrl ? message => setError(mediaError(message)) : retryDirectPreview}
             />
           )}
           {directPreviewAllowed && direct.kind === "image" && (
@@ -1667,7 +1652,7 @@ export default function MediaCenterPage() {
               </a>
             )}
             <Button
-              disabled={!activeCandidates.length && (direct.kind === "hls" || direct.kind === "dash")}
+              disabled={!activeCandidates.length && !allowDirect}
               onClick={() => void downloadDirect(direct)}
             >
               <Download size={17} />
@@ -1686,7 +1671,7 @@ export default function MediaCenterPage() {
             {(direct.kind === "hls" || direct.kind === "video") && (
               <Button
                 variant="outline"
-                disabled={!worker}
+                disabled={!worker && !allowDirect}
                 onClick={() => void convertDirect(direct)}
               >
                 <FileVideo size={17} />

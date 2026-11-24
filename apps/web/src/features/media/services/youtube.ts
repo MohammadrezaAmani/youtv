@@ -9,6 +9,7 @@ import { evaluatePlayerProgram } from "./youtubeEvaluator";
 import { discoverPlayerId } from "./youtubeBootstrap";
 import { requireMediaCapability, mediaError } from "./mediaRoutes";
 import { isYouTubeBotCheck } from "./youtubeFallback";
+import { excludeDashFormat, youtubePlaybackUrl, probeYouTubePlayback } from "./youtubePlayback";
 
 export type YouTubeFormat = {
   itag: number;
@@ -129,7 +130,7 @@ function videoIdFromUrl(value: string): string {
     throw new Error("آدرس ویدئوی YouTube معتبر نیست");
   return id;
 }
-export function parseYouTubeUrl(value: string): {
+export function parseYouTubeUrl(value: string, preferPlaylist = false): {
   kind: "video" | "playlist";
   id: string;
   videoId?: string;
@@ -154,6 +155,7 @@ export function parseYouTubeUrl(value: string): {
       return "";
     }
   })();
+  if (video && !preferPlaylist) return { kind: "video", id: video };
   if (
     playlist &&
     /^(?:PL|UU|LL|FL|RD|OLAK5uy|UULF|VL)[A-Za-z0-9_-]{8,}$/.test(playlist)
@@ -164,6 +166,7 @@ export function parseYouTubeUrl(value: string): {
 }
 function toFormat(format: any): YouTubeFormat | null {
   if (!Number.isFinite(Number(format?.itag))) return null;
+  if (!format.url && !format.signature_cipher && !format.cipher) return null;
   const hasAudio = Boolean(format.has_audio),
     hasVideo = Boolean(format.has_video);
   if (!hasAudio && !hasVideo) return null;
@@ -198,15 +201,26 @@ async function getInfo(
     return { client: cached.client, info: cached.info };
   const client = await getClient(worker, id);
   let info: any;
+  let manifestOnly: any;
   let lastError = "";
   let botError = "";
   for (const clientName of ["TV", "WEB", "ANDROID"]) {
     try {
-      const candidate = await client.getInfo(id, { client: clientName });
-      if (candidate?.streaming_data && (candidate.streaming_data.formats?.length || candidate.streaming_data.adaptive_formats?.length || candidate.streaming_data.hls_manifest_url || candidate.streaming_data.dash_manifest_url)) {
+      let candidate: any;
+      try {
+        candidate = await client.getInfo(id, { client: clientName });
+      } catch (error) {
+        // getInfo waits for both player and watch-next. Media extraction does
+        // not require recommendations or comments if watch-next fails.
+        if (isYouTubeBotCheck(error)) throw error;
+        candidate = await client.getBasicInfo(id, { client: clientName });
+      }
+      const streaming = candidate?.streaming_data;
+      if (streaming && [...(streaming.formats || []), ...(streaming.adaptive_formats || [])].some(toFormat)) {
         info = candidate;
         break;
       }
+      if (streaming?.hls_manifest_url || streaming?.dash_manifest_url) manifestOnly ??= candidate;
       lastError = String(
         candidate?.playability_status?.reason || "No streaming data",
       );
@@ -215,6 +229,7 @@ async function getInfo(
     }
     if (isYouTubeBotCheck(lastError)) botError = lastError;
   }
+  info ??= manifestOnly;
   if (!info?.streaming_data)
     throw new Error(
       botError || lastError || "YouTube برای این ویدئو اطلاعات پخش برنگرداند",
@@ -252,13 +267,13 @@ export async function resolveYouTubeVideo(
           new URL(url.hostname.endsWith(".googlevideo.com") && url.pathname === "/videoplayback"
             ? workerEndpoint(worker, "youtube/fetch", { url: url.toString() })
             : proxyUrl(url.toString(), worker)),
-        format_filter: (format: any) =>
-          !format.drm_families?.length && !format.fair_play_key_uri,
+        format_filter: (format: any) => excludeDashFormat(format) || !toFormat(format),
       });
     } catch {
       /* some restricted or DRM streams cannot be represented as browser DASH */
     }
-  formats.sort(
+  const uniqueFormats = [...new Map(formats.slice().reverse().map(format => [format.itag, format])).values()];
+  uniqueFormats.sort(
     (a, b) =>
       Number(b.hasAudio && b.hasVideo) - Number(a.hasAudio && a.hasVideo) ||
       b.height - a.height ||
@@ -282,10 +297,65 @@ export async function resolveYouTubeVideo(
     canonicalUrl: String(
       basic.url_canonical || `https://www.youtube.com/watch?v=${id}`,
     ),
-    formats,
+    formats: uniqueFormats,
     dashManifest,
   };
 }
+export type YouTubePlaybackSource =
+  | { type: "video" | "audio"; url: string }
+  | { type: "dash"; manifest: string };
+
+/** Resolve on the Worker that will actually deliver the media. Do not reuse a
+ * signed CDN URL from a different Worker or silently pick a different itag. */
+export async function resolveYouTubePlayback(
+  worker: WorkerProfile, id: string, itag: number, audioItag?: number,
+  signal?: AbortSignal,
+): Promise<YouTubePlaybackSource> {
+  signal?.throwIfAborted();
+  const { client, info } = await getInfo(worker, id);
+  signal?.throwIfAborted();
+  const all = [...(info.streaming_data.formats || []), ...(info.streaming_data.adaptive_formats || [])];
+  const raw = all.find((item: any) => Number(item.itag) === itag && toFormat(item));
+  const format = toFormat(raw);
+  if (!format || !raw) throw new Error(`Selected itag ${itag} is unavailable on this Worker`);
+  const selected = new Set([itag]);
+  const selectedObjects = new Set([raw]);
+  if (audioItag !== undefined) {
+    const audio = all.find((item: any) => Number(item.itag) === audioItag && toFormat(item)?.kind === "audio");
+    if (format.kind !== "video" || toFormat(audio)?.kind !== "audio")
+      throw new Error(`Selected audio itag ${audioItag} is unavailable on this Worker`);
+    selected.add(audioItag);
+    selectedObjects.add(audio);
+  }
+  if (audioItag !== undefined || raw.is_type_otf) {
+    const manifest = await info.toDash({
+      url_transformer: (url: URL) => new URL(
+        url.hostname === "googlevideo.com" || url.hostname.endsWith(".googlevideo.com")
+          ? youtubePlaybackUrl(url, worker)
+          : proxyUrl(url.toString(), worker),
+      ),
+      format_filter: (candidate: any) => excludeDashFormat(candidate, selected) || !selectedObjects.has(candidate),
+    });
+    signal?.throwIfAborted();
+    const document = new DOMParser().parseFromString(manifest, "application/xml");
+    const sets = Array.from(document.getElementsByTagNameNS("*", "AdaptationSet"));
+    const hasTrack = (kind: string) => sets.some(set =>
+      (set.getAttribute("mimeType")?.startsWith(`${kind}/`) || set.getAttribute("contentType") === kind) &&
+      set.getElementsByTagNameNS("*", "Representation").length > 0);
+    if (document.getElementsByTagName("parsererror").length ||
+        (format.hasVideo && !hasTrack("video")) ||
+        ((format.hasAudio || audioItag !== undefined) && !hasTrack("audio")))
+      throw new Error("The selected tracks cannot be represented as a playable DASH manifest");
+    return { type: "dash", manifest };
+  }
+  const upstream = new URL(await raw.decipher(client.session.player));
+  if (info.cpn) upstream.searchParams.set("cpn", info.cpn);
+  const url = youtubePlaybackUrl(upstream, worker);
+  signal?.throwIfAborted();
+  await probeYouTubePlayback(url, signal);
+  return { type: format.kind === "audio" ? "audio" : "video", url };
+}
+
 export async function openYouTubeDownload(
   worker: WorkerProfile,
   id: string,
@@ -300,8 +370,8 @@ export async function openYouTubeDownload(
     ...(info.streaming_data.formats || []),
     ...(info.streaming_data.adaptive_formats || []),
   ];
-  const format = all.find((item: any) => Number(item.itag) === itag);
-  if (!format)
+  const format = all.find((item: any) => Number(item.itag) === itag && toFormat(item));
+  if (!format || !toFormat(format))
     throw new Error(
       "فرمت انتخاب‌شده دیگر در دسترس نیست؛ دوباره اطلاعات ویدئو را دریافت کن",
     );
@@ -500,8 +570,9 @@ export async function getYouTubeTranscript(
   id: string,
   language = "",
 ): Promise<{ language: string; languages: string[]; vtt: string }> {
-  const { info } = await getInfo(worker, id);
-  const transcriptInfo = await info.getTranscript();
+  const { info, client } = await getInfo(worker, id);
+  const fullInfo = info.page?.[1] ? info : await client.getInfo(id);
+  const transcriptInfo = await fullInfo.getTranscript();
   const languages: string[] = Array.from(transcriptInfo.languages || []);
   const selected =
     language && languages.includes(language)

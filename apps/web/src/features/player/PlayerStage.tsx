@@ -207,10 +207,12 @@ export default function PlayerStage({
   channel,
   bottomActions,
   onTerminalError,
+  preparedSource,
 }: {
   channel: Channel;
   bottomActions?: ReactNode;
   onTerminalError?: (message: string) => void;
+  preparedSource?: { url: string; kind: "video" | "audio" | "hls" | "dash"; worker?: WorkerProfile; poster?: string };
 }) {
   const terminalErrorRef = useRef(onTerminalError);
   useEffect(() => { terminalErrorRef.current = onTerminalError; }, [onTerminalError]);
@@ -295,14 +297,15 @@ export default function PlayerStage({
   const [remoteTracks, setRemoteTracks] = useState<
     { id: string; label: string; language: string; url: string }[]
   >([]);
-  const canProxy = Boolean(activeWorker(channel, settings, workers));
+  const canProxy = !preparedSource && Boolean(activeWorker(channel, settings, workers));
   const sources = [channel.url, ...(channel.alternateUrls || [])];
   const saveProgress = useYoutv((s) => s.saveProgress);
   const savedProgress = useYoutv((s) => s.resume[channel.id] || 0);
-  const effectiveMode = effectiveConnectionMode(channel, settings, override);
-  const httpNeedsProxy = needsHttpsRelay(sources[sourceIndex] || channel.url);
+  const effectiveMode = preparedSource ? (preparedSource.worker ? "proxy" : "direct") : effectiveConnectionMode(channel, settings, override);
+  const httpNeedsProxy = needsHttpsRelay(preparedSource?.url || sources[sourceIndex] || channel.url);
   const displayedMode = httpNeedsProxy && canProxy ? "proxy" : effectiveMode;
   const resolved = useMemo(() => {
+    if (preparedSource) return { value: { url: preparedSource.url, mode: preparedSource.worker ? "proxy" as const : "direct" as const, worker: preparedSource.worker }, error: "" };
     try {
       const preferWorker =
         appleMobile &&
@@ -333,6 +336,7 @@ export default function PlayerStage({
     sourceIndex,
     appleMobile,
     effectiveMode,
+    preparedSource,
   ]);
   const streamUrl = resolved.value?.url ?? "";
   const recording = useLocalRecorder(
@@ -347,7 +351,7 @@ export default function PlayerStage({
     "starting",
     "saving",
   ].includes(rec.phase);
-  const hls = isProbablyHls(
+  const hls = preparedSource ? preparedSource.kind === "hls" : isProbablyHls(
     sources[sourceIndex] || channel.url,
     channel.format,
   );
@@ -360,7 +364,7 @@ export default function PlayerStage({
     [],
   );
   const hlsJsSupported = useMemo(() => Hls.isSupported(), []);
-  const playbackEngine = selectPlaybackEngine({
+  const playbackEngine = preparedSource?.kind === "dash" ? "dashjs" : selectPlaybackEngine({
     isHls: hls,
     nativeHls: nativeHlsSupport,
     hlsJsSupported,
@@ -432,6 +436,12 @@ export default function PlayerStage({
   const fail = useCallback(
     (message: string) => {
       if (retryTimerRef.current) return; // multiple HLS callbacks must not schedule duplicate retries
+      if (preparedSource) {
+        const safeMessage = message.replace(/https?:\/\/[^\s"'<>]+/gi, "[URL]");
+        const token = preparedSource.worker?.token;
+        const detail = token ? safeMessage.split(token).join("[redacted]") : safeMessage;
+        setError(detail); setStatus("error"); terminalErrorRef.current?.(detail); return;
+      }
       const { enabled, max } = reconnectOptionsRef.current;
       const permanent =
         /\b(?:HTTP\s*)?(401|403|404|410)\b|codec|unsupported|mixed.content|HTTPS required|permission/i.test(
@@ -493,6 +503,7 @@ export default function PlayerStage({
       channel.alternateUrls,
       appleMobile,
       resolved.value?.mode,
+      preparedSource,
     ],
   );
   useEffect(() => {
@@ -714,6 +725,7 @@ export default function PlayerStage({
     recoverCount.current = 0;
     inFlightFragmentsRef.current.clear();
     let disposed = false;
+    let dashEngine: { reset: () => void } | undefined;
     lastProgressAtRef.current = Date.now();
     healthySinceRef.current = Date.now();
     setStatus("loading");
@@ -744,7 +756,24 @@ export default function PlayerStage({
       );
       return;
     }
-    if (playbackEngine === "hlsjs") {
+    if (playbackEngine === "dashjs") {
+      void (async () => {
+        try {
+          const module = await import("dashjs");
+          if (disposed) return;
+          const dashjs = (module as any).default || module;
+          const engine = dashjs.MediaPlayer().create();
+          dashEngine = engine;
+          engine.on(dashjs.MediaPlayer.events.ERROR, (event: any) => {
+            if (!disposed) fail(String(event?.error?.message || event?.event?.message || "DASH playback failed"));
+          });
+          engine.initialize(video, streamUrl, false);
+          engine.updateSettings({ streaming: { lowLatencyEnabled: false, buffer: { fastSwitchEnabled: true } } });
+        } catch (cause) {
+          if (!disposed) fail(cause instanceof Error ? cause.message : "DASH player unavailable");
+        }
+      })();
+    } else if (playbackEngine === "hlsjs") {
       const engine = new Hls({ ...getHlsProfile(settings.hlsLatencyMode) });
       hlsRef.current = engine;
       engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -914,6 +943,7 @@ export default function PlayerStage({
       inFlightFragmentsRef.current.clear();
       if (playbackEpochRef.current === playbackEpoch)
         playbackEpochRef.current++;
+      try { dashEngine?.reset(); } catch { /* already disposed */ }
       const engine = hlsRef.current;
       if (engine) {
         engine.destroy();
@@ -934,7 +964,7 @@ export default function PlayerStage({
   ]);
 
   useEffect(() => {
-    if (hls) return;
+    if (hls || preparedSource) return;
     const video = videoRef.current;
     if (!video) return;
     const restore = () => {
@@ -949,16 +979,16 @@ export default function PlayerStage({
     return () => video.removeEventListener("loadedmetadata", restore);
     // Resume only when the channel changes, not when progress is periodically saved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel.id, hls]);
+  }, [channel.id, hls, Boolean(preparedSource)]);
   useEffect(() => {
-    if (hls) return;
+    if (hls || preparedSource) return;
     const interval = setInterval(() => {
       const video = videoRef.current;
       if (video && Number.isFinite(video.duration) && video.currentTime > 0)
         saveProgress(channel.id, video.currentTime);
     }, 7000);
     return () => clearInterval(interval);
-  }, [channel.id, hls, saveProgress]);
+  }, [channel.id, hls, saveProgress, Boolean(preparedSource)]);
   useEffect(() => {
     if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined")
       return;
@@ -1320,7 +1350,7 @@ export default function PlayerStage({
 
   return (
     <div
-      className={`player-wrapper professional-player ${theater ? "is-theater" : ""}`}
+      className={`player-wrapper professional-player ${preparedSource ? "embedded-media-player" : ""} ${theater ? "is-theater" : ""}`}
     >
       <div className="player-shell">
         <div
@@ -1339,6 +1369,7 @@ export default function PlayerStage({
           <video
             ref={videoRef}
             playsInline
+            poster={preparedSource?.poster}
             preload={appleMobile ? "metadata" : "auto"}
             crossOrigin={playbackEngine === "hlsjs" ? "anonymous" : undefined}
             autoPlay={settings.autoplay && !appleMobile}
@@ -1410,7 +1441,8 @@ export default function PlayerStage({
                           "اتصال یا پخش این منبع ناموفق بود.",
                           "Media network or playback error.",
                         );
-                if (code === 3 || code === 4) {
+                if (preparedSource) fail(message);
+                else if (code === 3 || code === 4) {
                   setStatus("error");
                   setError(message);
                 } else fail(message);
@@ -1628,7 +1660,7 @@ export default function PlayerStage({
                 >
                   <MoreHorizontal size={20} />
                 </ActionButton>
-                <ActionButton
+                {!preparedSource && <ActionButton
                   className="media-icon pro-extras"
                   title="Teletext"
                   onClick={() => {
@@ -1637,7 +1669,7 @@ export default function PlayerStage({
                   }}
                 >
                   <BookOpen size={19} />
-                </ActionButton>
+                </ActionButton>}
                 <ActionButton
                   className="media-icon pro-extras"
                   title="Picture in picture"
@@ -1751,7 +1783,7 @@ export default function PlayerStage({
                         {tr("منابع پخش", "Sources")} <AudioLines size={17} />
                       </ActionButton>
                     )}
-                    <ActionButton
+                    {!preparedSource && <ActionButton
                       className="media-menu-option"
                       onClick={() => {
                         setTeletext(true);
@@ -1759,7 +1791,7 @@ export default function PlayerStage({
                       }}
                     >
                       Teletext <BookOpen size={17} />
-                    </ActionButton>
+                    </ActionButton>}
                     <ActionButton
                       className="media-menu-option"
                       onClick={() => setMenu("speed")}
@@ -2074,6 +2106,7 @@ export default function PlayerStage({
           )}
         </div>
       </div>
+      {!preparedSource && <>
       <div className="player-channel-info">
         <div className="player-channel-icon">
           {channel.logo ? (
@@ -2202,6 +2235,7 @@ export default function PlayerStage({
           </a>
         </div>
       </div>
+      </>}
       {diagnostics && (
         <div className="player-diagnostics">
           <strong>
@@ -2209,7 +2243,7 @@ export default function PlayerStage({
           </strong>
           <div>
             <span>Protocol</span>
-            <b>{hls ? "HLS" : "Native"}</b>
+            <b>{playbackEngine === "dashjs" ? "DASH" : hls ? "HLS" : "Native"}</b>
           </div>
           <div>
             <span>Status</span>

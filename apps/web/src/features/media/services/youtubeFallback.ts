@@ -24,6 +24,7 @@ export async function resolveYouTubePublicPreview(
   workers: WorkerProfile[],
   cause: unknown,
   signal?: AbortSignal,
+  allowDirect = false,
 ): Promise<YouTubePublicPreview> {
   signal?.throwIfAborted();
   const video = source.kind === "video";
@@ -46,11 +47,11 @@ export async function resolveYouTubePublicPreview(
   const endpoint = new URL("https://www.youtube.com/oembed");
   endpoint.searchParams.set("url", canonicalUrl);
   endpoint.searchParams.set("format", "json");
-  for (const worker of workers) {
+  for (const worker of [...workers, ...(allowDirect ? [undefined] : [])]) {
     signal?.throwIfAborted();
     try {
       const timeout = AbortSignal.timeout(8000);
-      const response = await fetch(proxyUrl(endpoint.toString(), worker), {
+      const response = await fetch(worker ? proxyUrl(endpoint.toString(), worker) : endpoint.toString(), {
         credentials: "omit", cache: "no-store",
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
@@ -69,7 +70,7 @@ export async function resolveYouTubePublicPreview(
       }
       signal?.throwIfAborted();
       result.metadata = { title: data.title.trim().slice(0, 500), author: typeof data.author_name === "string" ? data.author_name.slice(0, 300) : "", thumbnail };
-      result.metadataWorkerId = worker.id;
+      result.metadataWorkerId = worker?.id ?? null;
       return result;
     } catch { signal?.throwIfAborted(); }
   }

@@ -161,12 +161,12 @@ async function fetchManifest(
 }
 export async function buildDashArchiveEntries(
   sourceUrl: string,
-  worker: WorkerProfile,
+  worker: WorkerProfile | undefined,
   signal?: AbortSignal,
   fallbacks: WorkerProfile[] = [],
 ): Promise<{ entries: ZipEntrySource[]; name: string; segments: number }> {
-  const requestUrl = new URL(proxyUrl(sourceUrl, worker));
-  requestUrl.searchParams.set("dash", "1");
+  const requestUrl = new URL(worker ? proxyUrl(sourceUrl, worker) : sourceUrl);
+  if (worker) requestUrl.searchParams.set("dash", "1");
   const loaded = await fetchManifest(requestUrl.toString(), signal);
   const doc = new DOMParser().parseFromString(loaded.xml, "application/xml");
   if (doc.querySelector("parsererror"))
@@ -399,7 +399,7 @@ export async function buildDashArchiveEntries(
       open: async (entrySignal?: AbortSignal) => {
         const headers = new Headers();
         if (asset.range) headers.set("Range", `bytes=${asset.range}`);
-        const response = await fetchArchiveResource(archiveResourceRoutes(asset.url, worker, fallbacks), {
+        const response = await fetchArchiveResource(worker ? archiveResourceRoutes(asset.url, worker, fallbacks) : [asset.url], {
           headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
         }, response => {
           if (!response.ok) throw new Error(`DASH segment HTTP ${response.status}`);

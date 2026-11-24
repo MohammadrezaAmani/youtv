@@ -13,6 +13,18 @@ export function orderedMediaWorkers(
   return fallback ? ordered : ordered.slice(0, 1);
 }
 
+/** Explicit Direct never selects a Worker, even if a default is configured. */
+export function mediaRoutingPolicy(workers: WorkerProfile[], settings: {
+  mediaRouteMode: "direct" | "proxy"; mediaWorkerId: string; defaultWorkerId: string;
+  mediaWorkerFallback: boolean; mediaDirectFallback: boolean;
+}, protocol?: string) {
+  if (settings.mediaRouteMode === "direct") return { candidates: [], allowDirect: true };
+  return {
+    candidates: orderedMediaWorkers(workers, settings.mediaWorkerId || settings.defaultWorkerId, settings.mediaWorkerFallback, protocol),
+    allowDirect: settings.mediaDirectFallback,
+  };
+}
+
 // Errors can contain request URLs with query-token credentials. Never render those.
 export function mediaError(error: unknown, worker?: WorkerProfile): string {
   let message = error instanceof Error ? error.message : String(error);

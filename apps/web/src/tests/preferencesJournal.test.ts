@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { newestPreferences, nextPreferences, preferencesKey, readPreferences, writePreferences } from "@/lib/preferencesJournal";
 import { defaultState, stateSchema } from "@youtv/shared";
 
-const config = () => ({ settings: { ...defaultState.settings, mediaWorkerId: "a", mediaWorkerFallback: false, mediaDirectFallback: true }, workers: [{ id: "a", name: "My Worker", baseUrl: "https://worker.example.org/", token: "proxy-test-token", enabled: true }] });
+const config = () => ({ settings: { ...defaultState.settings, mediaRouteMode: "direct" as const, mediaWorkerId: "a", mediaWorkerFallback: false, mediaDirectFallback: true }, workers: [{ id: "a", name: "My Worker", baseUrl: "https://worker.example.org/", token: "proxy-test-token", enabled: true }] });
 describe("durable local preferences journal", () => {
   it("keeps Worker and media fallback choices synchronously, before an IndexedDB flush", () => {
     const key = "test:preferences:reload";
@@ -37,11 +37,13 @@ describe("durable local preferences journal", () => {
   it("migrates old backups without media route preferences and preserves new choices", () => {
     const state = structuredClone(defaultState);
     const old = { ...state.settings } as Partial<typeof state.settings>;
-    delete old.mediaWorkerId; delete old.mediaWorkerFallback; delete old.mediaDirectFallback; delete old.cloudflareManagerWorkerId;
+    delete old.mediaRouteMode; delete old.mediaWorkerId; delete old.mediaWorkerFallback; delete old.mediaDirectFallback; delete old.cloudflareManagerWorkerId;
     const parsed = stateSchema.parse({ ...state, settings: old });
+    expect(parsed.settings.mediaRouteMode).toBe("proxy");
     expect(parsed.settings.mediaWorkerId).toBe("");
     expect(parsed.settings.mediaWorkerFallback).toBe(true);
     expect(parsed.settings.mediaDirectFallback).toBe(false);
     expect(stateSchema.parse({ ...state, ...config() }).settings.mediaWorkerId).toBe("a");
+    expect(stateSchema.parse({ ...state, ...config() }).settings.mediaRouteMode).toBe("direct");
   });
 });
