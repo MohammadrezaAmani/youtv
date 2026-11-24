@@ -18,6 +18,8 @@ import {
   type AppState,
   type HealthResult,
   BUILTIN_PLAYLIST_ID,
+  BUILTIN_WORKER_ID,
+  ensureDefaultWorker,
 } from "@youtv/shared";
 
 type Store = AppState & {
@@ -49,7 +51,7 @@ type Store = AppState & {
 };
 
 const empty = structuredClone(defaultState);
-const parseState = (unknown: unknown): AppState => stateSchema.parse(unknown);
+const parseState = (unknown: unknown): AppState => ensureDefaultWorker(stateSchema.parse(unknown));
 /** Repair a legacy import that saved EXTINF attributes as a channel title. */
 export function repairLegacyMetadata(channel: Channel): Channel {
   const title = channel.name.trim();
@@ -300,10 +302,10 @@ export const useYoutv = create<Store>()(
             : [...s.workers, w],
           settings: { ...s.settings, defaultWorkerId: s.settings.defaultWorkerId === w.id && !w.enabled
             ? s.workers.find(item => item.id !== w.id && item.enabled)?.id ?? ""
-            : (!s.settings.defaultWorkerId && w.enabled ? w.id : s.settings.defaultWorkerId) },
+            : (w.enabled && (!s.settings.defaultWorkerId || (s.settings.defaultWorkerId === BUILTIN_WORKER_ID && w.id !== BUILTIN_WORKER_ID && !s.workers.some(item => item.id !== BUILTIN_WORKER_ID && item.enabled))) ? w.id : s.settings.defaultWorkerId) },
         })),
       removeWorker: (id) =>
-        set((s) => ({
+        set((s) => ensureDefaultWorker({
           workers: s.workers.filter((w) => w.id !== id),
           settings: {
             ...s.settings,
@@ -340,10 +342,10 @@ export const useYoutv = create<Store>()(
         return parsed.success
           ? {
               ...current,
-              ...parsed.data,
+              ...ensureDefaultWorker(parsed.data, true),
               channels: parsed.data.channels.map(repairLegacyMetadata),
             }
-          : { ...current, ...recoverStoredState(persisted) };
+          : { ...current, ...ensureDefaultWorker(recoverStoredState(persisted), true) };
       },
     },
   ),

@@ -287,6 +287,7 @@ export default function MediaCenterPage() {
   const fa = settings.language === "fa";
   const automaticFallback = settings.mediaWorkerFallback;
   const directMode = settings.mediaRouteMode === "direct";
+  const autoMode = settings.mediaRouteMode === "auto";
   const { candidates, allowDirect } = useMemo(() => mediaRoutingPolicy(workers, settings), [workers, settings.mediaRouteMode, settings.mediaWorkerId, settings.defaultWorkerId, settings.mediaWorkerFallback, settings.mediaDirectFallback]);
   const [resolvedWorkerId, setResolvedWorkerId] = useState<string | null>(null);
   const previewTried = useRef(new Set<string>());
@@ -295,7 +296,7 @@ export default function MediaCenterPage() {
   const worker = resolvedWorkerId === "" ? undefined : candidates.find(item => item.id === resolvedWorkerId) || candidates[0];
   const activeCandidates = useMemo(() => worker ? [worker, ...candidates.filter(item => item.id !== worker.id)] : candidates, [worker, candidates]);
   const allowAssetDirect = allowDirect;
-  const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers);
+  const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers, autoMode && resolvedWorkerId === "");
   const openAsset = (url: string, filename: string, signal?: AbortSignal) => {
     const urls = mediaAssetUrls(url, activeCandidates, allowAssetDirect, filename);
     if (resolvedWorkerId === "" && urls.includes(url)) return openMediaAsset([url, ...urls.filter(item => item !== url)], signal);
@@ -577,7 +578,13 @@ export default function MediaCenterPage() {
       } else {
         const normalized = parsed.toString();
         let probe: DirectProbe | null = null;
-        if (candidates.length) {
+        if (autoMode && !needsHttpsRelay(normalized)) {
+          try {
+            probe = await probeDirectMedia(normalized);
+            setResolvedWorkerId("");
+          } catch { /* direct CORS/HTTP failure: try the configured relay */ }
+        }
+        if (!probe && candidates.length) {
           try {
             const result = await withMediaWorkers(candidates, candidate => probeDirectMedia(normalized, candidate));
             probe = result.value;
@@ -586,7 +593,7 @@ export default function MediaCenterPage() {
             if (!allowDirect || needsHttpsRelay(normalized)) throw cause;
             setResolvedWorkerId("");
           }
-        } else {
+        } else if (!probe) {
           if (!allowAssetDirect || needsHttpsRelay(normalized)) throw new Error("Media requires an active compatible Worker or explicit direct fallback");
           setResolvedWorkerId("");
         }
@@ -918,11 +925,16 @@ export default function MediaCenterPage() {
   };
 
   const archiveWithRoutes = async <T,>(action: (candidate: WorkerProfile | undefined) => Promise<T>, signal?: AbortSignal): Promise<T> => {
+    const directFirst = autoMode && resolvedWorkerId === "";
+    if (directFirst) {
+      try { return await action(undefined); }
+      catch (error) { signal?.throwIfAborted(); if (!activeCandidates.length) throw error; }
+    }
     if (activeCandidates.length) {
       try { return (await withMediaWorkers(activeCandidates, action, signal)).value; }
       catch (error) { signal?.throwIfAborted(); if (!allowDirect) throw error; }
     }
-    if (!allowDirect) throw new Error("No usable media route");
+    if (!allowDirect || directFirst) throw new Error("No usable media route");
     return action(undefined);
   };
   const downloadDirect = async (
@@ -1007,7 +1019,7 @@ export default function MediaCenterPage() {
     if (previewTried.current.has(current)) return;
     previewTried.current.add(current);
     const next = candidates.find(candidate => !previewTried.current.has(candidate.id));
-    if (next && automaticFallback) { setResolvedWorkerId(next.id); return; }
+    if (next && (automaticFallback || (autoMode && !current))) { setResolvedWorkerId(next.id); return; }
     if (allowDirect && current && !previewTried.current.has("") && !needsHttpsRelay(direct.url)) { setResolvedWorkerId(""); return; }
     setError(fa ? "پخش رسانه در مسیرهای موجود موفق نبود؛ اتصال، نوع فایل یا کدک را بررسی کن." : "Media playback failed on the available routes. Check connectivity, format or codec.");
   };
@@ -1081,14 +1093,14 @@ export default function MediaCenterPage() {
         {linkedPlaylistUrl && <div className="media-actions"><Button variant="outline" size="sm" disabled={loading} onClick={() => void resolve(linkedPlaylistUrl)}>{fa ? "بررسی کل پلی‌لیست به‌جای ویدئو" : "Resolve entire playlist instead"}</Button></div>}
         <MediaRouteControl disabled={loading} onChange={() => {
           resolutionGeneration.current++; setResolvedWorkerId(null); setTarget(null); setPlayingInstagram(""); clearConvertedPreview();
-        }} status={directMode ? (fa ? "اتصال مستقیم؛ بدون Worker" : "Direct connection; no Worker") : resolvedWorkerId === "" ? (fa ? "مسیر جایگزین: مستقیم" : "Fallback: direct") : worker ? `Worker: ${worker.name}` : (fa ? "Worker فعال موجود نیست" : "No active Worker")} />
+        }} status={autoMode && resolvedWorkerId === null ? (fa ? "خودکار: مستقیم سپس پروکسی" : "Auto: direct then proxy") : directMode ? (fa ? "اتصال مستقیم؛ بدون Worker" : "Direct connection; no Worker") : resolvedWorkerId === "" ? (autoMode ? (fa ? "مسیر فعلی: مستقیم" : "Current route: direct") : (fa ? "مسیر جایگزین: مستقیم" : "Fallback: direct")) : worker ? `Worker: ${worker.name}` : (fa ? "Worker فعال موجود نیست" : "No active Worker")} />
         <div className="media-source-hints">
           <span>YouTube / Playlist</span>
           <span>Instagram Post / Reel</span>
           <span>MP4 · MKV · WEBM · MP3</span>
           <span>HLS · DASH</span>
         </div>
-        {!worker && !directMode && (
+        {!candidates.length && !directMode && (
           <p className="media-inline-warning">
             <AlertCircle size={15} />
             {fa

@@ -1,6 +1,6 @@
 import Hls from "hls.js";
 import type { WorkerProfile } from "@youtv/shared";
-import { hlsRequestRoute, hlsResponseBase } from "./hlsRelayRoutes";
+import { hlsRequestRoute, hlsResponseBase, normalizeRelayPlaylist } from "./hlsRelayRoutes";
 
 /** Preserve the library's own retries, aborts, Range and buffering. Change
  * only the request URL and the base of a playlist containing raw relative URIs. */
@@ -17,7 +17,10 @@ export function hlsRelayLoader(worker: WorkerProfile, initial: string): typeof H
           const base = typeof response.data === "string"
             ? hlsResponseBase(response.data, url, worker, this.getResponseHeader?.("X-YouTV-Source-URL") ?? null)
             : undefined;
-          callbacks.onSuccess(base ? { ...response, url: base } : response, stats, loadedContext, networkDetails);
+          const normalized = base && typeof response.data === "string"
+            ? { ...response, url: base, data: normalizeRelayPlaylist(response.data, base) }
+            : response;
+          callbacks.onSuccess(normalized, stats, loadedContext, networkDetails);
         },
       });
     }

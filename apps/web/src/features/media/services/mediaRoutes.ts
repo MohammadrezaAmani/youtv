@@ -15,13 +15,13 @@ export function orderedMediaWorkers(
 
 /** Explicit Direct never selects a Worker, even if a default is configured. */
 export function mediaRoutingPolicy(workers: WorkerProfile[], settings: {
-  mediaRouteMode: "direct" | "proxy"; mediaWorkerId: string; defaultWorkerId: string;
+  mediaRouteMode: "direct" | "proxy" | "auto"; mediaWorkerId: string; defaultWorkerId: string;
   mediaWorkerFallback: boolean; mediaDirectFallback: boolean;
 }, protocol?: string) {
   if (settings.mediaRouteMode === "direct") return { candidates: [], allowDirect: true };
   return {
     candidates: orderedMediaWorkers(workers, settings.mediaWorkerId || settings.defaultWorkerId, settings.mediaWorkerFallback, protocol),
-    allowDirect: settings.mediaDirectFallback,
+    allowDirect: settings.mediaRouteMode === "auto" || settings.mediaDirectFallback,
   };
 }
 
@@ -176,6 +176,14 @@ export function archiveResourceRoutes(url: string, primary: WorkerProfile, fallb
     }
   } catch { /* malformed relay URL is not eligible for fallback */ }
   return [...new Set(routes)];
+}
+
+/** A direct manifest can contain segments hosted on a different CDN; retry
+ * individual resources through the configured Workers before writing bytes. */
+export function directArchiveResourceRoutes(url: string, workers: WorkerProfile[]): string[] {
+  if (!/^https?:\/\//i.test(url)) return [url];
+  const mixed = typeof window !== "undefined" && needsHttpsRelay(url);
+  return [...new Set([...(mixed ? [] : [url]), ...workers.filter(w => w.enabled).map(w => proxyUrl(url, w))])];
 }
 
 export async function fetchArchiveResource(urls: string[], init: RequestInit, validate: (response: Response) => void): Promise<Response> {

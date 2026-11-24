@@ -134,8 +134,25 @@ export function guessMediaKind(url: string, contentType = ""): MediaKind {
 }
 export async function probeDirectMedia(
   url: string,
-  worker: WorkerProfile,
+  worker?: WorkerProfile,
 ): Promise<DirectProbe> {
+  if (!worker) {
+    const signal = AbortSignal.timeout(8000);
+    let response = await fetch(url, { method: "HEAD", credentials: "omit", cache: "no-store", signal });
+    if (response.status === 405 || response.status === 501) {
+      await response.body?.cancel().catch(() => undefined);
+      response = await fetch(url, { headers: { Range: "bytes=0-0" }, credentials: "omit", cache: "no-store", signal });
+    }
+    try {
+      if (!response.ok) throw new Error(`Direct HTTP ${response.status}`);
+      const contentType = response.headers.get("content-type") || "";
+      const kind = guessMediaKind(url, contentType);
+      if (/text\/html/i.test(contentType)) throw new Error("Direct response is HTML, not media");
+      const total = response.headers.get("content-range")?.split("/").at(-1);
+      return { status: response.status, contentType, contentLength: Number(total || response.headers.get("content-length")) || null,
+        acceptRanges: response.status === 206 || /bytes/i.test(response.headers.get("accept-ranges") || ""), filename: "", kind };
+    } finally { await response.body?.cancel().catch(() => undefined); }
+  }
   const response = await fetch(proxyUrl(url, worker, "probe"), {
     credentials: "omit",
     cache: "no-store",

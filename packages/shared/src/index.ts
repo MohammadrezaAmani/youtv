@@ -91,6 +91,14 @@ export const healthResultSchema = z.object({
 });
 export type HealthResult = z.infer<typeof healthResultSchema>;
 export const BUILTIN_PLAYLIST_ID = "youtv:builtin:default";
+export const BUILTIN_WORKER_ID = "youtv:builtin:worker";
+export const builtinWorker: WorkerProfile = {
+  id: BUILTIN_WORKER_ID,
+  name: "YouTV",
+  baseUrl: "https://youtv.mr4016a1382.workers.dev/",
+  token: "",
+  enabled: true,
+};
 
 export const settingsSchema = z.object({
   defaultPlaylistEnabled: z.boolean().default(true),
@@ -108,9 +116,9 @@ export const settingsSchema = z.object({
   theme: z
     .enum(["dark", "light", "mint", "oled", "ocean", "emerald", "violet"])
     .default("dark"),
-  proxyMode: z.enum(["direct", "proxy", "auto"]).default("direct"),
+  proxyMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
   defaultWorkerId: z.string().default(""),
-  mediaRouteMode: z.enum(["direct", "proxy"]).default("proxy"),
+  mediaRouteMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
   mediaWorkerId: z.string().default(""),
   mediaWorkerFallback: z.boolean().default(true),
   mediaDirectFallback: z.boolean().default(false),
@@ -153,7 +161,7 @@ export const defaultState: AppState = {
   version: 1,
   channels: [],
   playlists: [],
-  workers: [],
+  workers: [{ ...builtinWorker }],
   recent: [],
   resume: {},
   health: {},
@@ -169,9 +177,9 @@ export const defaultState: AppState = {
     hlsLatencyMode: "stable",
     language: "fa",
     theme: "dark",
-    proxyMode: "direct",
-    defaultWorkerId: "",
-    mediaRouteMode: "proxy",
+    proxyMode: "auto",
+    defaultWorkerId: BUILTIN_WORKER_ID,
+    mediaRouteMode: "auto",
     mediaWorkerId: "",
     mediaWorkerFallback: true,
     mediaDirectFallback: false,
@@ -190,6 +198,22 @@ export const defaultState: AppState = {
     recordingBitrate: 4_000_000,
   },
 };
+/** Seed only empty profiles. Preserve user-configured (including disabled) Workers.
+ * Old empty profiles used direct/proxy defaults; upgrade them to Auto once. */
+export function ensureDefaultWorker<T extends Pick<AppState, "workers" | "settings">>(state: T, migrateEmpty = false): T {
+  if (state.workers.length) return state;
+  return {
+    ...state,
+    workers: [{ ...builtinWorker }],
+    settings: {
+      ...state.settings,
+      defaultWorkerId: BUILTIN_WORKER_ID,
+      mediaWorkerId: "",
+      ...(migrateEmpty ? { proxyMode: state.settings.proxyMode === "direct" ? "auto" : state.settings.proxyMode,
+        mediaRouteMode: state.settings.mediaRouteMode === "proxy" ? "auto" : state.settings.mediaRouteMode } : {}),
+    },
+  };
+}
 export const WORKER_PROTOCOL_VERSION = 1;
 
 export function createChannel(

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { hlsRequestRoute, hlsResponseBase } from "../features/player/hlsRelayRoutes";
+import { hlsRequestRoute, hlsResponseBase, normalizeRelayPlaylist } from "../features/player/hlsRelayRoutes";
 import { playlistResponseBase, proxyUrl } from "../lib/proxy";
 import type { WorkerProfile } from "@youtv/shared";
 const worker: WorkerProfile = { id: "w", name: "relay", enabled: true, baseUrl: "https://round-fog-1d8f.mr4016a1382.workers.dev/", token: "secret" };
@@ -40,4 +40,22 @@ test("playlist import uses the actual redirect target, not the Worker URL", () =
   expect(playlistResponseBase(response, source, true)).toBe(final);
   expect(playlistResponseBase({ url: final, headers: new Headers() }, source, false)).toBe(final);
   expect(playlistResponseBase({ url: initial, headers: new Headers() }, source, true)).toBe(source);
+});
+
+test("raw root-relative variants are resolved before the browser or loader can use the Worker origin", () => {
+  const manifest = '#EXTM3U\r\n#EXT-X-STREAM-INF:BANDWIDTH=1000\r\n/ifilmfa_2_482/index.m3u8\r\n#EXT-X-STREAM-INF:BANDWIDTH=2000\r\n../hd/index.m3u8?sig=a%2Bb\r\n';
+  const final = "https://cdn.example/redirected/folder/master.m3u8";
+  const normalized = normalizeRelayPlaylist(manifest, hlsResponseBase(manifest, initial, worker, final)!);
+  const variants = normalized.split(/\r\n/).filter(line => line.startsWith("https://"));
+  expect(variants).toEqual(["https://cdn.example/ifilmfa_2_482/index.m3u8", "https://cdn.example/redirected/hd/index.m3u8?sig=a%2Bb"]);
+  for (const variant of variants) expect(new URL(hlsRequestRoute(variant, worker, initial, true)).searchParams.get("url")).toBe(variant);
+});
+test("normalize nested URI attributes but leave signed absolute URLs, inline data and HLS variables intact", () => {
+  const text = '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="/key"\n#EXT-X-MAP:URI="init.mp4"\n#EXT-X-MEDIA:TYPE=AUDIO,URI="//audio.example/a.m3u8"\n#EXT-X-KEY:METHOD=AES-128,URI="data:text/plain,abc"\n{$cdn}/seg.ts\nhttps://other.example/s.ts?sig=a%2Bb\n';
+  expect(normalizeRelayPlaylist(text, "https://cdn.example/final/master.m3u8")).toBe('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="https://cdn.example/key"\n#EXT-X-MAP:URI="https://cdn.example/final/init.mp4"\n#EXT-X-MEDIA:TYPE=AUDIO,URI="https://audio.example/a.m3u8"\n#EXT-X-KEY:METHOD=AES-128,URI="data:text/plain,abc"\n{$cdn}/seg.ts\nhttps://other.example/s.ts?sig=a%2Bb\n');
+});
+
+test("quoted metadata cannot be mistaken for a URI attribute", () => {
+  const text = '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="English,URI=not-a-url",URI="audio.m3u8"';
+  expect(normalizeRelayPlaylist(text, "https://cdn.example/master.m3u8")).toBe('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="English,URI=not-a-url",URI="https://cdn.example/audio.m3u8"');
 });

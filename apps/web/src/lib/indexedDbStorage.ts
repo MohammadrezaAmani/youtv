@@ -1,5 +1,6 @@
 import type { PersistStorage, StorageValue } from "zustand/middleware";
 import { defaultState, type AppState } from "@youtv/shared";
+import { activityKey, playbackActivity, readPlaybackActivity, sameLibrarySnapshot } from "./playbackActivity";
 import { newestPreferences, nextPreferences, preferencesKey, readPreferences, writePreferences, type PreferencesRecord } from "./preferencesJournal";
 
 type Snapshot = StorageValue<AppState> & { preferencesRevision?: number };
@@ -92,17 +93,16 @@ function openDatabase(): Promise<IDBDatabase> {
   return databasePromise;
 }
 
-async function readSnapshot<S>(key: string): Promise<StorageValue<S> | null> {
+async function readSnapshot(key: string): Promise<{ snapshot: Snapshot | null; activity: unknown }> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(OBJECT_STORE, "readonly");
-    const request = transaction.objectStore(OBJECT_STORE).get(key);
-    request.onsuccess = () =>
-      resolve((request.result ?? null) as StorageValue<S> | null);
-    request.onerror = () =>
-      reject(request.error || new Error("IndexedDB read failed"));
-    transaction.onabort = () =>
-      reject(transaction.error || new Error("IndexedDB read aborted"));
+    const store = transaction.objectStore(OBJECT_STORE);
+    const snapshot = store.get(key);
+    const activity = store.get(activityKey(key));
+    transaction.oncomplete = () => resolve({ snapshot: (snapshot.result ?? null) as Snapshot | null, activity: activity.result });
+    transaction.onerror = () => reject(transaction.error || new Error("IndexedDB read failed"));
+    transaction.onabort = () => reject(transaction.error || new Error("IndexedDB read aborted"));
   });
 }
 
@@ -129,7 +129,9 @@ async function deleteSnapshot(key: string): Promise<void> {
       reject(transaction.error || new Error("IndexedDB delete failed"));
     transaction.onabort = () =>
       reject(transaction.error || new Error("IndexedDB delete aborted"));
-    transaction.objectStore(OBJECT_STORE).delete(key);
+    const store = transaction.objectStore(OBJECT_STORE);
+    store.delete(key);
+    store.delete(activityKey(key));
   });
 }
 
@@ -237,14 +239,21 @@ export function createIndexedDbStorage(): PersistStorage<AppState> {
   let lastSettings: AppState["settings"] | undefined;
   let lastWorkers: AppState["workers"] | undefined;
   let readFailed = false;
+  let lastState: AppState | undefined;
+  let lastVersion: number | undefined;
   return {
     getItem: async (key) => {
       let snapshot: Snapshot | null = null;
       let migratedLegacy = false;
+      let activity: unknown;
+      lastState = undefined;
+      lastVersion = undefined;
       let local: PreferencesRecord | null = null;
       readFailed = false;
       try {
-        snapshot = await readSnapshot<AppState>(key) as Snapshot | null;
+        const stored = await readSnapshot(key);
+        snapshot = stored.snapshot;
+        if (snapshot) activity = stored.activity;
       } catch (error) {
         readFailed = true;
         setError(error);
@@ -282,11 +291,12 @@ export function createIndexedDbStorage(): PersistStorage<AppState> {
       }
       if (!snapshot && !preferences) return null;
       const restored = { ...structuredClone(defaultState), ...state,
+        ...(readPlaybackActivity(activity) ?? {}),
         ...(preferences ? { settings: preferences.settings, workers: preferences.workers } : {}) } as AppState;
       const result = { state: restored, version: snapshot?.version ?? 1 };
       if (migratedLegacy && !readFailed) {
         try {
-          await writeSnapshots(new Map([[key, { ...result, preferencesRevision: preferences?.revision ?? 0 }]]));
+          await writeSnapshots(new Map<string, unknown>([[key, { ...result, preferencesRevision: preferences?.revision ?? 0 }], [activityKey(key), playbackActivity(restored)]]));
           localStorage.removeItem(key);
         } catch (error) { setError(error); }
       }
@@ -308,11 +318,23 @@ export function createIndexedDbStorage(): PersistStorage<AppState> {
       }
       // A transient read failure must not overwrite an unseen catalog with defaults.
       // Preferences remain writable; reload after IndexedDB becomes available.
-      if (!readFailed) queueSnapshot(key, { ...value, preferencesRevision: preferences?.revision ?? 0 });
+      if (!readFailed) {
+        const state = value.state;
+        const full = lastVersion !== value.version || !sameLibrarySnapshot(lastState, state);
+        if (full) queueSnapshot(key, { ...value, preferencesRevision: preferences?.revision ?? 0 });
+        if (full || lastState?.recent !== state.recent || lastState?.resume !== state.resume)
+          queueSnapshot(activityKey(key), playbackActivity(state));
+        lastState = state;
+        lastVersion = value.version;
+      }
     },
     removeItem: (key) => {
       pending.delete(key);
       latest.delete(key);
+      pending.delete(activityKey(key));
+      latest.delete(activityKey(key));
+      lastState = undefined;
+      lastVersion = undefined;
       preferences = null;
       lastSettings = undefined;
       lastWorkers = undefined;

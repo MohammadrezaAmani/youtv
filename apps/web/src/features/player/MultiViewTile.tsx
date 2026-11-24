@@ -2,6 +2,7 @@ import { ChannelImage } from "@/components/common/RoutedAsset";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
 import { hlsRelayLoader } from "./hlsRelayLoader";
+import { releasePlayback } from "./playbackLifecycle";
 import {
   Maximize2,
   Minimize2,
@@ -25,6 +26,7 @@ import {
   isAppleMobileBrowser,
   isBlockedMixedMedia,
   needsUserPlayGesture,
+  isInterruptedPlay,
   selectPlaybackEngine,
 } from "./playbackSupport";
 import { useYoutv } from "@/stores/useYoutv";
@@ -57,13 +59,17 @@ export default function MultiViewTile({
   const [retries, setRetries] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [forceProxy, setForceProxy] = useState(false);
-  const appleMobile =
+  // Device emulation can change navigator values while a video is playing.
+  // Keep capabilities fixed for this mounted player; responsive CSS only
+  // changes the layout, never the media engine or connection policy.
+  const [appleMobile] = useState(() =>
     typeof navigator !== "undefined" &&
     isAppleMobileBrowser(
       navigator.userAgent,
       navigator.platform,
       navigator.maxTouchPoints,
-    );
+    ),
+  );
   const mode = useMemo(() => {
     try {
       const effective = effectiveConnectionMode(channel, settings);
@@ -105,6 +111,7 @@ export default function MultiViewTile({
     nativeHls,
     hlsJsSupported,
     appleMobile,
+    relayed: Boolean(mode.stream?.worker),
   });
   const effectiveMode = effectiveConnectionMode(channel, settings);
   const canFallback =
@@ -140,7 +147,7 @@ export default function MultiViewTile({
     const tryPlay = () => {
       if (!disposed)
         void video.play().catch((error) => {
-          if (!disposed) {
+          if (!disposed && !isInterruptedPlay(error)) {
             setStatus(needsUserPlayGesture(error) ? "paused" : "error");
             if (!needsUserPlayGesture(error))
               setError(error instanceof Error ? error.message : String(error));
@@ -154,7 +161,8 @@ export default function MultiViewTile({
       if (!disposed) setStatus("paused");
     };
     const onError = () => {
-      if (!disposed) {
+      if (!disposed && video.error && video.error.code !== 1) {
+        if (engine) return; // hls.js owns network/decoder recovery.
         if (canFallback) {
           setForceProxy(true);
           return;
@@ -186,7 +194,8 @@ export default function MultiViewTile({
         ...(mode.stream?.worker ? { loader: hlsRelayLoader(mode.stream.worker, url) } : {}),
         maxBufferLength: settings.hlsLatencyMode === "low" ? 16 : 24,
         maxMaxBufferLength: settings.hlsLatencyMode === "low" ? 32 : 42,
-        capLevelToPlayerSize: true,
+        // Do not switch network renditions merely because the tile is resized.
+        capLevelToPlayerSize: false,
       });
       engine.on(Hls.Events.MANIFEST_PARSED, tryPlay);
       engine.on(Hls.Events.ERROR, (_event, data) => {
@@ -226,10 +235,7 @@ export default function MultiViewTile({
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("error", onError);
-      video.pause();
-      engine?.destroy();
-      video.removeAttribute("src");
-      video.load();
+      releasePlayback(video, engine);
     };
     // Reinitialization depends on channel/source and explicit retry, not on audio selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps

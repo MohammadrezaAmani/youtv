@@ -54,3 +54,33 @@ export function hlsResponseBase(text: string, requestUrl: string, worker: Worker
   }
   return upstream;
 }
+
+/** Resolve raw relative references before the player parses the manifest.
+ * Some loaders derive the base from the network response URL rather than the
+ * callback's URL. The latter is the Worker endpoint, never the CDN directory.
+ * Keep HLS variable expressions untouched for hls.js to expand itself. */
+export function normalizeRelayPlaylist(text: string, upstreamBase: string): string {
+  const resolve = (value: string): string => {
+    if (!value || /^[a-z][a-z\d+.-]*:/i.test(value) || value.includes("{$")) return value;
+    try {
+      const url = new URL(value, upstreamBase);
+      return /^https?:$/.test(url.protocol) ? url.href : value;
+    } catch { return value; }
+  };
+  return text.split(/(\r\n|\r|\n)/).map(line => {
+    const value = line.trim();
+    if (!value) return line;
+    if (!value.startsWith("#")) return line.replace(value, () => resolve(value));
+    if (!/^#EXT-X-/i.test(value)) return line;
+    // Consume whole attribute values, including quoted commas, so a URI-like
+    // substring inside NAME or another metadata value is never rewritten.
+    return line.replace(/([:,]\s*([A-Z0-9-]+)\s*=\s*)(?:"([^"]*)"|([^,\s]+))/gi,
+      (full: string, prefix: string, name: string, quoted: string | undefined, plain: string | undefined) => {
+        if (!/^(?:[A-Z0-9-]*URI|X-ASSET-LIST)$/i.test(name)) return full;
+        const uri = quoted ?? plain ?? "";
+        const resolved = resolve(uri);
+        if (resolved === uri) return full;
+        return prefix + (quoted !== undefined ? `"${resolved}"` : resolved);
+      });
+  }).join("");
+}

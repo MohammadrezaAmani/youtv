@@ -15,7 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parseM3u } from "@/lib/playlist";
-import { resolveTextSource, needsHttpsRelay, playlistResponseBase } from "@/lib/proxy";
+import { needsHttpsRelay } from "@/lib/proxy";
+import { fetchPlaylist } from "@/lib/playlistFetch";
 import { normalizeError } from "@/lib/utils";
 import { ui } from "@/lib/labels";
 import { useYoutv } from "@/stores/useYoutv";
@@ -78,29 +79,11 @@ export default function PlaylistDialog({
     try {
       const source = new URL(url.trim());
       if (!/^https?:$/.test(source.protocol)) throw new Error(t("invalidUrl"));
-      const routed = resolveTextSource(
-        source.toString(),
-        settings,
-        workers,
-        workerId,
-        fromWorker,
-      );
-      const endpoint = routed.url;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
-      try {
-        const res = await fetch(endpoint, {
-          signal: controller.signal,
-          credentials: "omit",
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        const text = await res.text();
-        parse(text, playlistResponseBase(res, source.toString(), Boolean(routed.workerId)));
-        setPreviewWorkerId(routed.workerId);
-        if (!name) setName(source.hostname);
-      } finally {
-        clearTimeout(timeout);
-      }
+      const { value, workerId: usedWorker } = await fetchPlaylist(source.toString(), settings, workers, workerId, fromWorker);
+      setResults(value.channels);
+      setWarnings(value.warnings);
+      setPreviewWorkerId(fromWorker ? usedWorker : "");
+      if (!name) setName(source.hostname);
     } catch (e) {
       setError(`${normalizeError(e)}. ${t("sourceRequiresCors")}`);
     } finally {

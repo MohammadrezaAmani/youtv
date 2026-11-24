@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, RefreshCw, X, Info } from "lucide-react";
 import type { WorkerProfile } from "@youtv/shared";
 import { makeTeletextUrl } from "./mediaUtils";
-import { resolveTextSource } from "@/lib/proxy";
+import { fetchTextWithFallback } from "@/lib/proxy";
 import { useYoutv } from "@/stores/useYoutv";
 import { useTranslation } from "react-i18next";
 
@@ -38,17 +38,9 @@ export function TeletextPanel({
       setBody("");
       try {
         const source = makeTeletextUrl(template, page);
-        const url = resolveTextSource(
-          source,
-          settings,
-          workers,
-          worker?.id || "",
-          usingProxy,
-        ).url;
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const text = await response.text();
-        const contentType = response.headers.get("content-type") || "";
+        const { value: { text, contentType } } = await fetchTextWithFallback(source, settings, workers, worker?.id || "", usingProxy, async response => ({
+          text: await response.text(), contentType: response.headers.get("content-type") || "",
+        }), controller.signal);
         let output = text;
         if (/json/i.test(contentType)) {
           const json = JSON.parse(text) as Record<string, unknown>;

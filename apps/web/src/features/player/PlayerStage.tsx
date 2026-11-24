@@ -18,6 +18,7 @@ import {
 import { useTranslation } from "react-i18next";
 import Hls from "hls.js";
 import { hlsRelayLoader } from "./hlsRelayLoader";
+import { playbackSessionIdentity, releasePlayback } from "./playbackLifecycle";
 import {
   Activity,
   AlertTriangle,
@@ -204,17 +205,23 @@ const fallbackTranslation = (lang: string, fa: string, en: string) =>
     ? fa
     : (translatedMedia[en]?.[lang as "ar" | "tr" | "ru"] ?? en);
 
-export default function PlayerStage({
-  channel,
-  bottomActions,
-  onTerminalError,
-  preparedSource,
-}: {
+type PlayerStageProps = {
   channel: Channel;
   bottomActions?: ReactNode;
   onTerminalError?: (message: string) => void;
   preparedSource?: { url: string; kind: "video" | "audio" | "hls" | "dash"; worker?: WorkerProfile; poster?: string };
-}) {
+};
+
+// A channel change is a new playback session, not a resize or a retry.
+// Key the component owning all route state and the media element, so a new
+// channel cannot render even once with the previous channel's fallback/index.
+export default function PlayerStage(props: PlayerStageProps) {
+  const { channel, preparedSource } = props;
+  const identity = playbackSessionIdentity(channel, preparedSource);
+  return <PlaybackSession key={identity} {...props} />;
+}
+
+function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSource }: PlayerStageProps) {
   const terminalErrorRef = useRef(onTerminalError);
   useEffect(() => { terminalErrorRef.current = onTerminalError; }, [onTerminalError]);
   const { t } = useTranslation();
@@ -224,13 +231,17 @@ export default function PlayerStage({
     toggleFavorite = useYoutv((s) => s.toggleFavorite),
     togglePinned = useYoutv((s) => s.togglePinned);
   const language = settings.language;
-  const appleMobile =
+  // Device emulation can change navigator values while a video is playing.
+  // Keep capabilities fixed for this mounted player; responsive CSS only
+  // changes the layout, never the media engine or connection policy.
+  const [appleMobile] = useState(() =>
     typeof navigator !== "undefined" &&
     isAppleMobileBrowser(
       navigator.userAgent,
       navigator.platform,
       navigator.maxTouchPoints,
-    );
+    ),
+  );
   const playerRef = useRef<HTMLDivElement>(null),
     videoRef = useRef<HTMLVideoElement>(null),
     hlsRef = useRef<Hls | null>(null);
@@ -239,9 +250,9 @@ export default function PlayerStage({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideChromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
-  const playbackWantedRef = useRef(settings.autoplay);
+  const playbackWantedRef = useRef(settings.autoplay && !appleMobile);
   const playbackEpochRef = useRef(0);
-  const needsGestureRef = useRef(false);
+  const needsGestureRef = useRef(appleMobile && settings.autoplay);
   const userPausedRef = useRef(false);
   const lastProgressAtRef = useRef(Date.now());
   const healthySinceRef = useRef(Date.now());
@@ -370,10 +381,11 @@ export default function PlayerStage({
     nativeHls: nativeHlsSupport,
     hlsJsSupported,
     appleMobile,
+    relayed: Boolean(resolved.value?.worker),
   });
   const currentWorker =
     resolved.value?.mode === "proxy" ? resolved.value.worker : undefined;
-  const assetRoute = { mode: resolved.value?.mode ?? effectiveMode, worker: currentWorker };
+  const assetRoute = { mode: currentWorker ? "proxy" as const : effectiveMode, worker: currentWorker };
   const artworkUrl = channelAssetRoutes(channel.logo, channel, settings, workers, assetRoute)[0];
   const tr = useCallback(
     (fa: string, en: string) => fallbackTranslation(language, fa, en),
@@ -449,13 +461,13 @@ export default function PlayerStage({
           message,
         );
       if (
-        appleMobile &&
         resolved.value?.mode === "direct" &&
         effectiveMode === "auto" &&
         !fallback &&
-        canProxy &&
-        !permanent
+        canProxy
       ) {
+        retryCountRef.current = 0;
+        setError("");
         setStatus("proxy fallback");
         setFallback(true);
         return;
@@ -471,8 +483,10 @@ export default function PlayerStage({
         setRetryInfo(
           `Reconnecting ${number}/${max} · ${Math.ceil(delay / 1000)}s`,
         );
+        const retryEpoch = playbackEpochRef.current;
         retryTimerRef.current = setTimeout(() => {
           retryTimerRef.current = null;
+          if (retryEpoch !== playbackEpochRef.current) return;
           setRetryInfo("");
           healthySinceRef.current = Date.now();
           setAttempt((n) => n + 1); // HLS engine and media source recreated without a click
@@ -507,27 +521,6 @@ export default function PlayerStage({
       preparedSource,
     ],
   );
-  useEffect(() => {
-    clearRetry();
-    retryCountRef.current = 0;
-    healthySinceRef.current = Date.now();
-    playbackWantedRef.current = settings.autoplay && !appleMobile;
-    needsGestureRef.current = appleMobile && settings.autoplay;
-    setSourceIndex(0);
-    setOverride("default");
-    setFallback(false);
-    setAttempt(0);
-    setMenu(null);
-    setTeletext(false);
-    setLocalTrack(null);
-    setCaption("off");
-    setAudio("");
-    setQuality(-1);
-    setError("");
-    setStatus("idle");
-    // New channel resets reconnect state, not ordinary settings changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel.id, channel.url]);
   useEffect(() => {
     setOverride("default");
     setFallback(false);
@@ -727,6 +720,7 @@ export default function PlayerStage({
     inFlightFragmentsRef.current.clear();
     let disposed = false;
     let dashEngine: { reset: () => void } | undefined;
+    let sessionHls: Hls | null = null;
     lastProgressAtRef.current = Date.now();
     healthySinceRef.current = Date.now();
     setStatus("loading");
@@ -737,6 +731,13 @@ export default function PlayerStage({
     setCaptions([]);
     setIsLive(false);
     setCurrent(0);
+    setDuration(0);
+    setBuffered(0);
+    setBufferAhead(0);
+    setLiveLatency(null);
+    setPlaying(false);
+    lastTimeRef.current = 0;
+    lastRecoveryRef.current = 0;
     setBufferedFragments(0);
     setLastFragmentMs(null);
     setStallCount(0);
@@ -776,6 +777,7 @@ export default function PlayerStage({
       })();
     } else if (playbackEngine === "hlsjs") {
       const engine = new Hls({ ...getHlsProfile(settings.hlsLatencyMode), ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl) } : {}) });
+      sessionHls = engine;
       hlsRef.current = engine;
       engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         if (disposed) return;
@@ -879,11 +881,13 @@ export default function PlayerStage({
       });
       const fragmentStarted = new Map<string, number>();
       engine.on(Hls.Events.FRAG_LOADING, (_, data) => {
+        if (disposed) return;
         const key = `${data.frag.type}:${data.frag.sn}`;
         fragmentStarted.set(key, performance.now());
         inFlightFragmentsRef.current.set(key, Date.now());
       });
       engine.on(Hls.Events.FRAG_LOADED, (_, data) => {
+        if (disposed) return;
         inFlightFragmentsRef.current.delete(
           `${data.frag.type}:${data.frag.sn}`,
         );
@@ -941,17 +945,12 @@ export default function PlayerStage({
     }
     return () => {
       disposed = true;
+      clearRetry();
       inFlightFragmentsRef.current.clear();
       if (playbackEpochRef.current === playbackEpoch)
         playbackEpochRef.current++;
-      try { dashEngine?.reset(); } catch { /* already disposed */ }
-      const engine = hlsRef.current;
-      if (engine) {
-        engine.destroy();
-        hlsRef.current = null;
-      }
-      video.removeAttribute("src");
-      video.load();
+      if (hlsRef.current === sessionHls) hlsRef.current = null;
+      releasePlayback(video, sessionHls, dashEngine);
     };
     // Playback changes only when channel/URL/retry changes, not volume, language or settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1425,8 +1424,10 @@ export default function PlayerStage({
             }}
             onRateChange={(e) => setRate(e.currentTarget.playbackRate)}
             onError={(e) => {
-              if (!hlsRef.current) {
+              if (playbackEngine === "native") {
                 const code = e.currentTarget.error?.code;
+                // A load/abort during layout or engine cleanup is not a source failure.
+                if (!code || code === 1) return;
                 const message =
                   code === 4
                     ? tr(

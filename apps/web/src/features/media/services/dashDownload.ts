@@ -2,7 +2,7 @@ import type { WorkerProfile } from "@youtv/shared";
 import { proxyUrl } from "@/lib/proxy";
 import type { ZipEntrySource } from "./download";
 import { textByteStream } from "./byteStream";
-import { archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
+import { archiveResourceRoutes, directArchiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 
 type SegmentSpec = { url: string; filename: string; range?: string };
 function directChild(parent: Element, name: string): Element | null {
@@ -399,7 +399,7 @@ export async function buildDashArchiveEntries(
       open: async (entrySignal?: AbortSignal) => {
         const headers = new Headers();
         if (asset.range) headers.set("Range", `bytes=${asset.range}`);
-        const response = await fetchArchiveResource(worker ? archiveResourceRoutes(asset.url, worker, fallbacks) : [asset.url], {
+        const response = await fetchArchiveResource(worker ? archiveResourceRoutes(asset.url, worker, fallbacks) : directArchiveResourceRoutes(asset.url, fallbacks), {
           headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
         }, response => {
           if (!response.ok) throw new Error(`DASH segment HTTP ${response.status}`);

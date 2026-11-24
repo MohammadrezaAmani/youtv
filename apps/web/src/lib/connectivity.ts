@@ -4,7 +4,7 @@ import {
   type Settings,
   type WorkerProfile,
 } from "@youtv/shared";
-import { activeWorker, proxyUrl, needsHttpsRelay } from "./proxy";
+import { activeWorker, proxyUrl, needsHttpsRelay, effectiveConnectionMode } from "./proxy";
 import { readCatalogAsset } from "./catalogCache";
 
 type ProbeAnswer = {
@@ -114,6 +114,7 @@ export async function probeChannel(
 ): Promise<HealthResult> {
   const started = performance.now();
   const worker = activeWorker(channel, settings, workers);
+  const auto = effectiveConnectionMode(channel, settings) === "auto";
   const useProxy =
     needsHttpsRelay(channel.url, appProtocol) ||
     channel.proxyMode === "proxy" ||
@@ -218,6 +219,7 @@ export async function probeChannel(
         ]),
       });
       await fallback.body?.cancel().catch(() => undefined);
+      if (auto && worker && !validStatus(fallback.status) && !signal?.aborted) return viaProxy();
       return {
         status: validStatus(fallback.status) ? "online" : "offline",
         mode: "direct",
@@ -227,6 +229,7 @@ export async function probeChannel(
         detail: "HTTP probe completed",
       };
     }
+    if (auto && worker && !validStatus(response.status) && !signal?.aborted) return viaProxy();
     return {
       status: validStatus(response.status) ? "online" : "offline",
       mode: "direct",
@@ -244,7 +247,7 @@ export async function probeChannel(
         checkedAt: Date.now(),
         detail: "Cancelled",
       };
-    if (worker) {
+    if (auto && worker) {
       const result = await viaProxy();
       if (result.status !== "unknown") return result;
       const dns = await dnsFailure(channel, started);

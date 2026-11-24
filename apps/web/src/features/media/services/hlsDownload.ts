@@ -3,7 +3,7 @@ import { proxyUrl } from "@/lib/proxy";
 import { hlsRequestRoute, hlsResponseBase } from "@/features/player/hlsRelayRoutes";
 import type { ZipEntrySource } from "./download";
 import { textByteStream } from "./byteStream";
-import { archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
+import { archiveResourceRoutes, directArchiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 
 type LoadedManifest = { text: string; url: string };
 type ByteRange = { length: number; offset: number; implicit: boolean };
@@ -114,7 +114,7 @@ function makeFetcher(
         ? [["range", `bytes=${range.offset}-${range.offset + range.length - 1}`]]
         : [];
       const routed = worker ? hlsRequestRoute(url, worker, url) : url;
-      const response = await fetchArchiveResource(worker ? archiveResourceRoutes(routed, worker, fallbacks) : [routed], {
+      const response = await fetchArchiveResource(worker ? archiveResourceRoutes(routed, worker, fallbacks) : directArchiveResourceRoutes(routed, fallbacks), {
         headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
       }, response => {
         if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);

@@ -5,6 +5,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -55,7 +56,7 @@ import {
   subscribePersistenceError,
 } from "@/lib/indexedDbStorage";
 import { downloadBackup } from "@/lib/backup";
-import { parseM3u } from "@/lib/playlist";
+import { fetchPlaylist } from "@/lib/playlistFetch";
 import {
   addMultiChannel,
   relatedToChannel,
@@ -70,7 +71,6 @@ import { BUILTIN_PLAYLIST_ID } from "@youtv/shared";
 import ConnectivityPage from "@/features/connectivity/ConnectivityPage";
 import CategoriesPage from "@/features/categories/CategoriesPage";
 import { startScan } from "@/lib/scanManager";
-import { resolveTextSource, playlistResponseBase } from "@/lib/proxy";
 import { formatWhen, normalizeError } from "@/lib/utils";
 import { readCatalogAsset } from "@/lib/catalogCache";
 import { ui } from "@/lib/labels";
@@ -103,7 +103,8 @@ function Shell() {
     playlists = useYoutv((s) => s.playlists),
     workers = useYoutv((s) => s.workers),
     settings = useYoutv((s) => s.settings);
-  const channels = allChannels.filter((c) => isVisibleChannel(c, settings));
+  const channels = useMemo(() => allChannels.filter((c) => isVisibleChannel(c, settings)),
+    [allChannels, settings.defaultPlaylistEnabled, settings.folderSourceEnabled]);
   const [builtinError, setBuiltinError] = useState("");
   useEffect(() => {
     if (import.meta.env.VITE_YOUTV_CURATED === "1") return;
@@ -415,7 +416,8 @@ function Shell() {
     activeId = path.startsWith("/watch/")
       ? decodeURIComponent(path.slice(7))
       : "";
-  const activeChannel = channels.find((c) => c.id === activeId);
+  const channelIndex = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
+  const activeChannel = channelIndex.get(activeId);
   const view = path.startsWith("/watch/")
     ? "watch"
     : path === "/media"
@@ -441,15 +443,15 @@ function Shell() {
         .slice(0, MAX_MULTI_VIEWS)
     : [activeId].filter(Boolean);
   const multiChannels = watchIds
-    .map((id) => channels.find((c) => c.id === id))
+    .map((id) => channelIndex.get(id))
     .filter(Boolean) as Channel[];
-  const relatedChannels = activeChannel
+  const relatedChannels = useMemo(() => activeChannel
     ? relatedToChannel(channels, activeChannel)
-    : [];
+    : [], [channels, activeChannel]);
   const openWatch = (id: string) => {
     play(id);
     navigate(`/watch/${encodeURIComponent(id)}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "auto" });
   };
   const focusMulti = (id: string) => {
     if (id !== activeId) {
@@ -523,29 +525,7 @@ function Shell() {
     if (!p?.url) return;
     setRefreshing(p.id);
     try {
-      const controller = new AbortController(),
-        timeout = setTimeout(() => controller.abort(), 20000);
-      let response: Response;
-      let proxied = false;
-      try {
-        const routed = resolveTextSource(
-          p.url,
-          settings,
-          workers,
-          p.refreshWorkerId,
-          Boolean(p.refreshWorkerId),
-        );
-        proxied = Boolean(routed.workerId);
-        response = await fetch(routed.url, {
-          signal: controller.signal,
-          credentials: "omit",
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const content = await response.text();
-      const result = parseM3u(content, playlistResponseBase(response, p.url, proxied));
+      const { value: result } = await fetchPlaylist(p.url, settings, workers, p.refreshWorkerId, Boolean(p.refreshWorkerId));
       upsert(result.channels, p.id, true);
       updatePlaylist({
         ...p,
@@ -600,9 +580,9 @@ function Shell() {
           .includes(navQuery.trim().toLocaleLowerCase()),
     );
 
-  const groupCount = new Set(
+  const groupCount = useMemo(() => new Set(
     channels.map((c) => c.group.trim()).filter(Boolean),
-  ).size;
+  ).size, [channels]);
 
   return (
     <div className="app-root app-v2 yt-app-shell">

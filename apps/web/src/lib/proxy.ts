@@ -50,7 +50,8 @@ export function activeWorker(
   workers: WorkerProfile[],
 ): WorkerProfile | undefined {
   const id = channel.workerId || settings.defaultWorkerId;
-  return workers.find((w) => w.id === id && w.enabled);
+  return workers.find((w) => w.id === id && w.enabled) ||
+    (!channel.workerId ? workers.find(w => w.enabled) : undefined);
 }
 /** Accept a Worker base URL or a copied URL for a known Worker endpoint.
  * A saved endpoint is not a mount directory. Never reuse query credentials
@@ -148,6 +149,48 @@ export function resolveTextSource(
     );
   requireHttpsWorker(worker, appProtocol);
   return { url: proxyUrl(source, worker, "text"), workerId: worker.id };
+}
+
+/** Direct-first text fetch for Auto; explicit proxy never leaks a request to the origin.
+ * Validate and consume the response inside each attempt so a non-playlist response
+ * can also trigger fallback. Keep each attempt bounded and abortable. */
+export async function fetchTextWithFallback<T>(
+  source: string, settings: Pick<Settings, "defaultWorkerId" | "proxyMode">,
+  workers: WorkerProfile[], requestedWorkerId: string, forceProxy: boolean,
+  read: (response: Response, workerId: string) => Promise<T>, signal?: AbortSignal,
+  appProtocol = typeof window === "undefined" ? "https:" : window.location.protocol,
+): Promise<{ value: T; workerId: string }> {
+  const mixed = needsHttpsRelay(source, appProtocol);
+  const proxyOnly = forceProxy || mixed || settings.proxyMode === "proxy";
+  const preferred = requestedWorkerId || settings.defaultWorkerId;
+  const enabled = workers.filter(w => w.enabled && (appProtocol !== "https:" || /^https:\/\//i.test(w.baseUrl)));
+  const selected = enabled.find(w => w.id === preferred);
+  const ordered = selected ? [selected, ...enabled.filter(w => w.id !== preferred)] : enabled;
+  const routes: (WorkerProfile | undefined)[] = [
+    ...(!proxyOnly ? [undefined] : []),
+    ...(proxyOnly || settings.proxyMode === "auto" ? (forceProxy && requestedWorkerId ? (selected ? [selected] : []) : ordered) : []),
+  ];
+  let failure: unknown;
+  for (const worker of routes) {
+    signal?.throwIfAborted();
+    let response: Response | undefined;
+    try {
+      const timeout = AbortSignal.timeout(20000);
+      response = await fetch(worker ? proxyUrl(source, worker, "text") : source, {
+        credentials: "omit", signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const value = await read(response, worker?.id || "");
+      signal?.throwIfAborted();
+      return { value, workerId: worker?.id || "" };
+    } catch (error) {
+      await response?.body?.cancel().catch(() => undefined);
+      signal?.throwIfAborted();
+      // Do not expose URL or query-token details from browser network errors.
+      failure = error instanceof Error ? new Error(error.message.replace(/https?:\/\/[^\s]+/gi, "[URL]")) : new Error("Text request failed");
+    }
+  }
+  throw failure ?? new Error(mixed ? HTTP_WORKER_REQUIRED : "No active Worker is available");
 }
 
 /** The relay URL is not the base of the upstream playlist. A direct fetch can

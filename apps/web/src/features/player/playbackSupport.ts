@@ -20,8 +20,11 @@ export function selectPlaybackEngine(options: {
   nativeHls: boolean;
   hlsJsSupported: boolean;
   appleMobile: boolean;
+  /** A relayed stream needs the custom loader whenever MSE is available. */
+  relayed?: boolean;
 }): PlaybackEngine {
   if (!options.isHls) return "native";
+  if (options.relayed && options.hlsJsSupported) return "hlsjs";
   if (options.nativeHls && (options.appleMobile || !options.hlsJsSupported))
     return "native";
   if (options.hlsJsSupported) return "hlsjs";
