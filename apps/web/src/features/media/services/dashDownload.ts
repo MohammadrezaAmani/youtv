@@ -2,6 +2,7 @@ import type { WorkerProfile } from "@youtv/shared";
 import { proxyUrl } from "@/lib/proxy";
 import type { ZipEntrySource } from "./download";
 import { textByteStream } from "./byteStream";
+import { archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 
 type SegmentSpec = { url: string; filename: string; range?: string };
 function directChild(parent: Element, name: string): Element | null {
@@ -162,6 +163,7 @@ export async function buildDashArchiveEntries(
   sourceUrl: string,
   worker: WorkerProfile,
   signal?: AbortSignal,
+  fallbacks: WorkerProfile[] = [],
 ): Promise<{ entries: ZipEntrySource[]; name: string; segments: number }> {
   const requestUrl = new URL(proxyUrl(sourceUrl, worker));
   requestUrl.searchParams.set("dash", "1");
@@ -397,18 +399,13 @@ export async function buildDashArchiveEntries(
       open: async (entrySignal?: AbortSignal) => {
         const headers = new Headers();
         if (asset.range) headers.set("Range", `bytes=${asset.range}`);
-        const response = await fetch(asset.url, {
-          headers,
-          credentials: "omit",
-          cache: "no-store",
-          signal: entrySignal || signal,
+        const response = await fetchArchiveResource(archiveResourceRoutes(asset.url, worker, fallbacks), {
+          headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
+        }, response => {
+          if (!response.ok) throw new Error(`DASH segment HTTP ${response.status}`);
+          if (asset.range && response.status !== 206)
+            throw new Error("DASH origin ignored a byte-range request; refusing to create a corrupt archive");
         });
-        if (!response.ok)
-          throw new Error(`DASH segment HTTP ${response.status}`);
-        if (asset.range && response.status !== 206)
-          throw new Error(
-            "DASH origin ignored a byte-range request; refusing to create a corrupt archive",
-          );
         if (!response.body) throw new Error("DASH segment has no body");
         return response.body;
       },

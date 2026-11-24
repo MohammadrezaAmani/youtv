@@ -1,11 +1,13 @@
 import type { WorkerProfile } from "@youtv/shared";
-import { createYoutubeFetch, proxyUrl } from "@/lib/proxy";
+import { createYoutubeFetch, proxyUrl, workerEndpoint } from "@/lib/proxy";
 import {
   createTempFile,
   streamWithCleanup,
   writeStreamToExistingTempFile,
 } from "./opfs";
 import { evaluatePlayerProgram } from "./youtubeEvaluator";
+import { discoverPlayerId } from "./youtubeBootstrap";
+import { requireMediaCapability, mediaError } from "./mediaRoutes";
 
 export type YouTubeFormat = {
   itag: number;
@@ -66,8 +68,8 @@ export type MuxedMedia = {
 function clientKey(worker: WorkerProfile): string {
   return `${worker.id}|${worker.baseUrl}|${worker.token}`;
 }
-async function getClient(worker: WorkerProfile): Promise<any> {
-  const key = clientKey(worker);
+async function getClient(worker: WorkerProfile, videoId?: string, retrievePlayer = true): Promise<any> {
+  const key = `${clientKey(worker)}|${retrievePlayer ? "player" : "metadata"}`;
   let pending = clientCache.get(key);
   if (!pending) {
     pending = (async () => {
@@ -77,13 +79,26 @@ async function getClient(worker: WorkerProfile): Promise<any> {
       // from YouTube, inside the user's browser, never in the Cloudflare Worker.
       Platform.shim.eval = async (data: any) =>
         evaluatePlayerProgram(data.output);
-      return Innertube.create({
-        fetch: createYoutubeFetch(worker),
-        lang: "en",
-        location: "US",
+      await requireMediaCapability(worker, "youtubeRelay");
+      const fetcher = createYoutubeFetch(worker);
+      const options = {
+        fetch: fetcher,
+        lang: "en", location: "US",
         generate_session_locally: true,
         enable_session_cache: true,
-      });
+        retrieve_player: retrievePlayer,
+      };
+      try {
+        return await Innertube.create(options);
+      } catch (error) {
+        if (!retrievePlayer) throw error;
+        try {
+          const player_id = await discoverPlayerId(fetcher, videoId);
+          return await Innertube.create({ ...options, player_id });
+        } catch (fallbackError) {
+          throw new Error(`YouTube player bootstrap failed: ${mediaError(error, worker)}; fallback: ${mediaError(fallbackError, worker)}`);
+        }
+      }
     })();
     clientCache.set(key, pending);
     pending.catch(() => clientCache.delete(key));
@@ -180,13 +195,13 @@ async function getInfo(
   const cached = infoCache.get(key);
   if (cached && Date.now() - cached.at < CACHE_MS)
     return { client: cached.client, info: cached.info };
-  const client = await getClient(worker);
+  const client = await getClient(worker, id);
   let info: any;
   let lastError = "";
   for (const clientName of ["TV", "WEB", "ANDROID"]) {
     try {
       const candidate = await client.getInfo(id, { client: clientName });
-      if (candidate?.streaming_data) {
+      if (candidate?.streaming_data && (candidate.streaming_data.formats?.length || candidate.streaming_data.adaptive_formats?.length || candidate.streaming_data.hls_manifest_url || candidate.streaming_data.dash_manifest_url)) {
         info = candidate;
         break;
       }
@@ -231,7 +246,9 @@ export async function resolveYouTubeVideo(
     try {
       dashManifest = await info.toDash({
         url_transformer: (url: URL) =>
-          new URL(proxyUrl(url.toString(), worker)),
+          new URL(url.hostname.endsWith(".googlevideo.com") && url.pathname === "/videoplayback"
+            ? workerEndpoint(worker, "youtube/fetch", { url: url.toString() })
+            : proxyUrl(url.toString(), worker)),
         format_filter: (format: any) =>
           !format.drm_families?.length && !format.fair_play_key_uri,
       });
@@ -357,7 +374,7 @@ export async function resolveYouTubePlaylist(
   items: YouTubePlaylistItem[];
   truncated: boolean;
 }> {
-  const client = await getClient(worker);
+  const client = await getClient(worker, undefined, false);
   let page = await client.getPlaylist(id);
   const title = String(page.info?.title || "YouTube Playlist");
   const author = String(
@@ -404,7 +421,7 @@ export async function loadMoreYouTubePlaylist(
   const key = playlistStateKey(worker, id);
   let state = playlistState.get(key);
   if (!state) {
-    const client = await getClient(worker);
+    const client = await getClient(worker, undefined, false);
     let page = await client.getPlaylist(id);
     const known = new Set(knownIds);
     let pending: YouTubePlaylistItem[] = [];

@@ -2,6 +2,7 @@ import type { WorkerProfile } from "@youtv/shared";
 import { proxyUrl } from "@/lib/proxy";
 import type { ZipEntrySource } from "./download";
 import { textByteStream } from "./byteStream";
+import { archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 
 type LoadedManifest = { text: string; url: string };
 type ByteRange = { length: number; offset: number; implicit: boolean };
@@ -95,6 +96,8 @@ function mediaLines(text: string): boolean {
 function makeFetcher(
   entries: ZipEntrySource[],
   signal: AbortSignal | undefined,
+  worker: WorkerProfile,
+  fallbacks: WorkerProfile[],
 ) {
   const keys = new Map<string, string>();
   let keyCounter = 0;
@@ -106,29 +109,18 @@ function makeFetcher(
       const headers: [string, string][] = range
         ? [["range", `bytes=${range.offset}-${range.offset + range.length - 1}`]]
         : [];
-      const response = await fetch(url, {
-        headers,
-        credentials: "omit",
-        cache: "no-store",
-        signal: entrySignal || signal,
-      });
-      if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);
-      if (range) {
-        const end = range.offset + range.length - 1;
-        const contentRange = response.headers.get("content-range");
-        const returned = contentRange?.match(/^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i);
-        if (
-          response.status !== 206 ||
-          !returned ||
-          Number(returned[1]) !== range.offset ||
-          Number(returned[2]) !== end
-        ) {
-          await response.body?.cancel().catch(() => undefined);
-          throw new Error(
-            `Invalid HLS byte-range response: expected bytes ${range.offset}-${end}, got HTTP ${response.status} (${contentRange || "missing Content-Range"})`,
-          );
+      const response = await fetchArchiveResource(archiveResourceRoutes(url, worker, fallbacks), {
+        headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
+      }, response => {
+        if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);
+        if (range) {
+          const end = range.offset + range.length - 1;
+          const contentRange = response.headers.get("content-range");
+          const returned = contentRange?.match(/^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i);
+          if (response.status !== 206 || !returned || Number(returned[1]) !== range.offset || Number(returned[2]) !== end)
+            throw new Error(`Invalid HLS byte-range response: expected bytes ${range.offset}-${end}, got HTTP ${response.status} (${contentRange || "missing Content-Range"})`);
         }
-      }
+      });
       if (!response.body) throw new Error("HLS resource has no body");
       return response.body;
     };
@@ -385,6 +377,7 @@ export async function buildHlsArchiveEntries(
   sourceUrl: string,
   worker: WorkerProfile,
   signal?: AbortSignal,
+  fallbacks: WorkerProfile[] = [],
 ): Promise<{
   entries: ZipEntrySource[];
   name: string;
@@ -394,7 +387,7 @@ export async function buildHlsArchiveEntries(
   const initial = proxyUrl(sourceUrl, worker, "proxy", true);
   const master = await readManifest(initial, signal);
   const entries: ZipEntrySource[] = [];
-  const fetcher = makeFetcher(entries, signal);
+  const fetcher = makeFetcher(entries, signal, worker, fallbacks);
   let totalSegments = 0;
   let outputMaster = "";
   let liveSnapshot = false;

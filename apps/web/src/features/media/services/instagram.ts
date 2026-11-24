@@ -333,10 +333,10 @@ export async function resolveInstagramPost(
   const canonical = `https://www.instagram.com/${path[1]}/${path[2]}/`;
   let html = "",
     lastError = "";
-  for (const withJson of [true, false]) {
+  for (const variant of ["json", "html", "embed"] as const) {
     try {
       const response = await fetch(
-        instagramFetchUrl(worker, canonical, withJson),
+        instagramFetchUrl(worker, variant === "embed" ? `${canonical}embed/` : canonical, variant === "json"),
         { credentials: "omit", cache: "no-store", signal },
       );
       if (!response.ok) {
@@ -364,8 +364,9 @@ export async function resolveInstagramPost(
         }
       }
       const parsed = extractInstagramPostHtml(html, canonical);
-      if (parsed) return parsed;
+      if (parsed?.assets.length) return parsed;
     } catch (error) {
+      signal?.throwIfAborted();
       lastError =
         error instanceof Error ? error.message : "Instagram request failed";
     }

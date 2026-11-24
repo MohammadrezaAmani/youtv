@@ -579,3 +579,27 @@
   border-radius: 12px;
   background: #fff;
 }
+
+.media-route-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.media-route-controls select {
+  min-width: 140px;
+  max-width: 100%;
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 8px;
+}
+.media-route-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.media-route-controls span { color: var(--muted); }

@@ -139,6 +139,7 @@ export async function probeDirectMedia(
   const response = await fetch(proxyUrl(url, worker, "probe"), {
     credentials: "omit",
     cache: "no-store",
+    signal: AbortSignal.timeout(15000),
   });
   const data = (await response.json()) as {
     status?: number;
@@ -149,7 +150,7 @@ export async function probeDirectMedia(
     kind?: MediaKind;
     error?: string;
   };
-  if (!response.ok || Number(data.status) >= 400)
+  if (!response.ok || data.status === undefined || Number(data.status) >= 400)
     throw new Error(
       data.error || `Media probe HTTP ${data.status || response.status}`,
     );

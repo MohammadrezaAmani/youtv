@@ -205,10 +205,14 @@ const fallbackTranslation = (lang: string, fa: string, en: string) =>
 export default function PlayerStage({
   channel,
   bottomActions,
+  onTerminalError,
 }: {
   channel: Channel;
   bottomActions?: ReactNode;
+  onTerminalError?: (message: string) => void;
 }) {
+  const terminalErrorRef = useRef(onTerminalError);
+  useEffect(() => { terminalErrorRef.current = onTerminalError; }, [onTerminalError]);
   const { t } = useTranslation();
   const settings = useYoutv((s) => s.settings),
     workers = useYoutv((s) => s.workers);
@@ -475,6 +479,7 @@ export default function PlayerStage({
       } else {
         setError(message);
         setStatus("error");
+        terminalErrorRef.current?.(message);
       }
     },
     [

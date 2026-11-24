@@ -221,13 +221,21 @@ export function createYoutubeFetch(worker: WorkerProfile): typeof fetch {
       method === "GET" || method === "HEAD"
         ? undefined
         : await original.clone().arrayBuffer();
-    return fetch(endpoint, {
-      method,
-      headers,
-      body,
-      signal: original.signal,
-      redirect: "follow",
-    });
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(new DOMException("YouTube relay timed out", "TimeoutError")), 15000);
+    try {
+      const response = await fetch(endpoint, {
+        method, headers, body,
+        signal: AbortSignal.any([original.signal, timeout.signal]),
+        redirect: "error",
+        credentials: "omit",
+      });
+      if (response.status === 404 && !response.headers.has("X-YouTV-Proxy")) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`Worker ${worker.name} does not expose /youtube/fetch (HTTP 404); deploy the current Worker`);
+      }
+      return response;
+    } finally { clearTimeout(timer); }
   };
 }
 
@@ -245,7 +253,7 @@ export function instagramFetchUrl(
     throw new Error(
       "Only public Instagram post, Reel and TV URLs are supported",
     );
-  if (!/^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+\/?$/.test(target.pathname))
+  if (!/^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+(?:\/embed)?\/?$/.test(target.pathname))
     throw new Error("Invalid Instagram post URL");
   if (withJson) {
     target.searchParams.set("__a", "1");

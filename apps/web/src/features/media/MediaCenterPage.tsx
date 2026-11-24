@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ui/action-button";
 import { useYoutv } from "@/stores/useYoutv";
 import { createChannel } from "@youtv/shared";
-import { proxyDownloadUrl, proxyUrl } from "@/lib/proxy";
+import { needsHttpsRelay, proxyUrl } from "@/lib/proxy";
+import { orderedMediaWorkers, withMediaWorkers, requireMediaCapability, mediaAssetUrls, openMediaAsset, mediaError, primeMediaStream } from "./services/mediaRoutes";
 import {
   guessMediaKind,
   probeDirectMedia,
@@ -39,7 +40,6 @@ import {
 import { resolveInstagramPost, type InstagramPost } from "./services/instagram";
 import {
   downloadStreamFactory,
-  downloadUrl,
   downloadZip,
   downloadZipLazy,
   type DownloadProgress,
@@ -153,10 +153,16 @@ function YouTubeDashPreview({
   manifest,
   title,
   videoId,
+  allowDirect,
+  onFailure,
+  fa,
 }: {
   manifest: string;
   title: string;
   videoId: string;
+  allowDirect: boolean;
+  onFailure: () => void;
+  fa: boolean;
 }) {
   const [src, setSrc] = useState("");
   const [dashFailed, setDashFailed] = useState(false);
@@ -172,7 +178,8 @@ function YouTubeDashPreview({
     setSrc(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [manifest]);
-  if (!src || dashFailed)
+  if (!manifest || dashFailed) {
+    if (!allowDirect) return <div className="media-inline-warning"><span>{fa ? "پیش‌نمایش DASH در دسترس نیست؛ فرمت‌های قابل دانلود را بررسی کن یا مسیر دیگری انتخاب کن." : "DASH preview unavailable. Try another Worker or an available download format."}</span><Button size="sm" variant="outline" onClick={onFailure}>{fa ? "تلاش با Worker دیگر" : "Try another Worker"}</Button></div>;
     return (
       <div className="media-embed">
         <iframe
@@ -185,12 +192,14 @@ function YouTubeDashPreview({
         />
       </div>
     );
+  }
+  if (!src) return null;
   return (
     <DashPlayer
       src={src}
       title={title}
       className="media-embed"
-      onError={() => setDashFailed(true)}
+      onError={() => { setDashFailed(true); onFailure(); }}
     />
   );
 }
@@ -211,31 +220,29 @@ function mediaKindLabel(kind: MediaKind, fa: boolean): string {
   };
   return labels[kind][fa ? 1 : 0];
 }
-async function fetchAsset(
-  url: string,
-  signal?: AbortSignal,
-): Promise<ReadableStream<Uint8Array>> {
-  const response = await fetch(url, {
-    credentials: "omit",
-    cache: "no-store",
-    signal,
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  if (!response.body) throw new Error("Empty media response");
-  return response.body;
-}
-
 export default function MediaCenterPage() {
   const settings = useYoutv((state) => state.settings),
     workers = useYoutv((state) => state.workers);
   const fa = settings.language === "fa";
-  const worker = useMemo(
-    () =>
-      workers.find(
-        (item) => item.id === settings.defaultWorkerId && item.enabled,
-      ) || workers.find((item) => item.enabled),
-    [workers, settings.defaultWorkerId],
-  );
+  const [preferredWorkerId, setPreferredWorkerId] = useState("");
+  const [automaticFallback, setAutomaticFallback] = useState(true);
+  const [allowDirect, setAllowDirect] = useState(false);
+  const [resolvedWorkerId, setResolvedWorkerId] = useState<string | null>(null);
+  const previewTried = useRef(new Set<string>());
+  const previewRetrying = useRef(false);
+  const resolutionGeneration = useRef(0);
+  const candidates = useMemo(() => orderedMediaWorkers(workers, preferredWorkerId || settings.defaultWorkerId, automaticFallback), [workers, preferredWorkerId, settings.defaultWorkerId, automaticFallback]);
+  const worker = resolvedWorkerId === "" ? undefined : candidates.find(item => item.id === resolvedWorkerId) || candidates[0];
+  const activeCandidates = useMemo(() => worker ? [worker, ...candidates.filter(item => item.id !== worker.id)] : candidates, [worker, candidates]);
+  const openAsset = (url: string, filename: string, signal?: AbortSignal) => {
+    const urls = mediaAssetUrls(url, activeCandidates, allowDirect || !activeCandidates.length, filename);
+    if (resolvedWorkerId === "" && urls.includes(url)) return openMediaAsset([url, ...urls.filter(item => item !== url)], signal);
+    return openMediaAsset(urls, signal);
+  };
+  const openYoutube = async (id: string, itag: number, signal?: AbortSignal) => (await withMediaWorkers(activeCandidates, async candidate => {
+    const opened = await openYouTubeDownload(candidate, id, itag);
+    return primeMediaStream(opened.stream, signal);
+  }, signal)).value;
   const [input, setInput] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
   const [loading, setLoading] = useState(false);
@@ -365,7 +372,7 @@ export default function MediaCenterPage() {
               : "Completed"),
       });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = mediaError(cause);
       const cancelled =
         controller.signal.aborted ||
         (cause instanceof Error && cause.name === "AbortError");
@@ -431,6 +438,9 @@ export default function MediaCenterPage() {
     const raw = input.trim();
     if (!raw) return;
     setLoading(true);
+    resolutionGeneration.current++;
+    previewTried.current.clear();
+    setResolvedWorkerId(null);
     setError("");
     setTarget(null);
     setCaptionLanguages([]);
@@ -447,7 +457,7 @@ export default function MediaCenterPage() {
           "آدرس رسانه باید HTTP(S) معتبر و بدون اطلاعات ورود داخل URL باشد.",
         );
       if (isYoutubeHost(parsed.hostname)) {
-        if (!worker)
+        if (!candidates.length)
           throw new Error(
             fa
               ? "برای استخراج و دانلود YouTube ابتدا Worker را در تنظیمات پروکسی فعال کن."
@@ -455,11 +465,13 @@ export default function MediaCenterPage() {
           );
         const source = parseYouTubeUrl(raw);
         if (source.kind === "playlist") {
-          const playlist = await resolveYouTubePlaylist(worker, source.id, 500);
+          const { worker: selected, value: playlist } = await withMediaWorkers(candidates, candidate => resolveYouTubePlaylist(candidate, source.id, 500));
+          setResolvedWorkerId(selected.id);
           setTarget({ type: "youtube-playlist", playlist });
           setSelectedItems(playlist.items.map((item) => item.id));
         } else {
-          const video = await resolveYouTubeVideo(worker, source.id);
+          const { worker: selected, value: video } = await withMediaWorkers(candidates, candidate => resolveYouTubeVideo(candidate, source.id));
+          setResolvedWorkerId(selected.id);
           setTarget({ type: "youtube", video });
           const best =
             selectCombinedFormat(video.formats) ||
@@ -473,20 +485,35 @@ export default function MediaCenterPage() {
           setCombineYoutubeAudio(true);
         }
       } else if (isInstagramHost(parsed.hostname)) {
-        if (!worker)
+        if (!candidates.length)
           throw new Error(
             fa
               ? "برای دریافت رسانه Instagram به Worker فعال نیاز است."
               : "An active Worker is required for Instagram media.",
           );
-        const post = await resolveInstagramPost(worker, raw);
+        const { worker: selected, value: post } = await withMediaWorkers(candidates, async candidate => {
+          await requireMediaCapability(candidate, "instagramPublicRelay");
+          return resolveInstagramPost(candidate, raw);
+        });
+        setResolvedWorkerId(selected.id);
         setTarget({ type: "instagram", post });
         setSelectedAssets(post.assets.map((asset) => asset.id));
       } else {
         const normalized = parsed.toString();
-        const probe = worker
-          ? await probeDirectMedia(normalized, worker)
-          : null;
+        let probe: DirectProbe | null = null;
+        if (candidates.length) {
+          try {
+            const result = await withMediaWorkers(candidates, candidate => probeDirectMedia(normalized, candidate));
+            probe = result.value;
+            setResolvedWorkerId(result.worker.id);
+          } catch (cause) {
+            if (!allowDirect || needsHttpsRelay(normalized)) throw cause;
+            setResolvedWorkerId("");
+          }
+        } else {
+          if (needsHttpsRelay(normalized)) throw new Error("HTTP media requires an active HTTPS Worker");
+          setResolvedWorkerId("");
+        }
         const kind = probe?.kind || guessMediaKind(normalized);
         setTarget({ type: "direct", url: normalized, probe, kind });
         setDirectName(
@@ -497,11 +524,34 @@ export default function MediaCenterPage() {
       }
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Unable to resolve media URL",
+        mediaError(cause),
       );
     } finally {
       setLoading(false);
     }
+  };
+
+  const retryYoutubePreview = async (video: YouTubeVideo) => {
+    if (!automaticFallback || previewRetrying.current) return;
+    if (worker) previewTried.current.add(worker.id);
+    const remaining = activeCandidates.filter(candidate => !previewTried.current.has(candidate.id));
+    if (!remaining.length) return;
+    const generation = resolutionGeneration.current;
+    previewRetrying.current = true;
+    try {
+      const { worker: selected, value: next } = await withMediaWorkers(remaining, async candidate => {
+        previewTried.current.add(candidate.id);
+        const value = await resolveYouTubeVideo(candidate, video.id);
+        if (!value.dashManifest) throw new Error("No DASH manifest available");
+        return value;
+      });
+      if (resolutionGeneration.current !== generation) return;
+      setResolvedWorkerId(selected.id);
+      setTarget({ type: "youtube", video: next });
+      setSelectedFormat(current => next.formats.some(format => format.itag === current) ? current : selectCombinedFormat(next.formats)?.itag ?? next.formats[0]?.itag ?? null);
+    } catch (cause) {
+      if (resolutionGeneration.current === generation) setError(mediaError(cause));
+    } finally { previewRetrying.current = false; }
   };
 
   const downloadYoutube = async (video: YouTubeVideo, itag: number) => {
@@ -521,8 +571,8 @@ export default function MediaCenterPage() {
       await runJob(muxFilename, async (onProgress, signal) =>
         downloadStreamFactory(
           async () => {
-            const muxed = await muxYouTubeFormats(
-              worker,
+            const { value: muxed } = await withMediaWorkers(activeCandidates, candidate => muxYouTubeFormats(
+              candidate,
               video.id,
               format.itag,
               audioFormat.itag,
@@ -540,7 +590,7 @@ export default function MediaCenterPage() {
                       : undefined,
                 }),
               signal,
-            );
+            ), signal);
             return openMuxedBlobStream(muxed);
           },
           muxFilename,
@@ -553,7 +603,7 @@ export default function MediaCenterPage() {
     }
     await runJob(filename, async (onProgress, signal) =>
       downloadStreamFactory(
-        async () => (await openYouTubeDownload(worker, video.id, itag)).stream,
+        () => openYoutube(video.id, itag, signal),
         filename,
         format.size,
         onProgress,
@@ -569,12 +619,7 @@ export default function MediaCenterPage() {
         .toLowerCase() || "jpg";
     const filename = `${cleanFilename(video.title)}-thumbnail.${extension}`;
     await runJob(filename, (onProgress, signal) =>
-      downloadUrl(
-        proxyDownloadUrl(video.thumbnail, worker, filename),
-        filename,
-        onProgress,
-        signal,
-      ),
+      downloadStreamFactory(() => openAsset(video.thumbnail, filename, signal), filename, null, onProgress, signal),
     );
   };
   const downloadYoutubeMetadata = async (video: YouTubeVideo) => {
@@ -608,11 +653,7 @@ export default function MediaCenterPage() {
     if (!worker) return;
     const filename = `${cleanFilename(video.title)}.${captionLanguage || "auto"}.vtt`;
     await runJob(filename, async (onProgress, signal) => {
-      const transcript = await getYouTubeTranscript(
-        worker,
-        video.id,
-        captionLanguage,
-      );
+      const { value: transcript } = await withMediaWorkers(activeCandidates, candidate => getYouTubeTranscript(candidate, video.id, captionLanguage), signal);
       setCaptionLanguages(transcript.languages);
       if (!captionLanguage) setCaptionLanguage(transcript.language);
       const blob = new Blob([transcript.vtt], {
@@ -632,12 +673,8 @@ export default function MediaCenterPage() {
     setLoadingPlaylistMore(true);
     setError("");
     try {
-      const result = await loadMoreYouTubePlaylist(
-        worker,
-        playlist.id,
-        playlist.items.map((item) => item.id),
-        500,
-      );
+      const { worker: selected, value: result } = await withMediaWorkers(activeCandidates, candidate => loadMoreYouTubePlaylist(candidate, playlist.id, playlist.items.map(item => item.id), 500));
+      setResolvedWorkerId(selected.id);
       if (!result.items.length) {
         setTarget({
           type: "youtube-playlist",
@@ -685,14 +722,12 @@ export default function MediaCenterPage() {
               throw (
                 buildSignal.reason || new DOMException("Aborted", "AbortError")
               );
-            const video = await resolveYouTubeVideo(worker, item.id, false);
+            const { worker: itemWorker, value: video } = await withMediaWorkers(activeCandidates, candidate => resolveYouTubeVideo(candidate, item.id, false), buildSignal);
             const combined = selectCombinedFormat(video.formats, quality);
             if (combined) {
               entries.push({
                 filename: `${cleanFilename(item.title)}.${formatExtension(combined)}`,
-                open: async () =>
-                  (await openYouTubeDownload(worker, item.id, combined.itag))
-                    .stream,
+                open: (signal) => openYoutube(item.id, combined.itag, signal),
               });
               continue;
             }
@@ -709,31 +744,27 @@ export default function MediaCenterPage() {
               entries.push({
                 filename: `${cleanFilename(item.title)}.mp4`,
                 open: async (signal) => {
-                  const muxed = await muxYouTubeFormats(
-                    worker,
+                  const { value: muxed } = await withMediaWorkers([itemWorker, ...activeCandidates.filter(candidate => candidate.id !== itemWorker.id)], candidate => muxYouTubeFormats(
+                    candidate,
                     item.id,
                     videoOnly.itag,
                     audioOnly.itag,
                     item.title,
                     () => {},
                     signal,
-                  );
+                  ), signal);
                   return openMuxedBlobStream(muxed);
                 },
               });
             } else if (videoOnly)
               entries.push({
                 filename: `${cleanFilename(item.title)}-video-only.${formatExtension(videoOnly)}`,
-                open: async () =>
-                  (await openYouTubeDownload(worker, item.id, videoOnly.itag))
-                    .stream,
+                open: (signal) => openYoutube(item.id, videoOnly.itag, signal),
               });
             else if (audioOnly)
               entries.push({
                 filename: `${cleanFilename(item.title)}-audio-only.${formatExtension(audioOnly)}`,
-                open: async () =>
-                  (await openYouTubeDownload(worker, item.id, audioOnly.itag))
-                    .stream,
+                open: (signal) => openYoutube(item.id, audioOnly.itag, signal),
               });
             else
               throw new Error(
@@ -753,12 +784,7 @@ export default function MediaCenterPage() {
   ) => {
     if (!worker) return;
     await runJob(asset.filename, (onProgress, signal) =>
-      downloadUrl(
-        proxyDownloadUrl(asset.url, worker, asset.filename),
-        asset.filename,
-        onProgress,
-        signal,
-      ),
+      downloadStreamFactory(() => openAsset(asset.url, asset.filename, signal), asset.filename, null, onProgress, signal),
     );
   };
   const downloadInstagram = async (post: InstagramPost) => {
@@ -776,7 +802,7 @@ export default function MediaCenterPage() {
     const entries: ZipEntrySource[] = chosen.map((asset, index) => ({
       filename: `${String(index + 1).padStart(2, "0")}-${cleanFilename(asset.filename)}`,
       open: (signal) =>
-        fetchAsset(proxyDownloadUrl(asset.url, worker, asset.filename), signal),
+        openAsset(asset.url, asset.filename, signal),
     }));
     await runJob(archiveName, (onProgress, signal) =>
       downloadZip(entries, archiveName, onProgress, signal),
@@ -823,12 +849,8 @@ export default function MediaCenterPage() {
   const downloadDirect = async (
     targetValue: Extract<Target, { type: "direct" }>,
   ) => {
-    if (!worker) {
-      setError(
-        fa
-          ? "برای دانلود بین‌دامنه‌ای به Worker فعال نیاز است."
-          : "An active Worker is required for cross-origin downloads.",
-      );
+    if (!activeCandidates.length && (targetValue.kind === "hls" || targetValue.kind === "dash")) {
+      setError(fa ? "برای ساخت آرشیو HLS/DASH یک Worker فعال لازم است." : "HLS/DASH archiving requires an active Worker.");
       return;
     }
     if (targetValue.kind === "hls") {
@@ -842,11 +864,7 @@ export default function MediaCenterPage() {
       await runJob(archiveName, async (onProgress, signal) => {
         await downloadZipLazy(
           async (buildSignal) => {
-            const result = await buildHlsArchiveEntries(
-              targetValue.url,
-              worker,
-              buildSignal,
-            );
+            const { value: result } = await withMediaWorkers(activeCandidates, candidate => buildHlsArchiveEntries(targetValue.url, candidate, buildSignal, activeCandidates), buildSignal);
             liveSnapshot = result.liveSnapshot;
             return result.entries;
           },
@@ -869,8 +887,7 @@ export default function MediaCenterPage() {
       await runJob(archiveName, (onProgress, signal) =>
         downloadZipLazy(
           async () =>
-            (await buildDashArchiveEntries(targetValue.url, worker, signal))
-              .entries,
+            (await withMediaWorkers(activeCandidates, candidate => buildDashArchiveEntries(targetValue.url, candidate, signal, activeCandidates), signal)).value.entries,
           archiveName,
           onProgress,
           signal,
@@ -884,9 +901,8 @@ export default function MediaCenterPage() {
         new URL(targetValue.url).pathname.split("/").at(-1) ||
         "media",
     );
-    const url = proxyDownloadUrl(targetValue.url, worker, filename);
     await runJob(filename, (onProgress, signal) =>
-      downloadUrl(url, filename, onProgress, signal),
+      downloadStreamFactory(() => openAsset(targetValue.url, filename, signal), filename, targetValue.probe?.contentLength || null, onProgress, signal),
     );
   };
 
@@ -898,6 +914,17 @@ export default function MediaCenterPage() {
   const currentFormat = youtubeVideo?.formats.find(
     (item) => item.itag === selectedFormat,
   );
+  const directChannel = useMemo(() => direct ? createChannel({ name: "Media Center HLS", url: direct.url, format: "hls", proxyMode: worker ? "proxy" : "direct", workerId: worker?.id || "" }) : null, [direct?.url, worker?.id]);
+  const retryDirectPreview = () => {
+    if (!direct) return;
+    const current = worker?.id || "";
+    if (previewTried.current.has(current)) return;
+    previewTried.current.add(current);
+    const next = candidates.find(candidate => !previewTried.current.has(candidate.id));
+    if (next && automaticFallback) { setResolvedWorkerId(next.id); return; }
+    if (allowDirect && current && !previewTried.current.has("") && !needsHttpsRelay(direct.url)) { setResolvedWorkerId(""); return; }
+    setError(fa ? "پخش رسانه در مسیرهای موجود موفق نبود؛ اتصال، نوع فایل یا کدک را بررسی کن." : "Media playback failed on the available routes. Check connectivity, format or codec.");
+  };
   const directProxy =
     direct && worker
       ? proxyUrl(direct.url, worker, "proxy", direct.kind === "hls")
@@ -964,6 +991,16 @@ export default function MediaCenterPage() {
             {fa ? "بررسی لینک" : "Resolve URL"}
           </Button>
         </div>
+        <div className="media-route-controls">
+          <label htmlFor="media-worker">{fa ? "مسیر پروکسی رسانه" : "Media proxy route"}</label>
+          <select id="media-worker" value={preferredWorkerId} disabled={loading} onChange={event => { resolutionGeneration.current++; setPreferredWorkerId(event.target.value); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }}>
+            <option value="">{fa ? "Worker پیش‌فرض" : "Default Worker"}</option>
+            {workers.filter(item => item.enabled).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <label><input type="checkbox" checked={automaticFallback} disabled={loading} onChange={event => { resolutionGeneration.current++; setAutomaticFallback(event.target.checked); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }} /> {fa ? "Fallback بین Workerهای فعال" : "Fallback across enabled Workers"}</label>
+          <label><input type="checkbox" checked={allowDirect} disabled={loading} onChange={event => setAllowDirect(event.target.checked)} /> {fa ? "Fallback مستقیم فایل‌ها و Embed یوتیوب (در صورت دسترسی)" : "Direct file and YouTube embed fallback (when accessible)"}</label>
+          <span>{fa ? "مسیر فعلی:" : "Current route:"} {worker?.name || (resolvedWorkerId === "" ? (fa ? "مستقیم" : "Direct") : "—")}</span>
+        </div>
         <div className="media-source-hints">
           <span>YouTube / Playlist</span>
           <span>Instagram Post / Reel</span>
@@ -974,8 +1011,8 @@ export default function MediaCenterPage() {
           <p className="media-inline-warning">
             <AlertCircle size={15} />
             {fa
-              ? "Worker فعالی در تنظیمات پیدا نشد؛ پخش لینک‌های عمومی ممکن است مستقیم انجام شود، اما استخراج و دانلود بین‌دامنه‌ای در دسترس نیست."
-              : "No active Worker is configured. Direct same-origin playback may work, but platform extraction and cross-origin downloads require the existing Worker."}
+              ? "Worker فعالی برای این مسیر انتخاب نشده؛ فایل مستقیم فقط در صورت دسترسی و مجاز بودن CORS قابل دانلود است. استخراج پلتفرم‌ها و آرشیو HLS/DASH به Worker نیاز دارند."
+              : "No active Worker is selected. Direct files require network access and CORS; platform extraction and HLS/DASH archiving require a Worker."}
           </p>
         )}
       </div>
@@ -994,7 +1031,7 @@ export default function MediaCenterPage() {
         <div className="media-result-grid">
           <section className="panel-card media-detail-card">
             <div className="media-result-heading">
-              <img src={youtubeVideo.thumbnail} alt="" />
+              <img src={worker && youtubeVideo.thumbnail ? proxyUrl(youtubeVideo.thumbnail, worker) : youtubeVideo.thumbnail} alt="" />
               <div>
                 <span className="media-provider">YOUTUBE VIDEO</span>
                 <h2>{youtubeVideo.title}</h2>
@@ -1016,6 +1053,9 @@ export default function MediaCenterPage() {
               manifest={youtubeVideo.dashManifest}
               title={youtubeVideo.title}
               videoId={youtubeVideo.id}
+              allowDirect={allowDirect}
+              onFailure={() => void retryYoutubePreview(youtubeVideo)}
+              fa={fa}
             />
             {youtubeVideo.description && (
               <p className="media-description">{youtubeVideo.description}</p>
@@ -1247,7 +1287,7 @@ export default function MediaCenterPage() {
                     toggle(selectedItems, item.id, setSelectedItems)
                   }
                 />
-                <img src={item.thumbnail} alt="" loading="lazy" />
+                <img src={worker && item.thumbnail ? proxyUrl(item.thumbnail, worker) : item.thumbnail} alt="" loading="lazy" />
                 <span className="media-row-index">{index + 1}</span>
                 <span className="media-row-title">
                   {item.title}
@@ -1336,7 +1376,7 @@ export default function MediaCenterPage() {
                   {asset.kind === "video" ? (
                     <video
                       src={worker ? proxyUrl(asset.url, worker) : asset.url}
-                      poster={asset.thumbnail}
+                      poster={worker && asset.thumbnail ? proxyUrl(asset.thumbnail, worker) : asset.thumbnail}
                       controls
                       preload="metadata"
                     />
@@ -1428,19 +1468,11 @@ export default function MediaCenterPage() {
               preload="metadata"
             />
           )}
-          {direct.kind === "hls" && !convertedPreviewUrl && (
-            <PlayerStage
-              channel={createChannel({
-                name: "Media Center HLS",
-                url: direct.url,
-                format: "hls",
-                proxyMode: worker ? "proxy" : "direct",
-                workerId: worker?.id || "",
-              })}
-            />
+          {direct.kind === "hls" && !convertedPreviewUrl && directChannel && (
+            <PlayerStage key={directChannel.id} channel={directChannel} onTerminalError={retryDirectPreview} />
           )}
           {direct.kind === "dash" && (
-            <DashPlayer src={dashProxy} title="DASH media" />
+            <DashPlayer key={dashProxy} src={dashProxy} title="DASH media" onError={retryDirectPreview} />
           )}
           {direct.kind === "video" &&
             (convertedPreviewUrl ? (
@@ -1454,7 +1486,9 @@ export default function MediaCenterPage() {
             ) : (
               <video
                 className="media-center-video"
+                key={directProxy}
                 src={directProxy}
+                onError={retryDirectPreview}
                 controls
                 playsInline
                 preload="metadata"
@@ -1463,7 +1497,9 @@ export default function MediaCenterPage() {
           {direct.kind === "audio" && (
             <audio
               className="media-center-audio"
+              key={directProxy}
               src={directProxy}
+              onError={retryDirectPreview}
               controls
               preload="metadata"
             />
@@ -1471,7 +1507,9 @@ export default function MediaCenterPage() {
           {direct.kind === "image" && (
             <img
               className="media-direct-image"
+              key={directProxy}
               src={directProxy}
+              onError={retryDirectPreview}
               alt="Direct media"
             />
           )}
@@ -1513,7 +1551,7 @@ export default function MediaCenterPage() {
                   : "Range unknown"}
             </span>
             <span>
-              {direct.probe?.status ? `HTTP ${direct.probe.status}` : ""}
+              {direct.probe?.status ? `HTTP ${direct.probe.status}` : fa ? "پاسخ منبع هنوز بررسی نشده" : "Source response not verified"}
             </span>
           </div>
           <div className="media-format-row">
@@ -1539,7 +1577,7 @@ export default function MediaCenterPage() {
               </a>
             )}
             <Button
-              disabled={!worker}
+              disabled={!activeCandidates.length && (direct.kind === "hls" || direct.kind === "dash")}
               onClick={() => void downloadDirect(direct)}
             >
               <Download size={17} />
