@@ -1,0 +1,22 @@
+[
+  {
+    "name": "keglr",
+    "url": "https://raw.githubusercontent.com/Keglr/IPTV_V6/main/Adult.m3u",
+    "status": "DOWNLOADED"
+  },
+  {
+    "name": "dragonadd",
+    "url": "https://raw.githubusercontent.com/dragonadd/my_m3u/main/NSFW.m3u",
+    "status": "DOWNLOADED"
+  },
+  {
+    "name": "adultiptv",
+    "url": "https://adultiptv.net/chs.m3u",
+    "status": "DOWNLOADED"
+  },
+  {
+    "name": "iptvmate",
+    "url": "https://iptvmate.net/files/adult.m3u",
+    "status": "DOWNLOADED"
+  }
+]
