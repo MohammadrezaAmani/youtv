@@ -364,3 +364,59 @@ test("text playlist import exposes final origin without rewriting the original l
     assert.equal(await result.text(), manifest);
   });
 });
+
+// Regression fixture: master supplied in the BozzTV bug report. Child and
+// segment responses below are synthetic, not claims about the live service.
+test("BozzTV master resolves child and segment through the same relay", async () => {
+  const master = "https://bozztv.com/1gbw5/tintv2/tintv2/playlist.m3u8";
+  const child = new URL("chunklist.m3u8", master).href;
+  const segment = new URL("segment.ts", child).href;
+  const bytes = Uint8Array.from([0x47, 1, 2, 3]);
+  const calls = [];
+  await withFetch(async (raw, init) => {
+    const target = String(raw);
+    const headers = new Headers(init.headers);
+    calls.push(target);
+    if (target === master || target === child) {
+      assert.match(headers.get("accept"), /application\/vnd\.apple\.mpegurl/);
+      return new Response(target === master
+        ? '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=1853931,CODECS="avc1.66.31,mp4a.40.2",RESOLUTION=1280x720\nchunklist.m3u8\n'
+        : '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n', {
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+    assert.equal(target, segment);
+    assert.equal(headers.get("range"), "bytes=0-3");
+    return new Response(bytes, { status: 206, headers: { "Content-Range": "bytes 0-3/4", "Content-Type": "video/mp2t" } });
+  }, async () => {
+    const first = await worker.fetch(new Request(url(master, { hls: "1" }), { headers: { Accept: "text/html", Origin: env.ALLOWED_ORIGINS } }), env);
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get("X-YouTV-HLS-Result"), "rewritten");
+    assert.equal(first.headers.get("X-YouTV-Upstream-Status"), "200");
+    assert.match(first.headers.get("Access-Control-Expose-Headers"), /X-YouTV-HLS-Result/);
+    const childRoute = new URL((await first.text()).split("\n").find(line => line.startsWith("https://")));
+    assert.equal(childRoute.origin, endpoint);
+    assert.equal(childRoute.searchParams.get("url"), child);
+    assert.equal(childRoute.searchParams.get("hls"), "1");
+    const second = await worker.fetch(new Request(childRoute), env);
+    const segmentRoute = new URL((await second.text()).split("\n").find(line => line.startsWith("https://")));
+    assert.equal(segmentRoute.origin, endpoint);
+    assert.equal(segmentRoute.searchParams.get("url"), segment);
+    const third = await worker.fetch(new Request(segmentRoute, { headers: { Range: "bytes=0-3" } }), env);
+    assert.equal(third.status, 206);
+    assert.deepEqual(new Uint8Array(await third.arrayBuffer()), bytes);
+    assert.deepEqual(calls, [master, child, segment]);
+  });
+});
+
+test("distinguish upstream denial and a non-playlist success without disguising either", async () => {
+  for (const status of [403, 200]) {
+    await withFetch(async () => new Response("<html>origin response</html>", { status, headers: { "Content-Type": "text/html" } }), async () => {
+      const result = await worker.fetch(new Request(url("https://bozztv.com/playlist.m3u8", { hls: "1" })), env);
+      assert.equal(result.status, status);
+      assert.equal(result.headers.get("X-YouTV-Upstream-Status"), String(status));
+      assert.equal(result.headers.get("X-YouTV-HLS-Result"), status === 403 ? "upstream-error" : "not-playlist");
+      assert.equal(await result.text(), "<html>origin response</html>");
+    });
+  }
+});

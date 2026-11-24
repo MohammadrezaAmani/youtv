@@ -22,6 +22,12 @@ export function hlsRequestRoute(raw: string, worker: WorkerProfile, initial: str
     const routed = new URL(raw);
     if (worker.token) routed.searchParams.set("key", worker.token);
     else routed.searchParams.delete("key");
+    if (playlist) routed.searchParams.set("hls", "1");
+    const first = relayTarget(initial, worker) ? new URL(initial) : null;
+    for (const hint of ["ua", "ref"]) {
+      const value = first?.searchParams.get(hint);
+      if (value && !routed.searchParams.has(hint)) routed.searchParams.set(hint, value);
+    }
     return routed.href;
   }
   const original = relayTarget(initial, worker) ? new URL(initial) : null;

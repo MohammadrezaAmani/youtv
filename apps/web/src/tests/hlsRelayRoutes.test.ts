@@ -59,3 +59,14 @@ test("quoted metadata cannot be mistaken for a URI attribute", () => {
   const text = '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="English,URI=not-a-url",URI="audio.m3u8"';
   expect(normalizeRelayPlaylist(text, "https://cdn.example/master.m3u8")).toBe('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="English,URI=not-a-url",URI="https://cdn.example/audio.m3u8"');
 });
+
+
+test("already relayed child playlists keep the HLS hint and explicit source headers", () => {
+  const master = proxyUrl("https://bozztv.com/1gbw5/tintv2/tintv2/playlist.m3u8", worker, "proxy", true, { userAgent: "YouTV test", referer: "https://bozztv.com/" });
+  const child = proxyUrl("https://bozztv.com/1gbw5/tintv2/tintv2/chunklist.m3u8?sig=a%2Bb", worker);
+  const result = new URL(hlsRequestRoute(child, worker, master, true));
+  expect(result.searchParams.get("hls")).toBe("1");
+  expect(result.searchParams.get("ua")).toBe("YouTV test");
+  expect(result.searchParams.get("ref")).toBe("https://bozztv.com/");
+  expect(result.searchParams.get("url")).toBe("https://bozztv.com/1gbw5/tintv2/tintv2/chunklist.m3u8?sig=a%2Bb");
+});

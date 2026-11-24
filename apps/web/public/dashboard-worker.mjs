@@ -93,7 +93,7 @@ function corsHeaders(request, env) {
     h.set("Access-Control-Allow-Origin", origin);
   h.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
   h.set("Access-Control-Allow-Headers", "Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token, X-YouTube-Client-Name, X-YouTube-Client-Version, X-Goog-Visitor-Id, X-Goog-Api-Format-Version");
-  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, Retry-After, X-YouTV-Proxy, X-YouTV-Source-URL");
+  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, Retry-After, X-YouTV-Proxy, X-YouTV-Source-URL, X-YouTV-Upstream-Status, X-YouTV-HLS-Result");
   h.set("Access-Control-Max-Age", "3600");
   return h;
 }
@@ -1171,6 +1171,7 @@ function deliveryDirectives(query) {
 }
 async function fetchSource(url, request, env, directives = new URLSearchParams) {
   let current = url;
+  const expectsHls = new URL(request.url).searchParams.get("hls") === "1" || isHls(url, "");
   for (let i = 0;i <= MAX_SOURCE_REDIRECTS; i++) {
     current = assertAllowedUrl(current.toString(), env);
     directives.forEach((value, name) => current.searchParams.set(name, value));
@@ -1180,6 +1181,8 @@ async function fetchSource(url, request, env, directives = new URLSearchParams) 
       if (v)
         headers.set(key, v);
     }
+    if ((expectsHls || isHls(current, "")) && !headers.has("Range"))
+      headers.set("Accept", "application/vnd.apple.mpegurl, application/x-mpegURL, audio/mpegurl, */*;q=0.8");
     const query = new URL(request.url).searchParams;
     const agent = query.get("ua") || "";
     const referer = query.get("ref") || env.UPSTREAM_REFERER || "";
@@ -1245,6 +1248,7 @@ async function proxy(request, env, reqUrl) {
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
   headers.set("X-YouTV-Source-URL", finalUrl.href);
+  headers.set("X-YouTV-Upstream-Status", String(response.status));
   for (const name of [
     "Content-Type",
     "Content-Range",
@@ -1315,6 +1319,8 @@ async function proxy(request, env, reqUrl) {
       dashManifest = false;
     }
   }
+  if (hlsHint && request.method !== "HEAD")
+    headers.set("X-YouTV-HLS-Result", !response.ok ? "upstream-error" : response.status === 206 ? "partial" : dashManifest ? "dash" : hlsManifest ? "rewritten" : "not-playlist");
   if (dashManifest && request.method !== "HEAD" && response.ok && response.status !== 206) {
     const source = await readTextStream(responseBody);
     let rewritten;

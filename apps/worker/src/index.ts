@@ -518,6 +518,8 @@ async function fetchSource(
   directives = new URLSearchParams(),
 ): Promise<{ response: Response; finalUrl: URL }> {
   let current = url;
+  const expectsHls =
+    new URL(request.url).searchParams.get("hls") === "1" || isHls(url, "");
   for (let i = 0; i <= MAX_SOURCE_REDIRECTS; i++) {
     current = assertAllowedUrl(current.toString(), env);
     // hls.js appends _HLS_* to the outer /proxy URL. The origin must receive
@@ -528,6 +530,13 @@ async function fetchSource(
       const v = request.headers.get(key);
       if (v) headers.set(key, v);
     }
+    // A manifest request should negotiate a playlist, not an HTML document.
+    // Keep Range requests and non-HLS resources on their original headers.
+    if ((expectsHls || isHls(current, "")) && !headers.has("Range"))
+      headers.set(
+        "Accept",
+        "application/vnd.apple.mpegurl, application/x-mpegURL, audio/mpegurl, */*;q=0.8",
+      );
     // IPTV-specific HTTP hints are token-protected and restricted to approved
     // upstream hosts. Never accept arbitrary headers such as Cookie/Auth.
     const query = new URL(request.url).searchParams;
@@ -634,6 +643,7 @@ async function proxy(
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
   headers.set("X-YouTV-Source-URL", finalUrl.href);
+  headers.set("X-YouTV-Upstream-Status", String(response.status));
   for (const name of [
     "Content-Type",
     "Content-Range",
@@ -751,6 +761,14 @@ async function proxy(
       dashManifest = false;
     }
   }
+  if (hlsHint && request.method !== "HEAD")
+    headers.set(
+      "X-YouTV-HLS-Result",
+      !response.ok ? "upstream-error"
+        : response.status === 206 ? "partial"
+        : dashManifest ? "dash"
+        : hlsManifest ? "rewritten" : "not-playlist",
+    );
   if (
     dashManifest &&
     request.method !== "HEAD" &&
