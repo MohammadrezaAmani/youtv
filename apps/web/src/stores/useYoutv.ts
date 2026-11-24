@@ -52,7 +52,7 @@ type Store = AppState & {
 };
 
 const empty = structuredClone(defaultState);
-const parseState = (unknown: unknown): AppState => ensureDefaultWorker(stateSchema.parse(unknown));
+const parseState = (unknown: unknown): AppState => ensureDefaultWorker(stateSchema.parse(unknown), true);
 /** Repair a legacy import that saved EXTINF attributes as a channel title. */
 export function repairLegacyMetadata(channel: Channel): Channel {
   const title = channel.name.trim();
@@ -100,7 +100,7 @@ export function recoverStoredState(value: unknown): AppState {
   reportRecoveryIssue();
   const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const rawSettings = raw.settings && typeof raw.settings === "object" ? raw.settings as Record<string, unknown> : {};
-  const settings = { ...defaultState.settings };
+  const settings = { ...defaultState.settings, routingDefaultsVersion: 0 };
   for (const key of Object.keys(settingsSchema.shape) as (keyof Settings)[]) {
     const result = settingsSchema.shape[key].safeParse(rawSettings[key]);
     if (result.success) Object.assign(settings, { [key]: result.data });

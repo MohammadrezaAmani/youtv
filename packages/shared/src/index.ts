@@ -117,12 +117,14 @@ export const settingsSchema = z.object({
   theme: z
     .enum(["dark", "light", "mint", "oled", "ocean", "emerald", "violet"])
     .default("dark"),
-  proxyMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
+  proxyMode: z.enum(["direct", "proxy", "auto"]).default("proxy"),
   defaultWorkerId: z.string().default(""),
-  mediaRouteMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
+  mediaRouteMode: z.enum(["direct", "proxy", "auto"]).default("proxy"),
   mediaWorkerId: z.string().default(""),
   mediaWorkerFallback: z.boolean().default(true),
   mediaDirectFallback: z.boolean().default(false),
+  /** One-time migration marker for the default connection route. */
+  routingDefaultsVersion: z.number().int().nonnegative().default(0),
   cloudflareManagerWorkerId: z.string().default(""),
   miniPlayer: z.boolean().default(true),
   libraryLayout: z.enum(["grid", "list", "compact"]).default("grid"),
@@ -178,12 +180,13 @@ export const defaultState: AppState = {
     hlsLatencyMode: "stable",
     language: "fa",
     theme: "dark",
-    proxyMode: "auto",
+    proxyMode: "proxy",
     defaultWorkerId: BUILTIN_WORKER_ID,
-    mediaRouteMode: "auto",
+    mediaRouteMode: "proxy",
     mediaWorkerId: "",
     mediaWorkerFallback: true,
     mediaDirectFallback: false,
+    routingDefaultsVersion: 1,
     cloudflareManagerWorkerId: "",
     miniPlayer: true,
     libraryLayout: "grid",
@@ -200,18 +203,23 @@ export const defaultState: AppState = {
   },
 };
 /** Seed only empty profiles. Preserve user-configured (including disabled) Workers.
- * Old empty profiles used direct/proxy defaults; upgrade them to Auto once. */
-export function ensureDefaultWorker<T extends Pick<AppState, "workers" | "settings">>(state: T, migrateEmpty = false): T {
-  if (state.workers.length) return state;
+ * Upgrade legacy Auto defaults to Proxy once while preserving explicit Direct choices. */
+export function ensureDefaultWorker<T extends Pick<AppState, "workers" | "settings">>(state: T, migrateLegacyDefaults = false): T {
+  const needsWorker = state.workers.length === 0;
+  const needsRoutingMigration = migrateLegacyDefaults && state.settings.routingDefaultsVersion < 1;
+  if (!needsWorker && !needsRoutingMigration) return state;
+
   return {
     ...state,
-    workers: [{ ...builtinWorker }],
+    workers: needsWorker ? [{ ...builtinWorker }] : state.workers,
     settings: {
       ...state.settings,
-      defaultWorkerId: BUILTIN_WORKER_ID,
-      mediaWorkerId: "",
-      ...(migrateEmpty ? { proxyMode: state.settings.proxyMode === "direct" ? "auto" : state.settings.proxyMode,
-        mediaRouteMode: state.settings.mediaRouteMode === "proxy" ? "auto" : state.settings.mediaRouteMode } : {}),
+      ...(needsWorker ? { defaultWorkerId: BUILTIN_WORKER_ID, mediaWorkerId: "" } : {}),
+      ...(needsRoutingMigration ? {
+        proxyMode: state.settings.proxyMode === "auto" ? "proxy" : state.settings.proxyMode,
+        mediaRouteMode: state.settings.mediaRouteMode === "auto" ? "proxy" : state.settings.mediaRouteMode,
+        routingDefaultsVersion: 1,
+      } : {}),
     },
   };
 }

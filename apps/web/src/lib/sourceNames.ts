@@ -15,11 +15,13 @@ function regionName(code: string, language: string): string {
 }
 const folderNames: Record<string, [string, string]> = {
   "world-iptv": ["تلویزیون جهان", "World IPTV"],
+  "adult-iptv": ["تلویزیون بزرگسالان جهان", "World Adult IPTV"],
   "countries": ["کشورها", "Countries"],
   "regions": ["مناطق", "Regions"],
   "master": ["مجموعه جهانی", "Global collection"],
   "indexes": ["نمایه‌ها", "Indexes"],
   "special": ["بین‌المللی", "Special"],
+  "sources": ["منابع", "Sources"],
 };
 const regionLabels: Record<string, [string, string]> = {
   afr: ["آفریقا", "Africa"], amer: ["قاره آمریکا", "Americas"], apac: ["آسیا و اقیانوسیه", "Asia-Pacific"],

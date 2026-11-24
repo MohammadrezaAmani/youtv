@@ -39,7 +39,7 @@ describe("durable local preferences journal", () => {
     const old = { ...state.settings } as Partial<typeof state.settings>;
     delete old.mediaRouteMode; delete old.mediaWorkerId; delete old.mediaWorkerFallback; delete old.mediaDirectFallback; delete old.cloudflareManagerWorkerId;
     const parsed = stateSchema.parse({ ...state, settings: old });
-    expect(parsed.settings.mediaRouteMode).toBe("auto");
+    expect(parsed.settings.mediaRouteMode).toBe("proxy");
     expect(parsed.settings.mediaWorkerId).toBe("");
     expect(parsed.settings.mediaWorkerFallback).toBe(true);
     expect(parsed.settings.mediaDirectFallback).toBe(false);
