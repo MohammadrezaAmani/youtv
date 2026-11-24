@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import {
   HlsFragmentPrefetcher,
   hlsPrefetchKey,
+  hlsFragmentCacheKey,
   type HlsPrefetchFragment,
 } from "../features/player/hlsPrefetch";
 
@@ -229,24 +230,37 @@ test("reserves foreground requests and normalizes an empty HLS byte range", () =
   release(); p.dispose();
 });
 
-test("increases concurrency cautiously for latency-dominated downloads", () => {
-  const p = new HlsFragmentPrefetcher((url) => url);
-  expect(p.getStats().concurrency).toBe(1);
-  p.observe(30000, 24000, 5);
-  expect(p.getStats().concurrency).toBe(2);
-  for (let i = 0; i < 20; i++) p.observe(30000, 24000, 5);
-  expect(p.getStats().concurrency).toBeLessThanOrEqual(16);
-  p.updatePlayback(90);
-  p.observe(30000, 24000, 5);
-  expect(p.getStats().concurrency).toBe(1);
-  p.dispose();
-});
-
-test("does not increase a transfer-limited connection to sixteen requests", () => {
-  const p = new HlsFragmentPrefetcher((url) => url);
-  for (let i = 0; i < 100; i++) p.observe(30000, 500, 5);
-  expect(p.getStats().concurrency).toBeLessThanOrEqual(3);
-  p.dispose();
+test("starts with eight permits only after startup and never collapses fast downloads to one", async () => {
+  const calls: string[] = [];
+  const releases = new Map<string, (response: Response) => void>();
+  const p = new HlsFragmentPrefetcher(url => url, { targetAheadSeconds: 300, fetcher: (url, init) => {
+    calls.push(String(url));
+    return new Promise<Response>((resolve, reject) => {
+      releases.set(String(url), resolve);
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    });
+  } });
+  const items = Array.from({ length: 30 }, (_, i) => fragment(i + 1, (i + 1) * 6));
+  try {
+    p.schedule(items, 0);
+    expect(calls.length).toBe(0);
+    p.start(); p.schedule(items, 0);
+    expect(calls.length).toBe(8);
+    expect(p.getStats().active).toBe(8);
+    // A fast completion must open a slot without a playlist refresh or a timer.
+    releases.get(items[3]!.url)!(new Response(new Uint8Array([1])));
+    await tick();
+    expect(calls.length).toBe(9);
+    expect(p.getStats().active).toBe(8);
+    expect(calls[8]).toBe(items[8]!.url);
+    releases.get(items[0]!.url)!(new Response(new Uint8Array([2])));
+    await tick();
+    expect(p.getStats().concurrency).toBe(9);
+    expect(p.getStats().active).toBe(9);
+    for (let i = 0; i < 40; i++) p.observe(400, 100, 6);
+    expect(p.getStats().concurrency).toBe(16);
+    expect(p.getStats().active).toBe(16);
+  } finally { p.dispose(); }
 });
 
 test("aborts stalled speculative downloads at the configured overall deadline", async () => {
@@ -312,4 +326,89 @@ test("rejects incorrect byte-range responses without caching them", async () => 
       p.dispose();
     }
   }
+});
+
+
+test("a sliding live manifest preserves unfinished and completed work until playback consumes it", async () => {
+  const calls: string[] = [];
+  const releases = new Map<string, (response: Response) => void>();
+  const signals = new Map<string, AbortSignal>();
+  const p = new HlsFragmentPrefetcher(url => url, { adaptive: false, maxConcurrent: 2, waitForStartup: false,
+    fetcher: (url, init) => {
+      calls.push(String(url));
+      signals.set(String(url), init!.signal!);
+      return new Promise<Response>((resolve, reject) => {
+        releases.set(String(url), resolve);
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+    },
+  });
+  const items = [fragment(1, 6), fragment(2, 12), fragment(3, 18), fragment(4, 24)];
+  try {
+    p.schedule(items.slice(0, 3), 0, "main", "main:0", true);
+    p.schedule(items.slice(1), 0, "main", "main:0", true);
+    expect(signals.get(items[0]!.url)?.aborted).toBe(false);
+    releases.get(items[1]!.url)!(new Response(new Uint8Array([2])));
+    await tick();
+    expect(calls).toEqual(items.slice(0, 3).map(x => x.url));
+    p.schedule(items.slice(2), 0, "main", "main:0", true);
+    expect(await p.claim(items[1]!.url)).not.toBeNull();
+    releases.get(items[0]!.url)!(new Response(new Uint8Array([1])));
+    await tick();
+    expect(calls).toEqual(items.map(x => x.url));
+    expect(p.getStats().active).toBe(2);
+    p.schedule([fragment(5, 30)], 0, "main", "main:1", true);
+    expect(signals.get(items[2]!.url)?.aborted).toBe(true);
+    expect(signals.get(items[3]!.url)?.aborted).toBe(true);
+  } finally { p.dispose(); }
+});
+
+test("deduplicates an HLS token refresh without modifying the requested signed URL", async () => {
+  const base = { ...fragment(3419, 6, "https://bozztv.com/stream/media-u961tqi43_3419.ts"), type: "main", level: 0, cc: 1 };
+  const signed = { ...base, url: `${base.url}?token=onetv202` };
+  const route = (url: string) => `https://worker.example/proxy?url=${encodeURIComponent(url)}`;
+  const calls: string[] = [];
+  let release!: (response: Response) => void;
+  const p = new HlsFragmentPrefetcher(route, { waitForStartup: false, fetcher: url => {
+    calls.push(String(url)); return new Promise(resolve => { release = resolve; });
+  } });
+  try {
+    p.schedule([base], 0, "main", "main:0", true);
+    p.schedule([signed], 0, "main", "main:0", true);
+    const finish = p.reserveForeground(route(signed.url), undefined, undefined, signed);
+    const payload = p.claim(route(signed.url), undefined, undefined, () => true, signed);
+    expect(payload).not.toBeNull();
+    release(new Response(new Uint8Array([7, 8, 9])));
+    expect([...new Uint8Array(await (await payload)!.blob.arrayBuffer())]).toEqual([7, 8, 9]);
+    finish();
+    // A new playlist between loader completion and FRAG_BUFFERED must not refetch.
+    p.schedule([signed], 0, "main", "main:0", true);
+    expect(await p.claim(route(base.url), undefined, undefined, () => true, base)).not.toBeNull();
+    p.markBuffered(signed);
+    p.schedule([base], 0, "main", "main:0", true);
+    expect(calls).toEqual([route(base.url)]);
+    expect(p.getStats().cached).toBe(0);
+  } finally { p.dispose(); }
+  const key = hlsFragmentCacheKey(route(base.url), undefined, undefined, base);
+  expect(key).not.toBe(hlsFragmentCacheKey(route(signed.url), undefined, undefined, { ...signed, cc: 2 }));
+  expect(key).not.toBe(hlsFragmentCacheKey(route(`${base.url}?quality=other`), undefined, undefined, base));
+  expect(key).not.toBe(hlsFragmentCacheKey(route(base.url), 10, 20, base));
+  expect(key).not.toBe(hlsFragmentCacheKey(route(base.url), undefined, undefined, { ...base, level: 1 }));
+});
+
+test("a retry backoff releases the permit to the next segment immediately", async () => {
+  const calls: string[] = [];
+  const p = new HlsFragmentPrefetcher(url => url, { maxConcurrent: 1, adaptive: false, waitForStartup: false, retryDelayMs: 1000,
+    fetcher: async url => {
+      calls.push(String(url));
+      return String(url).endsWith("/1.ts") ? new Response("retry", { status: 502 }) : new Response(new Uint8Array([2]));
+    },
+  });
+  try {
+    p.schedule([fragment(1, 6), fragment(2, 12)], 0);
+    for (let i = 0; i < 20 && p.getStats().cached === 0; i++) await tick();
+    expect(calls).toEqual(["https://origin.example/1.ts", "https://origin.example/2.ts"]);
+    expect(p.getStats().cached).toBe(1);
+    expect(p.getStats().active).toBe(0);
+  } finally { p.dispose(); }
 });

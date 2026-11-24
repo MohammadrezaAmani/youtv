@@ -724,6 +724,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     let dashEngine: { reset: () => void } | undefined;
     let sessionHls: Hls | null = null;
     let sessionPrefetcher: HlsFragmentPrefetcher | null = null;
+    let stopPrefetchUpdates: (() => void) | undefined;
     lastProgressAtRef.current = Date.now();
     healthySinceRef.current = Date.now();
     setStatus("loading");
@@ -785,14 +786,30 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       let mainFragments: readonly HlsPrefetchFragment[] = [];
       let audioFragments: readonly HlsPrefetchFragment[] = [];
       let startupAnchor: number | null = null;
-      let mainPrefetchScope = "main";
-      let audioPrefetchScope = "audio";
-      const schedulePrefetch = (fragments: readonly HlsPrefetchFragment[], scope: string) => {
+      let mainPrefetchRendition = "main";
+      let audioPrefetchRendition = "audio";
+      let mainLive = false;
+      let audioLive = false;
+      const schedulePrefetch = (fragments: readonly HlsPrefetchFragment[], scope: string, rendition: string, live: boolean) => {
         if (!sessionPrefetcher || startupAnchor === null) return;
         const position = video.currentTime === 0 ? Math.max(0, startupAnchor) : video.currentTime;
         sessionPrefetcher.updatePlayback(secondsBufferedAhead(position, video.buffered));
-        sessionPrefetcher.schedule(fragments, position, scope);
+        sessionPrefetcher.schedule(fragments, position, scope, rendition, live);
       };
+      // Keep the horizon moving even when hls.js temporarily stops appending
+      // because its own MediaSource buffer is full. Slot refill is still driven
+      // synchronously by completion; this listener only admits newly eligible work.
+      let lastPrefetchPosition = -Infinity;
+      const refreshPrefetch = () => {
+        if (disposed || !sessionPrefetcher || startupAnchor === null) return;
+        const position = video.currentTime;
+        if (Math.abs(position - lastPrefetchPosition) < 1) return;
+        lastPrefetchPosition = position;
+        schedulePrefetch(mainFragments, "main", mainPrefetchRendition, mainLive);
+        schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
+      };
+      video.addEventListener("timeupdate", refreshPrefetch);
+      stopPrefetchUpdates = () => video.removeEventListener("timeupdate", refreshPrefetch);
       const engine = new Hls({
         ...getHlsProfile(settings.hlsLatencyMode),
         ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl, sessionPrefetcher ?? undefined) } : {}),
@@ -896,18 +913,20 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             })),
           );
       });
-      engine.on(Hls.Events.LEVEL_LOADED, (_, data) => {
+      engine.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
         if (disposed) return;
         setIsLive(data.details.live);
         mainFragments = data.details.fragments as readonly HlsPrefetchFragment[];
-        mainPrefetchScope = "main";
-        schedulePrefetch(mainFragments, mainPrefetchScope);
+        mainPrefetchRendition = `main:${data.level}`;
+        mainLive = data.details.live;
+        schedulePrefetch(mainFragments, "main", mainPrefetchRendition, mainLive);
       });
-      engine.on(Hls.Events.AUDIO_TRACK_LOADED, (_, data) => {
+      engine.on(Hls.Events.AUDIO_TRACK_UPDATED, (_, data) => {
         if (disposed) return;
         audioFragments = data.details.fragments as readonly HlsPrefetchFragment[];
-        audioPrefetchScope = "audio";
-        schedulePrefetch(audioFragments, audioPrefetchScope);
+        audioPrefetchRendition = `audio:${data.id}`;
+        audioLive = data.details.live;
+        schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
       });
       const fragmentStarted = new Map<string, number>();
       engine.on(Hls.Events.FRAG_LOADING, (_, data) => {
@@ -939,8 +958,8 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             sessionPrefetcher?.start();
           }
         }
-        schedulePrefetch(mainFragments, mainPrefetchScope);
-        schedulePrefetch(audioFragments, audioPrefetchScope);
+        schedulePrefetch(mainFragments, "main", mainPrefetchRendition, mainLive);
+        schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
       });
       engine.on(Hls.Events.ERROR, (_, data) => {
         if (!data.fatal || disposed) return;
@@ -984,6 +1003,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     }
     return () => {
       disposed = true;
+      stopPrefetchUpdates?.();
       sessionPrefetcher?.dispose();
       clearRetry();
       inFlightFragmentsRef.current.clear();

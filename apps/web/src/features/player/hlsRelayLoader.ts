@@ -1,7 +1,7 @@
 import Hls from "hls.js";
 import type { WorkerProfile } from "@youtv/shared";
 import { hlsRequestRoute, hlsResponseBase, normalizeRelayPlaylist } from "./hlsRelayRoutes";
-import type { HlsFragmentPrefetcher, PrefetchPayload } from "./hlsPrefetch";
+import type { HlsFragmentPrefetcher, HlsPrefetchFragment, PrefetchPayload } from "./hlsPrefetch";
 
 /** Preserve hls.js retries, aborts, Range and buffering while routing requests
  * through the selected Worker. Completed speculative fragments are served
@@ -56,12 +56,12 @@ export function hlsRelayLoader(
       const generation = ++this.generation;
       // Only media fragments use the speculative cache; never keys, manifests,
       // subtitles or initialization segments.
-      const frag = (context as typeof context & { frag?: { sn?: number | string; duration?: number; type?: string } }).frag;
+      const frag = (context as typeof context & { frag?: HlsPrefetchFragment }).frag;
       const fragmentContext = context as typeof context & { part?: unknown; resetIV?: boolean };
       const media = !playlist && !fragmentContext.part && !fragmentContext.resetIV && typeof frag?.sn === "number" && (frag.type === "main" || frag.type === "audio");
       this.finishForeground();
-      if (media && prefetcher) this.releaseForeground = prefetcher.reserveForeground(url, context.rangeStart, context.rangeEnd);
-      const claimed = media ? prefetcher?.claim(url, context.rangeStart, context.rangeEnd, () => this.generation === generation) : null;
+      if (media && prefetcher) this.releaseForeground = prefetcher.reserveForeground(url, context.rangeStart, context.rangeEnd, frag);
+      const claimed = media ? prefetcher?.claim(url, context.rangeStart, context.rangeEnd, () => this.generation === generation, frag) : null;
 
       const callbacksWithRouting = {
         ...callbacks,
