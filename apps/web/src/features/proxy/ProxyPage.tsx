@@ -11,6 +11,8 @@ import {
   Pencil,
   X,
   Check,
+  Settings2,
+  BookOpen,
 } from "lucide-react";
 import { workerSchema } from "@youtv/shared";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,14 @@ export default function ProxyPage() {
     remove = useYoutv((s) => s.removeWorker),
     update = useYoutv((s) => s.updateSettings),
     bulkUpdate = useYoutv((s) => s.bulkUpdate);
+  const fa = settings.language === "fa";
+  const [section, setSection] = useState<"workers" | "routing" | "advanced">("workers");
+  const sections = [
+    { id: "workers", label: fa ? "Workerها" : "Workers", icon: Cloud },
+    { id: "routing", label: fa ? "مسیریابی و fallback" : "Routing & fallback", icon: Settings2 },
+    { id: "advanced", label: fa ? "استقرار و مدیریت Cloudflare" : "Deployment & Cloudflare", icon: BookOpen },
+  ] as const;
+  const [busyWorkers, setBusyWorkers] = useState<string[]>([]);
   const [name, setName] = useState(""),
     [url, setUrl] = useState(""),
     [token, setToken] = useState(""),
@@ -78,7 +88,7 @@ export default function ProxyPage() {
         enabled: true,
       });
       save(value);
-      if (!settings.defaultWorkerId) update({ defaultWorkerId: value.id });
+
       setName("");
       setUrl("");
       setToken("");
@@ -207,7 +217,8 @@ export default function ProxyPage() {
     }
   };
   const health = async (id: string, base: string) => {
-    setResults((s) => ({ ...s, [id]: "Checking…" }));
+    setBusyWorkers(current => [...current, id]);
+    setResults((s) => ({ ...s, [id]: fa ? "در حال بررسی نسخه و قابلیت‌ها…" : "Checking version & capabilities…" }));
     try {
       const worker = workers.find((item) => item.id === id);
       if (!worker) throw new Error("Worker not found");
@@ -233,13 +244,22 @@ export default function ProxyPage() {
         body.ok !== true
       )
         throw new Error("Health response invalid");
-      setResults((s) => ({ ...s, [id]: t("testOk") }));
+      const version = "version" in body && typeof body.version === "string" ? body.version : "?";
+      const capabilityResponse = await fetch(workerEndpoint({ ...worker, token: "" }, "capabilities"), {
+        signal: AbortSignal.timeout(7000), credentials: "omit", cache: "no-store",
+      });
+      if (!capabilityResponse.ok) throw new Error(`v${version} · /capabilities HTTP ${capabilityResponse.status}`);
+      const caps = await capabilityResponse.json() as Record<string, unknown>;
+      if (!caps || typeof caps !== "object" || Array.isArray(caps)) throw new Error(`v${version} · Invalid capabilities response`);
+      const supported = ["youtubeRelay", "instagramPublicRelay", "attachmentDownload", "dash"].filter(key => caps[key] === true);
+      const missing = supported.length !== 4;
+      setResults((s) => ({ ...s, [id]: `v${version} · ${fa ? "سلامت: موفق" : "Health: OK"} · ${supported.length ? supported.join(", ") : (fa ? "فقط قابلیت‌های پایه" : "Basic capabilities only")}${missing ? (fa ? " · نیازمند به‌روزرسانی برای مرکز رسانه" : " · Update required for Media Center") : ""}${caps.authentication === "query-token" && !worker.token ? (fa ? " · توکن لازم است" : " · Token required") : ""}` }));
     } catch (e) {
       setResults((s) => ({
         ...s,
         [id]: `${t("testFail")} ${normalizeError(e)}`,
       }));
-    }
+    } finally { setBusyWorkers(current => current.filter(value => value !== id)); }
   };
   return (
     <section className="page-content">
@@ -253,8 +273,16 @@ export default function ProxyPage() {
           <p>{t("proxyHelp")}</p>
         </div>
       </div>
-      <CloudflareGuide />
-      <div className="settings-grid">
+      <nav className="preferences-nav" aria-label={t("proxy")}>
+        {sections.map(({ id, label, icon: Icon }) => <Button key={id} variant={section === id ? "default" : "outline"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
+      </nav>
+      <div className="proxy-section" hidden={section !== "workers"}>
+      <div className="panel-card worker-summary">
+        <div><b>{workers.length}</b><span>{fa ? "Worker ثبت‌شده" : "Registered Workers"}</span></div>
+        <div><b>{workers.filter(w => w.enabled).length}</b><span>{fa ? "فعال" : "Enabled"}</span></div>
+        <div><b>{workers.find(w => w.id === settings.defaultWorkerId && w.enabled)?.name || "—"}</b><span>{fa ? "پیش‌فرض" : "Default"}</span></div>
+        <Button variant="outline" disabled={!workers.some(w => w.enabled) || busyWorkers.length > 0} onClick={async () => { for (const worker of workers.filter(w => w.enabled)) await health(worker.id, worker.baseUrl); }}><Activity size={16} />{fa ? "بررسی Workerهای فعال" : "Check enabled Workers"}</Button>
+      </div>
         <div className="panel-card">
           <h3>
             <Plus size={20} />
@@ -318,89 +346,6 @@ export default function ProxyPage() {
             </Button>
           </form>
         </div>
-        <div className="panel-card">
-          <h3>
-            <ShieldCheck size={20} />
-            {t("security")}
-          </h3>
-          <p className="muted">
-            {settings.language === "fa"
-              ? "این پروکسی فقط برای منابع مجاز استفاده شود. دامنه‌های عمومی با ALLOWED_HOSTS=* پذیرفته می‌شوند؛ توکن مدیریتی Cloudflare را هرگز در URL عمومی قرار نده."
-              : "Use the Worker only for authorized sources. ALLOWED_HOSTS=* permits public domains; never place Cloudflare management credentials in public URLs."}
-          </p>
-          <div className="info-box">
-            {settings.language === "fa"
-              ? "ALLOWED_HOSTS پیش‌فرض * است. Origin اصلی https://mohammadrezaamani.github.io و localhost بدون نیاز به تنظیم ALLOWED_ORIGINS مجاز هستند. افزودن Worker بدون توکن، حالت پیش‌فرض است؛ فقط اگر PROXY_TOKEN را در Cloudflare ست کرده‌ای، گزینه توکن را روشن کن."
-              : "ALLOWED_HOSTS defaults to *. https://mohammadrezaamani.github.io and localhost are allowed without configuring ALLOWED_ORIGINS. New Workers are token-free by default; enable the token option only if PROXY_TOKEN is set in Cloudflare."}
-          </div>
-        </div>
-      </div>
-      <div className="panel-card">
-        <h3>{t("defaultWorker")}</h3>
-        <div className="settings-row">
-          <label>
-            {t("proxyMode")}
-            <Select
-              value={settings.proxyMode}
-              className="ui-input"
-              onChange={(e) =>
-                update({
-                  proxyMode: e.target.value as "direct" | "proxy" | "auto",
-                })
-              }
-            >
-              <SelectOption value="direct">{t("direct")}</SelectOption>
-              <SelectOption value="proxy">{t("viaProxy")}</SelectOption>
-              <SelectOption value="auto">{t("automatic")}</SelectOption>
-            </Select>
-          </label>
-          <label>
-            {t("defaultWorker")}
-            <Select
-              className="ui-input"
-              value={settings.defaultWorkerId}
-              onChange={(e) => update({ defaultWorkerId: e.target.value })}
-            >
-              <SelectOption value="">—</SelectOption>
-              {workers
-                .filter((w) => w.enabled)
-                .map((w) => (
-                  <SelectOption value={w.id} key={w.id}>
-                    {w.name}
-                  </SelectOption>
-                ))}
-            </Select>
-          </label>
-        </div>
-        <div className="row-wrap">
-          <Button
-            variant="outline"
-            type="button"
-            disabled={!customizedChannelIds.length}
-            onClick={() => {
-              const message =
-                settings.language === "fa"
-                  ? `تنظیم مسیر و Worker اختصاصی ${customizedChannelIds.length} کانال حذف شود تا همگی از تنظیمات پیش‌فرض پیروی کنند؟`
-                  : `Reset route and Worker overrides for ${customizedChannelIds.length} channels so they all inherit the saved defaults?`;
-              if (window.confirm(message))
-                bulkUpdate(customizedChannelIds, {
-                  proxyMode: "inherit",
-                  workerId: "",
-                });
-            }}
-          >
-            {settings.language === "fa"
-              ? "اعمال تنظیمات پیش‌فرض به همه کانال‌ها"
-              : "Use saved defaults for all channels"}
-          </Button>
-          <span className="muted">
-            {settings.language === "fa"
-              ? `${customizedChannelIds.length} کانال دارای مسیر یا Worker اختصاصی`
-              : `${customizedChannelIds.length} channels have custom routing`}
-          </span>
-        </div>
-      </div>
-      <CloudflareManager />
       <div className="panel-card form-stack">
         <h3>
           {settings.language === "fa"
@@ -421,8 +366,8 @@ export default function ProxyPage() {
         </label>
         <p className="muted">
           {settings.language === "fa"
-            ? "تست سلامت فقط /health را بررسی می‌کند و تأییدی بر دسترسی به استریم نیست. برای بررسی واقعی دامنه، توکن و پاسخ سرور اصلی، نشانی بالا را وارد و روی «تست استریم» کنار Worker کلیک کن."
-            : "Health checks only /health; they do not verify the source allowlist, token or upstream. Enter an original stream URL and click Test stream for a Worker."}
+            ? "بررسی سلامت و قابلیت‌ها تأییدی بر دسترسی به استریم نیست. برای بررسی واقعی دامنه، توکن و پاسخ سرور اصلی، نشانی بالا را وارد و روی «تست استریم» کنار Worker کلیک کن."
+            : "Health and capability checks do not verify the source allowlist, token or upstream. Enter an original stream URL and click Test stream for a Worker."}
         </p>
       </div>
       <div className="worker-list">
@@ -449,7 +394,8 @@ export default function ProxyPage() {
                     ? "بدون توکن دسترسی"
                     : "No access token"}
               </small>
-              <small className="muted">{results[w.id] || ""}</small>
+              {w.id === settings.defaultWorkerId && <span className="worker-default-label">{fa ? "پیش‌فرض" : "Default"}</span>}
+              <small className="worker-check-result" role="status">{results[w.id] || ""}</small>
             </div>
             <div className="row-wrap">
               <label className="checkbox-row">
@@ -462,11 +408,13 @@ export default function ProxyPage() {
               <Button
                 variant="outline"
                 size="sm"
+                disabled={busyWorkers.includes(w.id)}
                 onClick={() => void health(w.id, w.baseUrl)}
               >
                 <Activity size={16} />
                 {t("healthCheck")}
               </Button>
+              <Button variant="outline" size="sm" disabled={!w.enabled || w.id === settings.defaultWorkerId} onClick={() => update({ defaultWorkerId: w.id })}>{fa ? "انتخاب پیش‌فرض" : "Set default"}</Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -546,14 +494,14 @@ export default function ProxyPage() {
                 <Input
                   type="password"
                   dir="ltr"
-                  placeholder="Optional token (leave empty to clear)"
+                  placeholder={fa ? "توکن جدید (خالی = حذف توکن)" : "Optional token (leave empty to clear)"}
                   value={replacementToken}
                   onChange={(e) => setReplacementToken(e.target.value)}
                 />
                 <Button
                   size="sm"
                   onClick={() => {
-                    save({ ...w, token: replacementToken });
+                    save({ ...w, token: replacementToken.trim() });
                     setEditingToken("");
                     setReplacementToken("");
                   }}
@@ -564,6 +512,106 @@ export default function ProxyPage() {
             )}
           </div>
         ))}
+      </div>
+      </div>
+      <div className="proxy-section" hidden={section !== "routing"}>
+      <div className="panel-card">
+        <h3>{t("defaultWorker")}</h3>
+        <div className="settings-row">
+          <label>
+            {t("proxyMode")}
+            <Select
+              value={settings.proxyMode}
+              className="ui-input"
+              onChange={(e) =>
+                update({
+                  proxyMode: e.target.value as "direct" | "proxy" | "auto",
+                })
+              }
+            >
+              <SelectOption value="direct">{t("direct")}</SelectOption>
+              <SelectOption value="proxy">{t("viaProxy")}</SelectOption>
+              <SelectOption value="auto">{t("automatic")}</SelectOption>
+            </Select>
+          </label>
+          <label>
+            {t("defaultWorker")}
+            <Select
+              className="ui-input"
+              value={settings.defaultWorkerId}
+              onChange={(e) => update({ defaultWorkerId: e.target.value })}
+            >
+              <SelectOption value="">—</SelectOption>
+              {workers
+                .filter((w) => w.enabled)
+                .map((w) => (
+                  <SelectOption value={w.id} key={w.id}>
+                    {w.name}
+                  </SelectOption>
+                ))}
+            </Select>
+          </label>
+        </div>
+        <div className="row-wrap">
+          <Button
+            variant="outline"
+            type="button"
+            disabled={!customizedChannelIds.length}
+            onClick={() => {
+              const message =
+                settings.language === "fa"
+                  ? `تنظیم مسیر و Worker اختصاصی ${customizedChannelIds.length} کانال حذف شود تا همگی از تنظیمات پیش‌فرض پیروی کنند؟`
+                  : `Reset route and Worker overrides for ${customizedChannelIds.length} channels so they all inherit the saved defaults?`;
+              if (window.confirm(message))
+                bulkUpdate(customizedChannelIds, {
+                  proxyMode: "inherit",
+                  workerId: "",
+                });
+            }}
+          >
+            {settings.language === "fa"
+              ? "اعمال تنظیمات پیش‌فرض به همه کانال‌ها"
+              : "Use saved defaults for all channels"}
+          </Button>
+          <span className="muted">
+            {settings.language === "fa"
+              ? `${customizedChannelIds.length} کانال دارای مسیر یا Worker اختصاصی`
+              : `${customizedChannelIds.length} channels have custom routing`}
+          </span>
+        </div>
+      </div>
+        <div className="panel-card form-stack">
+          <h3>{fa ? "مسیر پیش‌فرض مرکز رسانه" : "Media Center default route"}</h3>
+          <label>{fa ? "Worker مرکز رسانه" : "Media Worker"}
+            <Select value={workers.some(w => w.enabled && w.id === settings.mediaWorkerId) ? settings.mediaWorkerId : ""} onChange={e => update({ mediaWorkerId: e.target.value })}>
+              <SelectOption value="">{fa ? "پیروی از Worker پیش‌فرض" : "Follow default Worker"}</SelectOption>
+              {workers.filter(w => w.enabled).map(w => <SelectOption key={w.id} value={w.id}>{w.name}</SelectOption>)}
+            </Select>
+          </label>
+          <label className="checkbox-row"><Checkbox checked={settings.mediaWorkerFallback} onChange={e => update({ mediaWorkerFallback: e.target.checked })} />{fa ? "جابه‌جایی خودکار بین Workerها" : "Automatic Worker fallback"}</label>
+          <label className="checkbox-row"><Checkbox checked={settings.mediaDirectFallback} onChange={e => update({ mediaDirectFallback: e.target.checked })} />{fa ? "اجازه اتصال مستقیم در صورت شکست پروکسی" : "Allow direct fallback"}</label>
+          <p className="muted">{fa ? "این تنظیمات با مرکز رسانه مشترک هستند و پس از Reload باقی می‌مانند." : "Shared with Media Center and retained after reload."}</p>
+        </div>
+      </div>
+      <div className="proxy-section" hidden={section !== "advanced"}>
+        <CloudflareGuide />
+        <CloudflareManager />
+        <div className="panel-card">
+          <h3>
+            <ShieldCheck size={20} />
+            {t("security")}
+          </h3>
+          <p className="muted">
+            {settings.language === "fa"
+              ? "این پروکسی فقط برای منابع مجاز استفاده شود. دامنه‌های عمومی با ALLOWED_HOSTS=* پذیرفته می‌شوند؛ توکن مدیریتی Cloudflare را هرگز در URL عمومی قرار نده."
+              : "Use the Worker only for authorized sources. ALLOWED_HOSTS=* permits public domains; never place Cloudflare management credentials in public URLs."}
+          </p>
+          <div className="info-box">
+            {settings.language === "fa"
+              ? "ALLOWED_HOSTS پیش‌فرض * است. Origin اصلی https://mohammadrezaamani.github.io و localhost بدون نیاز به تنظیم ALLOWED_ORIGINS مجاز هستند. افزودن Worker بدون توکن، حالت پیش‌فرض است؛ فقط اگر PROXY_TOKEN را در Cloudflare ست کرده‌ای، گزینه توکن را روشن کن."
+              : "ALLOWED_HOSTS defaults to *. https://mohammadrezaamani.github.io and localhost are allowed without configuring ALLOWED_ORIGINS. New Workers are token-free by default; enable the token option only if PROXY_TOKEN is set in Cloudflare."}
+          </div>
+        </div>
       </div>
     </section>
   );

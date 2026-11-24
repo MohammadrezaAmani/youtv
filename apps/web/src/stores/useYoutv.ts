@@ -1,10 +1,15 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { createIndexedDbStorage } from "@/lib/indexedDbStorage";
+import { createIndexedDbStorage, reportRecoveryIssue } from "@/lib/indexedDbStorage";
 import { parseExtinf, parseM3u, displayNameFromUrl } from "@/lib/playlist";
 import {
   defaultState,
   stateSchema,
+  settingsSchema,
+  workerSchema,
+  channelSchema,
+  playlistSchema,
+  healthResultSchema,
   createChannel,
   type Channel,
   type Playlist,
@@ -85,6 +90,28 @@ export function repairLegacyMetadata(channel: Channel): Channel {
     logo: channel.logo || attrs["tvg-logo"] || "",
     tvgId: channel.tvgId || attrs["tvg-id"] || "",
   };
+}
+
+/** One malformed record must not erase unrelated preferences or library rows. */
+export function recoverStoredState(value: unknown): AppState {
+  reportRecoveryIssue();
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const rawSettings = raw.settings && typeof raw.settings === "object" ? raw.settings as Record<string, unknown> : {};
+  const settings = { ...defaultState.settings };
+  for (const key of Object.keys(settingsSchema.shape) as (keyof Settings)[]) {
+    const result = settingsSchema.shape[key].safeParse(rawSettings[key]);
+    if (result.success) Object.assign(settings, { [key]: result.data });
+  }
+  const validRows = <T,>(rows: unknown, schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }): T[] =>
+    Array.isArray(rows) ? rows.flatMap(row => { const parsed = schema.safeParse(row); return parsed.success ? [parsed.data] : []; }) : [];
+  const resume = raw.resume && typeof raw.resume === "object" ? Object.fromEntries(Object.entries(raw.resume).filter(([, v]) => typeof v === "number" && Number.isFinite(v) && v >= 0)) : {};
+  const health = raw.health && typeof raw.health === "object" ? Object.fromEntries(Object.entries(raw.health).flatMap(([key, value]) => { const result = healthResultSchema.safeParse(value); return result.success ? [[key, result.data]] : []; })) : {};
+  return stateSchema.parse({ ...defaultState, settings,
+    workers: validRows(raw.workers, workerSchema),
+    channels: validRows(raw.channels, channelSchema).map(repairLegacyMetadata),
+    playlists: validRows(raw.playlists, playlistSchema),
+    recent: Array.isArray(raw.recent) ? raw.recent.filter((v): v is string => typeof v === "string") : [],
+    resume, health });
 }
 
 export const useYoutv = create<Store>()(
@@ -268,16 +295,23 @@ export const useYoutv = create<Store>()(
         })),
       saveWorker: (w) =>
         set((s) => ({
-          workers: [w, ...s.workers.filter((x) => x.id !== w.id)],
+          workers: s.workers.some((item) => item.id === w.id)
+            ? s.workers.map((item) => item.id === w.id ? w : item)
+            : [...s.workers, w],
+          settings: { ...s.settings, defaultWorkerId: s.settings.defaultWorkerId === w.id && !w.enabled
+            ? s.workers.find(item => item.id !== w.id && item.enabled)?.id ?? ""
+            : (!s.settings.defaultWorkerId && w.enabled ? w.id : s.settings.defaultWorkerId) },
         })),
       removeWorker: (id) =>
         set((s) => ({
           workers: s.workers.filter((w) => w.id !== id),
           settings: {
             ...s.settings,
+            mediaWorkerId: s.settings.mediaWorkerId === id ? "" : s.settings.mediaWorkerId,
+            cloudflareManagerWorkerId: s.settings.cloudflareManagerWorkerId === id ? "" : s.settings.cloudflareManagerWorkerId,
             defaultWorkerId:
               s.settings.defaultWorkerId === id
-                ? ""
+                ? s.workers.find((w) => w.id !== id && w.enabled)?.id ?? ""
                 : s.settings.defaultWorkerId,
           },
         })),
@@ -289,7 +323,7 @@ export const useYoutv = create<Store>()(
     {
       name: "youtv:v1",
       version: 1,
-      storage: createIndexedDbStorage<AppState>(),
+      storage: createIndexedDbStorage(),
       partialize: (s) => ({
         version: s.version,
         channels: s.channels,
@@ -301,6 +335,7 @@ export const useYoutv = create<Store>()(
         settings: s.settings,
       }),
       merge: (persisted, current) => {
+        if (persisted == null) return current;
         const parsed = stateSchema.safeParse(persisted);
         return parsed.success
           ? {
@@ -308,7 +343,7 @@ export const useYoutv = create<Store>()(
               ...parsed.data,
               channels: parsed.data.channels.map(repairLegacyMetadata),
             }
-          : current;
+          : { ...current, ...recoverStoredState(persisted) };
       },
     },
   ),

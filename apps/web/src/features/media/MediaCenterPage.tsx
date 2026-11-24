@@ -224,9 +224,13 @@ export default function MediaCenterPage() {
   const settings = useYoutv((state) => state.settings),
     workers = useYoutv((state) => state.workers);
   const fa = settings.language === "fa";
-  const [preferredWorkerId, setPreferredWorkerId] = useState("");
-  const [automaticFallback, setAutomaticFallback] = useState(true);
-  const [allowDirect, setAllowDirect] = useState(false);
+  const updateSettings = useYoutv((state) => state.updateSettings);
+  const preferredWorkerId = workers.some(w => w.id === settings.mediaWorkerId && w.enabled) ? settings.mediaWorkerId : "";
+  const automaticFallback = settings.mediaWorkerFallback;
+  const allowDirect = settings.mediaDirectFallback;
+  const setPreferredWorkerId = (mediaWorkerId: string) => updateSettings({ mediaWorkerId });
+  const setAutomaticFallback = (mediaWorkerFallback: boolean) => updateSettings({ mediaWorkerFallback });
+  const setAllowDirect = (mediaDirectFallback: boolean) => updateSettings({ mediaDirectFallback });
   const [resolvedWorkerId, setResolvedWorkerId] = useState<string | null>(null);
   const previewTried = useRef(new Set<string>());
   const previewRetrying = useRef(false);

@@ -16,16 +16,14 @@ export default function CloudflareManager() {
     saveSettings = useYoutv((s) => s.updateSettings);
   const lang = settings.language,
     workers = useYoutv((s) => s.workers);
-  const [workerId, setWorkerId] = useState(""),
-    [accountId, setAccountId] = useState(settings.cloudflareAccountId),
-    [apiToken, setApiToken] = useState(""),
+  const workerId = workers.some(w => w.id === settings.cloudflareManagerWorkerId && w.enabled) ? settings.cloudflareManagerWorkerId : "";
+  const accountId = settings.cloudflareAccountId;
+  const [apiToken, setApiToken] = useState(""),
     [adminToken, setAdminToken] = useState("");
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
-    [scripts, setScripts] = useState<CfScript[]>([]),
-    [selectedScript, setSelectedScript] = useState(
-      settings.cloudflareScriptName,
-    );
+    [scripts, setScripts] = useState<CfScript[]>([]);
+  const selectedScript = settings.cloudflareScriptName;
   const [subdomain, setSubdomain] = useState<boolean | null>(null),
     [settingsText, setSettingsText] = useState("");
   const [show, setShow] = useState(false);
@@ -113,7 +111,7 @@ export default function CloudflareManager() {
           <Select
             className="ui-input"
             value={workerId}
-            onChange={(e) => setWorkerId(e.target.value)}
+            onChange={(e) => saveSettings({ cloudflareManagerWorkerId: e.target.value })}
           >
             <SelectOption value="">
               {lang === "fa" ? "انتخاب Worker…" : "Select Worker…"}
@@ -132,9 +130,9 @@ export default function CloudflareManager() {
           <Input
             dir="ltr"
             autoComplete="off"
+            maxLength={32}
             value={accountId}
             onChange={(e) => {
-              setAccountId(e.target.value);
               saveSettings({ cloudflareAccountId: e.target.value });
             }}
             placeholder="32-character Account ID"
@@ -186,7 +184,6 @@ export default function CloudflareManager() {
               className="ui-input"
               value={selectedScript}
               onChange={(e) => {
-                setSelectedScript(e.target.value);
                 saveSettings({ cloudflareScriptName: e.target.value });
                 setSubdomain(null);
                 setSettingsText("");

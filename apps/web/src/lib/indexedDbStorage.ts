@@ -1,4 +1,8 @@
 import type { PersistStorage, StorageValue } from "zustand/middleware";
+import { defaultState, type AppState } from "@youtv/shared";
+import { newestPreferences, nextPreferences, preferencesKey, readPreferences, writePreferences, type PreferencesRecord } from "./preferencesJournal";
+
+type Snapshot = StorageValue<AppState> & { preferencesRevision?: number };
 
 /**
  * IndexedDB persistence for arbitrarily large channel catalogs.
@@ -16,9 +20,11 @@ const WRITE_DELAY_MS = 550;
 type ErrorListener = () => void;
 const listeners = new Set<ErrorListener>();
 let lastError = "";
+let preferencesError = "";
+let recoveryError = "";
 
 export function getPersistenceError(): string {
-  return lastError;
+  return [lastError, preferencesError, recoveryError].filter(Boolean).join(" ");
 }
 export function subscribePersistenceError(listener: ErrorListener): () => void {
   listeners.add(listener);
@@ -36,6 +42,15 @@ function setError(error: unknown): void {
     for (const listener of listeners) listener();
   }
   console.error("[YouTV persistence]", error);
+}
+function setPreferencesError(error: unknown): void {
+  preferencesError = error ? "ذخیره فوری تنظیمات مرورگر ناموفق بود؛ از تنظیمات پشتیبان بگیر. / Immediate settings storage failed; export a backup." : "";
+  for (const listener of listeners) listener();
+  if (error) console.error("[YouTV preferences]", error);
+}
+export function reportRecoveryIssue(): void {
+  recoveryError = "بخشی از داده ذخیره‌شده معتبر نبود؛ داده‌های معتبر بازیابی شدند. / Some stored data was invalid; valid data was recovered.";
+  for (const listener of listeners) listener();
 }
 function clearError(): void {
   if (lastError) {
@@ -59,13 +74,16 @@ function openDatabase(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => {
       const db = request.result;
-      db.onversionchange = () => db.close();
+      db.onversionchange = () => { db.close(); databasePromise = null; };
       resolve(db);
     };
     request.onerror = () =>
       reject(request.error || new Error("Cannot open IndexedDB"));
-    request.onblocked = () =>
-      setError(new Error("IndexedDB upgrade is blocked by another tab"));
+    request.onblocked = () => {
+      const error = new Error("IndexedDB upgrade is blocked by another tab");
+      setError(error);
+      reject(error);
+    };
   });
   // Retry after a transient failure instead of locking the app into a failed promise.
   databasePromise.catch(() => {
@@ -158,6 +176,7 @@ export function writeStaticCacheRecord(
 
 /** A single last-write-wins snapshot per key, not a queue of giant copies. */
 const pending = new Map<string, unknown>();
+const latest = new Map<string, unknown>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let chain: Promise<void> = Promise.resolve();
 
@@ -180,17 +199,19 @@ export function flushPendingPersistence(): Promise<void> {
             /* Data is already durable in IndexedDB. */
           }
         }
+      for (const [key, value] of values) if (latest.get(key) === value) latest.delete(key);
       clearError();
     })
     .catch((error) => {
       setError(error);
       // Keep the latest unsaved state available for another attempt.
       for (const [key, value] of values)
-        if (!pending.has(key)) pending.set(key, value);
+        if (latest.get(key) === value && !pending.has(key)) pending.set(key, value);
     });
   return chain;
 }
 function queueSnapshot(key: string, value: unknown): void {
+  latest.set(key, value);
   pending.set(key, value);
   if (timer === null)
     timer = setTimeout(() => {
@@ -211,58 +232,96 @@ if (typeof document !== "undefined") {
  * Zustand PersistStorage stores structured-cloneable objects directly. This
  * avoids JSON.stringify of the entire channel library on every state update.
  */
-export function createIndexedDbStorage<S>(): PersistStorage<S> {
+export function createIndexedDbStorage(): PersistStorage<AppState> {
+  let preferences: PreferencesRecord | null = null;
+  let lastSettings: AppState["settings"] | undefined;
+  let lastWorkers: AppState["workers"] | undefined;
+  let readFailed = false;
   return {
     getItem: async (key) => {
+      let snapshot: Snapshot | null = null;
+      let migratedLegacy = false;
+      let local: PreferencesRecord | null = null;
+      readFailed = false;
       try {
-        const inDatabase = await readSnapshot<S>(key);
-        if (inDatabase !== null) return inDatabase;
+        snapshot = await readSnapshot<AppState>(key) as Snapshot | null;
       } catch (error) {
+        readFailed = true;
         setError(error);
+        recoveryError = "کتابخانه اصلی بارگذاری نشد؛ برای جلوگیری از بازنویسی داده‌های قبلی، ذخیره کاتالوگ تا بارگذاری مجدد متوقف است. / Library read failed; catalog writes are paused until reload.";
+        for (const listener of listeners) listener();
       }
-      // One-time automatic migration from the v0.16 localStorage JSON snapshot.
-      let raw: string | null = null;
       try {
-        raw = localStorage.getItem(key);
+        local = readPreferences(localStorage, key);
       } catch (error) {
-        setError(error);
+        setPreferencesError(error);
       }
-      if (raw === null) return null;
       try {
-        const oldValue = JSON.parse(raw) as StorageValue<S>;
-        try {
-          await writeSnapshots(new Map([[key, oldValue]]));
-          // Never delete the old snapshot until the new transaction commits.
-          try {
-            localStorage.removeItem(key);
-          } catch {
-            /* Migration is already durable. */
+        if (!snapshot) {
+          const raw = localStorage.getItem(key);
+          if (raw !== null) {
+            snapshot = JSON.parse(raw) as Snapshot;
+            migratedLegacy = true;
           }
-          clearError();
-        } catch (error) {
-          setError(error);
         }
-        return oldValue;
       } catch (error) {
-        setError(error);
-        return null;
+        setPreferencesError(error);
       }
+      const state = snapshot?.state;
+      const databasePreferences = state && state.settings && Array.isArray(state.workers)
+        ? { settings: state.settings, workers: state.workers, revision: snapshot?.preferencesRevision ?? 0 }
+        : null;
+      preferences = newestPreferences(databasePreferences, local);
+      if (preferences) {
+        // Migrate old snapshots and repair a stale local copy after a successful DB read.
+        if (!preferences.revision) preferences = { ...preferences, revision: Date.now() };
+        try {
+          if (preferences !== local) writePreferences(localStorage, key, preferences);
+          setPreferencesError(null);
+        } catch (error) { setPreferencesError(error); }
+      }
+      if (!snapshot && !preferences) return null;
+      const restored = { ...structuredClone(defaultState), ...state,
+        ...(preferences ? { settings: preferences.settings, workers: preferences.workers } : {}) } as AppState;
+      const result = { state: restored, version: snapshot?.version ?? 1 };
+      if (migratedLegacy && !readFailed) {
+        try {
+          await writeSnapshots(new Map([[key, { ...result, preferencesRevision: preferences?.revision ?? 0 }]]));
+          localStorage.removeItem(key);
+        } catch (error) { setError(error); }
+      }
+      return result;
     },
-    setItem: (key, value) => queueSnapshot(key, value),
+    setItem: (key, value) => {
+      const { settings, workers } = value.state;
+      if (settings !== lastSettings || workers !== lastWorkers || preferencesError) {
+        const next = nextPreferences(preferences, { settings, workers });
+        if (next !== preferences || preferencesError) {
+          try {
+            writePreferences(localStorage, key, next);
+            setPreferencesError(null);
+          } catch (error) { setPreferencesError(error); }
+        }
+        preferences = next;
+        lastSettings = settings;
+        lastWorkers = workers;
+      }
+      // A transient read failure must not overwrite an unseen catalog with defaults.
+      // Preferences remain writable; reload after IndexedDB becomes available.
+      if (!readFailed) queueSnapshot(key, { ...value, preferencesRevision: preferences?.revision ?? 0 });
+    },
     removeItem: (key) => {
       pending.delete(key);
-      chain = chain
-        .then(() => deleteSnapshot(key))
-        .then(() => {
-          if (key === OLD_KEY) {
-            try {
-              localStorage.removeItem(key);
-            } catch {
-              /* Browser storage may be unavailable. */
-            }
-          }
-        })
-        .catch(setError);
+      latest.delete(key);
+      preferences = null;
+      lastSettings = undefined;
+      lastWorkers = undefined;
+      try {
+        localStorage.removeItem(preferencesKey(key));
+        localStorage.removeItem(key);
+        setPreferencesError(null);
+      } catch (error) { setPreferencesError(error); }
+      chain = chain.then(() => deleteSnapshot(key)).catch(setError);
       return chain;
     },
   };

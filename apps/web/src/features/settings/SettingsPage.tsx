@@ -4,6 +4,7 @@ import { Slider } from "@/components/ui/slider";
 import { FileInput } from "@/components/ui/file-input";
 import { ActionButton } from "@/components/ui/action-button";
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Download,
@@ -17,6 +18,7 @@ import {
   Subtitles,
   Volume2,
   MonitorPlay,
+  Cloud,
 } from "lucide-react";
 import i18n from "@/locales";
 import { Button } from "@/components/ui/button";
@@ -66,6 +68,13 @@ export default function SettingsPage() {
     update = useYoutv((s) => s.updateSettings),
     channels = useYoutv((s) => s.channels),
     reset = useYoutv((s) => s.reset);
+  const fa = settings.language === "fa";
+  const [section, setSection] = useState<"general" | "playback" | "data">("general");
+  const sections = [
+    { id: "general", label: fa ? "ظاهر و برنامه" : "Appearance & app", icon: Palette },
+    { id: "playback", label: fa ? "پخش و زیرنویس" : "Playback & captions", icon: MonitorPlay },
+    { id: "data", label: fa ? "داده‌ها و پشتیبان" : "Data & backup", icon: Database },
+  ] as const;
   const file = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [restoreMode, setRestoreMode] = useState<RestoreMode>("merge");
@@ -85,8 +94,8 @@ export default function SettingsPage() {
       );
       const msg =
         restoreMode === "replace"
-          ? "Replace ALL current YouTV data with this backup?"
-          : "Merge backup data into your current YouTV library?";
+          ? (fa ? "تمام داده‌های فعلی با این پشتیبان جایگزین شوند؟" : "Replace ALL current YouTV data with this backup?")
+          : (fa ? "داده‌های پشتیبان با کتابخانه فعلی ادغام شوند؟" : "Merge backup data into your current YouTV library?");
       if (!confirm(msg)) return;
       const next = importBackupText(content, useYoutv.getState(), restoreMode);
       useYoutv.getState().importState(next);
@@ -105,10 +114,14 @@ export default function SettingsPage() {
             <Palette size={29} />
             {t("settings")}
           </h1>
-          <p>{t("madeFor")}</p>
+          <p>{fa ? "تغییرات تنظیمات به‌صورت خودکار در همین مرورگر ذخیره می‌شوند." : "Preferences are saved automatically in this browser."}</p>
         </div>
       </div>
-      <div className="settings-grid">
+      <nav className="preferences-nav" aria-label={t("settings")}>
+        {sections.map(({ id, label, icon: Icon }) => <Button key={id} variant={section === id ? "default" : "outline"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
+        <Button asChild variant="outline"><Link to="/proxy"><Cloud size={17} />{fa ? "Worker و پروکسی" : "Workers & proxy"}</Link></Button>
+      </nav>
+      <div className="settings-grid preferences-grid" hidden={section !== "general"}>
         <PwaSettings />
         <div className="panel-card">
           <h3>
@@ -186,6 +199,8 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
+      </div>
+      <div className="settings-grid preferences-grid" hidden={section !== "playback"}>
         <div className="panel-card">
           <h3>
             <Subtitles size={20} />
@@ -415,6 +430,8 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+      </div>
+      <div className="settings-grid preferences-grid" hidden={section !== "data"}>
         <div className="panel-card">
           <h3>
             <Database size={20} />
@@ -445,9 +462,9 @@ export default function SettingsPage() {
                 onChange={(e) => setRestoreMode(e.target.value as RestoreMode)}
               >
                 <SelectOption value="merge">
-                  Merge with existing data
+                  {fa ? "ادغام با داده‌های موجود" : "Merge with existing data"}
                 </SelectOption>
-                <SelectOption value="replace">Replace all data</SelectOption>
+                <SelectOption value="replace">{fa ? "جایگزینی همه داده‌ها" : "Replace all data"}</SelectOption>
               </Select>
             </label>
           </div>
@@ -499,9 +516,7 @@ export default function SettingsPage() {
           </h3>
           <p className="muted">{t("security")}</p>
           <div className="info-box">
-            Your Worker token is stored in this browser's IndexedDB. Avoid
-            shared devices and untrusted browser extensions. Tokens are excluded
-            from exported backups.
+            {fa ? "توکن دسترسی پروکسی در ذخیره‌سازی محلی همین مرورگر نگهداری می‌شود؛ رمزنگاری نشده است. توکن‌های مدیریتی Cloudflare ذخیره نمی‌شوند. توکن پروکسی فقط با انتخاب صریح در پشتیبان قرار می‌گیرد." : "Proxy access tokens are stored locally in this browser, not encrypted. Cloudflare management tokens are not persisted. Backups include proxy tokens only when explicitly selected."}
           </div>
           <Button
             variant="destructive"

@@ -1739,3 +1739,23 @@ select:focus-visible {
     font-size: 11px;
   }
 }
+
+/* Settings and proxy management: compact navigation, readable worker cards. */
+.preferences-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.preferences-nav .ui-button { white-space: normal; text-align: start; }
+.preferences-grid[hidden], .proxy-section[hidden] { display: none !important; }
+.proxy-section { display: grid; gap: 16px; min-width: 0; }
+.worker-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: center; gap: 16px; }
+.worker-summary > div { display: grid; gap: 5px; min-width: 0; }
+.worker-summary b { font-size: 20px; overflow-wrap: anywhere; }
+.worker-summary span { color: var(--muted); font-size: 12px; }
+.proxy-section .worker-item { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: start; }
+.proxy-section .worker-item > .row-wrap, .proxy-section .worker-editor, .proxy-section .worker-token-edit { grid-column: 1 / -1; }
+.proxy-section .worker-details small { white-space: normal; overflow-wrap: anywhere; }
+.worker-default-label { color: var(--accent); font-size: 12px; font-weight: 650; }
+.worker-check-result { line-height: 1.6; }
+@media (max-width: 760px) {
+  .worker-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .preferences-nav .ui-button { flex: 1 1 140px; }
+  .app-v2 .preferences-grid { grid-template-columns: minmax(0, 1fr); }
+}
