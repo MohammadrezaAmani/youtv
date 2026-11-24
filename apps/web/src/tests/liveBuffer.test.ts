@@ -80,7 +80,10 @@ describe("Slow HLS network tolerance", () => {
     expect(policy.errorRetry.maxNumRetry).toBeGreaterThanOrEqual(3);
     expect(hasActiveFragmentLoading([1000], 25000)).toBe(true);
     expect(hasActiveFragmentLoading([1000], 80000)).toBe(true);
-    expect(hasActiveFragmentLoading([1000], 220000)).toBe(false);
+    expect(hasActiveFragmentLoading([1000], 300000)).toBe(true);
+    expect(hasActiveFragmentLoading([1000], 332000)).toBe(false);
+    expect(policy.maxLoadTimeMs).toBe(300000);
+    expect(policy.maxTimeToFirstByteMs).toBe(300000);
   });
   it("keeps a bounded retry policy for slow live manifests", () => {
     expect(

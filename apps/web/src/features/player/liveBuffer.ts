@@ -1,3 +1,5 @@
+import { HLS_LOAD_TIMEOUT_MS } from "./hlsPrefetch";
+
 /** Tolerant HLS loading policies for slow/high-latency networks.
  * hls.js defaults can cancel media fragments after ~20 seconds even while the
  * upstream is working. Keep retries inside the loader rather than rebuilding
@@ -18,24 +20,24 @@ const SLOW_PLAYLIST_RETRY = {
 export const SLOW_NETWORK_HLS_POLICY = {
   fragLoadPolicy: {
     default: {
-      maxTimeToFirstByteMs: 45000,
-      maxLoadTimeMs: 180000,
+      maxTimeToFirstByteMs: HLS_LOAD_TIMEOUT_MS,
+      maxLoadTimeMs: HLS_LOAD_TIMEOUT_MS,
       timeoutRetry: SLOW_FRAGMENT_RETRY,
       errorRetry: SLOW_FRAGMENT_RETRY,
     },
   },
   playlistLoadPolicy: {
     default: {
-      maxTimeToFirstByteMs: 25000,
-      maxLoadTimeMs: 45000,
+      maxTimeToFirstByteMs: HLS_LOAD_TIMEOUT_MS,
+      maxLoadTimeMs: HLS_LOAD_TIMEOUT_MS,
       timeoutRetry: SLOW_PLAYLIST_RETRY,
       errorRetry: SLOW_PLAYLIST_RETRY,
     },
   },
   manifestLoadPolicy: {
     default: {
-      maxTimeToFirstByteMs: 25000,
-      maxLoadTimeMs: 45000,
+      maxTimeToFirstByteMs: HLS_LOAD_TIMEOUT_MS,
+      maxLoadTimeMs: HLS_LOAD_TIMEOUT_MS,
       timeoutRetry: SLOW_PLAYLIST_RETRY,
       errorRetry: SLOW_PLAYLIST_RETRY,
     },
@@ -56,9 +58,9 @@ export const LIVE_HLS_PROFILE = {
   maxMaxBufferLength: 120,
   maxBufferSize: 64 * 1024 * 1024,
   backBufferLength: 20,
-  liveSyncDurationCount: 5,
-  liveMaxLatencyDurationCount: 14,
-  maxLiveSyncPlaybackRate: 1.05,
+  liveSyncDurationCount: 10,
+  liveMaxLatencyDurationCount: 30,
+  maxLiveSyncPlaybackRate: 1,
   maxBufferHole: 0.35,
   capLevelToPlayerSize: false,
 } as const;
@@ -91,7 +93,7 @@ export function getHlsProfile(mode: "stable" | "low") {
 export function hasActiveFragmentLoading(
   starts: Iterable<number>,
   now: number,
-  maximumMs = 210000,
+  maximumMs = HLS_LOAD_TIMEOUT_MS + 30000,
 ): boolean {
   for (const started of starts) {
     if (Number.isFinite(started) && now >= started && now - started < maximumMs)

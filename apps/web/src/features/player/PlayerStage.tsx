@@ -18,6 +18,8 @@ import {
 import { useTranslation } from "react-i18next";
 import Hls from "hls.js";
 import { hlsRelayLoader } from "./hlsRelayLoader";
+import { hlsRequestRoute } from "./hlsRelayRoutes";
+import { HLS_LOAD_TIMEOUT_MS, HlsFragmentPrefetcher, type HlsPrefetchFragment } from "./hlsPrefetch";
 import { playbackSessionIdentity, releasePlayback } from "./playbackLifecycle";
 import {
   Activity,
@@ -721,6 +723,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     let disposed = false;
     let dashEngine: { reset: () => void } | undefined;
     let sessionHls: Hls | null = null;
+    let sessionPrefetcher: HlsFragmentPrefetcher | null = null;
     lastProgressAtRef.current = Date.now();
     healthySinceRef.current = Date.now();
     setStatus("loading");
@@ -776,7 +779,24 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         }
       })();
     } else if (playbackEngine === "hlsjs") {
-      const engine = new Hls({ ...getHlsProfile(settings.hlsLatencyMode), ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl) } : {}) });
+      sessionPrefetcher = currentWorker && settings.hlsLatencyMode !== "low"
+        ? new HlsFragmentPrefetcher((url) => hlsRequestRoute(url, currentWorker, streamUrl, false))
+        : null;
+      let mainFragments: readonly HlsPrefetchFragment[] = [];
+      let audioFragments: readonly HlsPrefetchFragment[] = [];
+      let startupAnchor: number | null = null;
+      let mainPrefetchScope = "main";
+      let audioPrefetchScope = "audio";
+      const schedulePrefetch = (fragments: readonly HlsPrefetchFragment[], scope: string) => {
+        if (!sessionPrefetcher || startupAnchor === null) return;
+        const position = video.currentTime === 0 ? Math.max(0, startupAnchor) : video.currentTime;
+        sessionPrefetcher.updatePlayback(secondsBufferedAhead(position, video.buffered));
+        sessionPrefetcher.schedule(fragments, position, scope);
+      };
+      const engine = new Hls({
+        ...getHlsProfile(settings.hlsLatencyMode),
+        ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl, sessionPrefetcher ?? undefined) } : {}),
+      });
       sessionHls = engine;
       hlsRef.current = engine;
       engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -877,7 +897,17 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
           );
       });
       engine.on(Hls.Events.LEVEL_LOADED, (_, data) => {
-        if (!disposed) setIsLive(data.details.live);
+        if (disposed) return;
+        setIsLive(data.details.live);
+        mainFragments = data.details.fragments as readonly HlsPrefetchFragment[];
+        mainPrefetchScope = "main";
+        schedulePrefetch(mainFragments, mainPrefetchScope);
+      });
+      engine.on(Hls.Events.AUDIO_TRACK_LOADED, (_, data) => {
+        if (disposed) return;
+        audioFragments = data.details.fragments as readonly HlsPrefetchFragment[];
+        audioPrefetchScope = "audio";
+        schedulePrefetch(audioFragments, audioPrefetchScope);
       });
       const fragmentStarted = new Map<string, number>();
       engine.on(Hls.Events.FRAG_LOADING, (_, data) => {
@@ -901,7 +931,16 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
           fragmentStarted.delete(key);
         }
         inFlightFragmentsRef.current.delete(key);
-        if (data.frag.type === "main") setBufferedFragments((n) => n + 1);
+        sessionPrefetcher?.markBuffered(data.frag as HlsPrefetchFragment);
+        if (data.frag.type === "main" && typeof data.frag.sn === "number") {
+          setBufferedFragments((n) => n + 1);
+          if (startupAnchor === null) {
+            startupAnchor = data.frag.start;
+            sessionPrefetcher?.start();
+          }
+        }
+        schedulePrefetch(mainFragments, mainPrefetchScope);
+        schedulePrefetch(audioFragments, audioPrefetchScope);
       });
       engine.on(Hls.Events.ERROR, (_, data) => {
         if (!data.fatal || disposed) return;
@@ -945,6 +984,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     }
     return () => {
       disposed = true;
+      sessionPrefetcher?.dispose();
       clearRetry();
       inFlightFragmentsRef.current.clear();
       if (playbackEpochRef.current === playbackEpoch)
@@ -1116,6 +1156,15 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       const stalledFor = now - lastProgressAtRef.current;
       if (stalledFor < 2300) return;
       const engine = hlsRef.current;
+      if (engine) {
+        // A slow .ts fetch is not a dead stream. startLoad() can interrupt an
+        // in-flight request and repeatedly throw away data on slow connections.
+        const loading = hasActiveFragmentLoading(
+          inFlightFragmentsRef.current.values(),
+          now,
+        );
+        if (loading) return;
+      }
       const recovery = recoveryTarget({
         current: video.currentTime,
         ranges: video.buffered,
@@ -1132,18 +1181,9 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         if (video.paused && playbackWantedRef.current) requestPlayback(video);
         return;
       }
-      if (engine) {
-        // A slow .ts fetch is not a dead stream. startLoad() can interrupt an
-        // in-flight request and repeatedly throw away data on slow connections.
-        const loading = hasActiveFragmentLoading(
-          inFlightFragmentsRef.current.values(),
-          now,
-        );
-        if (loading) return;
-      }
       // Give hls.js time to finish its own timeout/retry policy. Only rebuild
       // the player when no fragment is downloading and playback is truly stuck.
-      const limit = engine ? 90000 : 65000;
+      const limit = engine ? HLS_LOAD_TIMEOUT_MS + 30000 : 65000;
       if (stalledFor > limit) {
         lastProgressAtRef.current = now;
         fail(`Playback stalled for ${Math.round(limit / 1000)}s`);
