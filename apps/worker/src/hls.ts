@@ -199,12 +199,26 @@ function resourceUrl(
 
 function normalizeDirective(line: string): string {
   const trimmed = line.trim();
-  if (trimmed.startsWith("#")) return line;
-  // A few real IPTV providers omit '#' from HLS directives. Only repair the
-  // HLS tag grammar; never treat a random identifier as an HLS tag.
-  if (/^(?:EXTM3U|EXTINF(?::.*)?|EXT-X-[A-Z0-9-]+(?::.*)?)$/i.test(trimmed))
-    return line.replace(trimmed, `#${trimmed}`);
-  return line;
+  // Providers sometimes omit the hash, use lowercase tags or add whitespace.
+  const match = /^#?(EXTM3U|EXTINF|EXT-X-[A-Z0-9-]+)(?::(.*))?$/i.exec(trimmed);
+  if (!match) return line;
+  return `#${match[1]!.toUpperCase()}${match[2] === undefined ? "" : `:${match[2]}`}`;
+}
+
+/** A URL suffix/MIME is only a hint; require recognizable playlist syntax. */
+export function hasHlsSyntax(text: string): boolean {
+  for (const line of text.replace(/\uFEFF/g, "").split(/\r\n|\n|\r/)) {
+    const value = normalizeDirective(line).trim();
+    if (!value) continue;
+    if (
+      value === "#EXTM3U" ||
+      /^#(?:EXTINF:|EXT-X-[A-Z0-9-]+(?::|$))/.test(value)
+    ) return true;
+    // Leading ordinary comments are allowed, not arbitrary HTML/JSON/URLs.
+    if (value.startsWith("#") && !/^#EXT/i.test(value)) continue;
+    return false;
+  }
+  return false;
 }
 
 /**
@@ -222,10 +236,14 @@ export function rewriteHls(
 ): string {
   if (new TextEncoder().encode(manifest).byteLength > MAX_MANIFEST_BYTES)
     throw new Error("HLS manifest too large");
-  const source = manifest.replace(/^\uFEFF/, "");
-  const originalLines = source.split(/\r?\n/);
-  if (normalizeDirective(originalLines[0] || "").trim() !== "#EXTM3U")
+  const source = manifest.replace(/^[\s\uFEFF]+/, "");
+  if (!hasHlsSyntax(source))
     throw new Error("Response is not an HLS playlist (#EXTM3U missing)");
+  const originalLines = source.split(/\r\n|\n|\r/);
+  // Emit a canonical header first even for a missing/misplaced/lowercase header.
+  const header = originalLines.findIndex(line => normalizeDirective(line).trim() === "#EXTM3U");
+  if (header >= 0) originalLines.splice(header, 1);
+  originalLines.unshift("#EXTM3U");
 
   const parent = safeVariables(inherited);
   const vars: HlsVariables = Object.create(null);

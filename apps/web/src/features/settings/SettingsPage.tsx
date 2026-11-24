@@ -35,7 +35,6 @@ import { normalizeError } from "@/lib/utils";
 import type { Settings } from "@youtv/shared";
 import PwaSettings from "@/features/pwa/PwaSettings";
 import { Input } from "@/components/ui/input";
-const InputMedia = Input;
 
 const themes: Settings["theme"][] = [
   "dark",
@@ -118,11 +117,10 @@ export default function SettingsPage() {
         </div>
       </div>
       <nav className="preferences-nav" aria-label={t("settings")}>
-        {sections.map(({ id, label, icon: Icon }) => <Button key={id} variant={section === id ? "default" : "outline"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
-        <Button asChild variant="outline"><Link to="/proxy"><Cloud size={17} />{fa ? "Worker و پروکسی" : "Workers & proxy"}</Link></Button>
+        {sections.map(({ id, label, icon: Icon }) => <Button key={id} size="sm" variant={section === id ? "secondary" : "ghost"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
+        <Button asChild size="sm" variant="ghost"><Link to="/proxy"><Cloud size={17} />{fa ? "Worker و پروکسی" : "Workers & proxy"}</Link></Button>
       </nav>
       <div className="settings-grid preferences-grid" hidden={section !== "general"}>
-        <PwaSettings />
         <div className="panel-card">
           <h3>
             <Database size={20} />
@@ -151,7 +149,7 @@ export default function SettingsPage() {
             imported channels
           </p>
         </div>
-        <div className="panel-card">
+        <div className="panel-card preferences-theme-card">
           <h3>
             <Palette size={20} />
             {t("appearance")}
@@ -181,7 +179,6 @@ export default function SettingsPage() {
             <label>
               {t("language")}
               <Select
-                className="ui-input"
                 value={settings.language}
                 onChange={(e) =>
                   changeLang(e.target.value as Settings["language"])
@@ -194,11 +191,10 @@ export default function SettingsPage() {
                 ))}
               </Select>
             </label>
-            <p className="muted">
-              RTL / LTR automatically follows the selected language.
-            </p>
+            <p className="muted">{fa ? "جهت نمایش رابط کاربری به‌صورت خودکار با زبان هماهنگ می‌شود." : "RTL / LTR automatically follows the selected language."}</p>
           </div>
         </div>
+        <PwaSettings />
       </div>
       <div className="settings-grid preferences-grid" hidden={section !== "playback"}>
         <div className="panel-card">
@@ -213,7 +209,7 @@ export default function SettingsPage() {
               {settings.language === "fa"
                 ? "زبان صوتی ترجیحی"
                 : "Preferred audio language"}
-              <InputMedia
+              <Input
                 value={settings.preferredAudio}
                 onChange={(e) => update({ preferredAudio: e.target.value })}
                 placeholder="fa, en, ar, ..."
@@ -223,7 +219,7 @@ export default function SettingsPage() {
               {settings.language === "fa"
                 ? "زبان زیرنویس ترجیحی"
                 : "Preferred subtitle language"}
-              <InputMedia
+              <Input
                 value={settings.preferredSubtitle}
                 onChange={(e) => update({ preferredSubtitle: e.target.value })}
                 placeholder="fa, en, ar, ..."
@@ -242,7 +238,6 @@ export default function SettingsPage() {
               <label>
                 {settings.language === "fa" ? "اندازه زیرنویس" : "Caption size"}
                 <Select
-                  className="ui-input"
                   value={settings.captionSize}
                   onChange={(e) =>
                     update({
@@ -260,7 +255,6 @@ export default function SettingsPage() {
                   ? "پس‌زمینه زیرنویس"
                   : "Caption background"}
                 <Select
-                  className="ui-input"
                   value={settings.captionBackground}
                   onChange={(e) =>
                     update({
@@ -324,7 +318,6 @@ export default function SettingsPage() {
                 ? "حداکثر تلاش مجدد"
                 : "Reconnect attempts"}
               <Select
-                className="ui-input"
                 value={settings.reconnectMaxAttempts}
                 onChange={(e) =>
                   update({ reconnectMaxAttempts: Number(e.target.value) })
@@ -342,7 +335,6 @@ export default function SettingsPage() {
                 ? "کیفیت ترجیحی"
                 : "Preferred quality"}
               <Select
-                className="ui-input"
                 value={settings.preferredQuality}
                 onChange={(e) =>
                   update({
@@ -366,7 +358,6 @@ export default function SettingsPage() {
                 ? "حالت پخش HLS"
                 : "HLS playback mode"}
               <Select
-                className="ui-input"
                 value={settings.hlsLatencyMode}
                 onChange={(e) =>
                   update({
@@ -395,7 +386,6 @@ export default function SettingsPage() {
             <label>
               {settings.language === "fa" ? "بیت‌ریت ضبط" : "Recording bitrate"}
               <Select
-                className="ui-input"
                 value={settings.recordingBitrate}
                 onChange={(e) =>
                   update({ recordingBitrate: Number(e.target.value) })
@@ -415,7 +405,6 @@ export default function SettingsPage() {
                 ? "سرعت پخش پیش‌فرض"
                 : "Default playback speed"}
               <Select
-                className="ui-input"
                 value={settings.defaultPlaybackRate}
                 onChange={(e) =>
                   update({ defaultPlaybackRate: Number(e.target.value) })
@@ -457,7 +446,6 @@ export default function SettingsPage() {
                 ? "روش بازیابی اطلاعات"
                 : "Restore method"}
               <Select
-                className="ui-input"
                 value={restoreMode}
                 onChange={(e) => setRestoreMode(e.target.value as RestoreMode)}
               >

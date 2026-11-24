@@ -8,6 +8,7 @@ import {
 } from "./security.ts";
 import {
   isHls,
+  hasHlsSyntax,
   parseHlsVariables,
   parseSteeringReplacement,
   applySteeringReplacement,
@@ -714,7 +715,7 @@ async function proxy(
       .decode(peeked.prefix)
       .replace(/^\uFEFF/, "")
       .trimStart();
-    if (/^#EXTM3U(?:\s|$)/i.test(sample)) {
+    if (hasHlsSyntax(sample)) {
       hlsManifest = true;
       dashManifest = false;
     } else if (
@@ -724,11 +725,10 @@ async function proxy(
     ) {
       dashManifest = true;
       hlsManifest = false;
-    } else if (
-      !isHls(finalUrl, responseType) &&
-      !isDash(finalUrl, responseType) &&
-      /^(?:video|audio|image)\//i.test(responseType)
-    ) {
+    } else {
+      // Hints, extensions and MIME types can all be wrong. Relay the original
+      // response intact instead of treating binary media, HTML or JSON as HLS.
+      // CSP sandbox/nosniff and upstream URL checks remain in effect.
       hlsManifest = false;
       dashManifest = false;
     }

@@ -250,19 +250,35 @@ function resourceUrl(uri, source, tag, attributeName) {
 }
 function normalizeDirective(line) {
   const trimmed = line.trim();
-  if (trimmed.startsWith("#"))
+  const match = /^#?(EXTM3U|EXTINF|EXT-X-[A-Z0-9-]+)(?::(.*))?$/i.exec(trimmed);
+  if (!match)
     return line;
-  if (/^(?:EXTM3U|EXTINF(?::.*)?|EXT-X-[A-Z0-9-]+(?::.*)?)$/i.test(trimmed))
-    return line.replace(trimmed, `#${trimmed}`);
-  return line;
+  return `#${match[1].toUpperCase()}${match[2] === undefined ? "" : `:${match[2]}`}`;
+}
+function hasHlsSyntax(text) {
+  for (const line of text.replace(/\uFEFF/g, "").split(/\r\n|\n|\r/)) {
+    const value = normalizeDirective(line).trim();
+    if (!value)
+      continue;
+    if (value === "#EXTM3U" || /^#(?:EXTINF:|EXT-X-[A-Z0-9-]+(?::|$))/.test(value))
+      return true;
+    if (value.startsWith("#") && !/^#EXT/i.test(value))
+      continue;
+    return false;
+  }
+  return false;
 }
 function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints, inherited = {}) {
   if (new TextEncoder().encode(manifest).byteLength > MAX_MANIFEST_BYTES)
     throw new Error("HLS manifest too large");
-  const source = manifest.replace(/^\uFEFF/, "");
-  const originalLines = source.split(/\r?\n/);
-  if (normalizeDirective(originalLines[0] || "").trim() !== "#EXTM3U")
+  const source = manifest.replace(/^[\s\uFEFF]+/, "");
+  if (!hasHlsSyntax(source))
     throw new Error("Response is not an HLS playlist (#EXTM3U missing)");
+  const originalLines = source.split(/\r\n|\n|\r/);
+  const header = originalLines.findIndex((line) => normalizeDirective(line).trim() === "#EXTM3U");
+  if (header >= 0)
+    originalLines.splice(header, 1);
+  originalLines.unshift("#EXTM3U");
   const parent = safeVariables(inherited);
   const vars = Object.create(null);
   const newline = manifest.includes(`\r
@@ -1270,13 +1286,13 @@ async function proxy(request, env, reqUrl) {
     const peeked = await peekStream(responseBody, 4096);
     responseBody = peeked.body;
     const sample = new TextDecoder().decode(peeked.prefix).replace(/^\uFEFF/, "").trimStart();
-    if (/^#EXTM3U(?:\s|$)/i.test(sample)) {
+    if (hasHlsSyntax(sample)) {
       hlsManifest = true;
       dashManifest = false;
     } else if (/^(?:<\?xml[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<(?:[\w.-]+:)?MPD(?:\s|>)/i.test(sample)) {
       dashManifest = true;
       hlsManifest = false;
-    } else if (!isHls(finalUrl, responseType) && !isDash(finalUrl, responseType) && /^(?:video|audio|image)\//i.test(responseType)) {
+    } else {
       hlsManifest = false;
       dashManifest = false;
     }

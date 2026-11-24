@@ -8,6 +8,7 @@ import {
 import { evaluatePlayerProgram } from "./youtubeEvaluator";
 import { discoverPlayerId } from "./youtubeBootstrap";
 import { requireMediaCapability, mediaError } from "./mediaRoutes";
+import { isYouTubeBotCheck } from "./youtubeFallback";
 
 export type YouTubeFormat = {
   itag: number;
@@ -198,6 +199,7 @@ async function getInfo(
   const client = await getClient(worker, id);
   let info: any;
   let lastError = "";
+  let botError = "";
   for (const clientName of ["TV", "WEB", "ANDROID"]) {
     try {
       const candidate = await client.getInfo(id, { client: clientName });
@@ -211,10 +213,11 @@ async function getInfo(
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
+    if (isYouTubeBotCheck(lastError)) botError = lastError;
   }
   if (!info?.streaming_data)
     throw new Error(
-      lastError || "YouTube برای این ویدئو اطلاعات پخش برنگرداند",
+      botError || lastError || "YouTube برای این ویدئو اطلاعات پخش برنگرداند",
     );
   infoCache.delete(key);
   infoCache.set(key, { at: Date.now(), client, info });

@@ -109,7 +109,6 @@ export default function CloudflareManager() {
         <label>
           Management Worker
           <Select
-            className="ui-input"
             value={workerId}
             onChange={(e) => saveSettings({ cloudflareManagerWorkerId: e.target.value })}
           >
@@ -181,7 +180,6 @@ export default function CloudflareManager() {
           <label>
             Worker Script
             <Select
-              className="ui-input"
               value={selectedScript}
               onChange={(e) => {
                 saveSettings({ cloudflareScriptName: e.target.value });
@@ -244,7 +242,6 @@ export default function CloudflareManager() {
             <label>
               Secret name
               <Select
-                className="ui-input"
                 value={secretName}
                 onChange={(e) =>
                   setSecretName(e.target.value as "PROXY_TOKEN" | "ADMIN_TOKEN")

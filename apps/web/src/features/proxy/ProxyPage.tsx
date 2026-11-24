@@ -17,6 +17,7 @@ import {
 import { workerSchema } from "@youtv/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useYoutv } from "@/stores/useYoutv";
 import { normalizeError } from "@/lib/utils";
 import { normalizeWorkerBaseUrl, proxyUrl, workerEndpoint } from "@/lib/proxy";
@@ -40,6 +41,7 @@ export default function ProxyPage() {
     { id: "routing", label: fa ? "مسیریابی و fallback" : "Routing & fallback", icon: Settings2 },
     { id: "advanced", label: fa ? "استقرار و مدیریت Cloudflare" : "Deployment & Cloudflare", icon: BookOpen },
   ] as const;
+  const [addOpen, setAddOpen] = useState(false);
   const [busyWorkers, setBusyWorkers] = useState<string[]>([]);
   const [name, setName] = useState(""),
     [url, setUrl] = useState(""),
@@ -48,6 +50,9 @@ export default function ProxyPage() {
     [error, setError] = useState("");
   const [results, setResults] = useState<Record<string, string>>({});
   const [probeSource, setProbeSource] = useState("");
+  const [probeWorkerId, setProbeWorkerId] = useState("");
+  const [probingWorkerId, setProbingWorkerId] = useState("");
+  const probeWorker = workers.find(w => w.id === probeWorkerId);
   const customizedChannelIds = channels
     .filter(
       (channel) => channel.proxyMode !== "inherit" || Boolean(channel.workerId),
@@ -93,6 +98,7 @@ export default function ProxyPage() {
       setUrl("");
       setToken("");
       setWithToken(false);
+      setAddOpen(false);
     } catch (e) {
       setError(normalizeError(e));
     }
@@ -101,6 +107,8 @@ export default function ProxyPage() {
     const worker = workers.find((w) => w.id === id);
     if (!worker) return;
     setEditingWorker(id);
+    setEditingToken("");
+    setReplacementToken("");
     setEditName(worker.name);
     setEditUrl(worker.baseUrl);
     setError("");
@@ -138,6 +146,7 @@ export default function ProxyPage() {
     }
   };
   const probe = async (worker: (typeof workers)[number]) => {
+    setProbingWorkerId(worker.id);
     setResults((current) => ({
       ...current,
       [worker.id]:
@@ -214,6 +223,8 @@ export default function ProxyPage() {
         ...current,
         [worker.id]: `${settings.language === "fa" ? "تست ناموفق" : "Stream test failed"}: ${hint}`,
       }));
+    } finally {
+      setProbingWorkerId("");
     }
   };
   const health = async (id: string, base: string) => {
@@ -274,20 +285,24 @@ export default function ProxyPage() {
         </div>
       </div>
       <nav className="preferences-nav" aria-label={t("proxy")}>
-        {sections.map(({ id, label, icon: Icon }) => <Button key={id} variant={section === id ? "default" : "outline"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
+        {sections.map(({ id, label, icon: Icon }) => <Button key={id} size="sm" variant={section === id ? "secondary" : "ghost"} aria-pressed={section === id} onClick={() => setSection(id)}><Icon size={17} />{label}</Button>)}
       </nav>
       <div className="proxy-section" hidden={section !== "workers"}>
       <div className="panel-card worker-summary">
-        <div><b>{workers.length}</b><span>{fa ? "Worker ثبت‌شده" : "Registered Workers"}</span></div>
-        <div><b>{workers.filter(w => w.enabled).length}</b><span>{fa ? "فعال" : "Enabled"}</span></div>
-        <div><b>{workers.find(w => w.id === settings.defaultWorkerId && w.enabled)?.name || "—"}</b><span>{fa ? "پیش‌فرض" : "Default"}</span></div>
-        <Button variant="outline" disabled={!workers.some(w => w.enabled) || busyWorkers.length > 0} onClick={async () => { for (const worker of workers.filter(w => w.enabled)) await health(worker.id, worker.baseUrl); }}><Activity size={16} />{fa ? "بررسی Workerهای فعال" : "Check enabled Workers"}</Button>
+        <div className="worker-summary-main">
+          <h3><Cloud size={20} />{fa ? "Workerهای من" : "My Workers"}</h3>
+          <p className="muted">{workers.length} {fa ? "ثبت‌شده" : "registered"} · {workers.filter(w => w.enabled).length} {fa ? "فعال" : "enabled"}</p>
+          <p className="muted">{fa ? "پیش‌فرض:" : "Default:"} {workers.find(w => w.id === settings.defaultWorkerId && w.enabled)?.name || "—"}</p>
+        </div>
+        <div className="row-wrap worker-summary-actions">
+          <Button variant="outline" disabled={!workers.some(w => w.enabled) || busyWorkers.length > 0} onClick={async () => { for (const worker of workers.filter(w => w.enabled)) await health(worker.id, worker.baseUrl); }}><Activity size={16} />{fa ? "بررسی سلامت" : "Check health"}</Button>
+          <Button onClick={() => { setError(""); setAddOpen(true); }}><Plus size={17} />{t("addWorker")}</Button>
+        </div>
       </div>
-        <div className="panel-card">
-          <h3>
-            <Plus size={20} />
-            {t("addWorker")}
-          </h3>
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogTitle className="modal-title">{t("addWorker")}</DialogTitle>
+          <DialogDescription className="modal-subtitle">{fa ? "آدرس پایه Worker مستقرشده را وارد کن. توکن فقط در صورت فعال بودن PROXY_TOKEN لازم است." : "Enter the deployed Worker base URL. A token is only required when PROXY_TOKEN is configured."}</DialogDescription>
           <form className="form-stack" onSubmit={add}>
             <label>
               {t("workerName")}
@@ -340,41 +355,36 @@ export default function ProxyPage() {
                 {error}
               </div>
             )}
-            <Button type="submit">
-              <Plus size={17} />
-              {t("addWorker")}
-            </Button>
+            <div className="modal-actions">
+              <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>{t("cancel")}</Button>
+              <Button type="submit"><Plus size={17} />{t("addWorker")}</Button>
+            </div>
           </form>
-        </div>
-      <div className="panel-card form-stack">
-        <h3>
-          {settings.language === "fa"
-            ? "تست آدرس استریم از طریق Worker"
-            : "Test a stream URL through the Worker"}
-        </h3>
-        <label>
-          {settings.language === "fa"
-            ? "آدرس اصلی کانال (نه لینک /proxy)"
-            : "Original channel URL (not the /proxy link)"}
-          <Input
-            type="url"
-            dir="ltr"
-            value={probeSource}
-            onChange={(e) => setProbeSource(e.target.value)}
-            placeholder="http://stream.example.com/live.m3u8"
-          />
-        </label>
-        <p className="muted">
-          {settings.language === "fa"
-            ? "بررسی سلامت و قابلیت‌ها تأییدی بر دسترسی به استریم نیست. برای بررسی واقعی دامنه، توکن و پاسخ سرور اصلی، نشانی بالا را وارد و روی «تست استریم» کنار Worker کلیک کن."
-            : "Health and capability checks do not verify the source allowlist, token or upstream. Enter an original stream URL and click Test stream for a Worker."}
-        </p>
-      </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(probeWorker)} onOpenChange={open => { if (!open) setProbeWorkerId(""); }}>
+        <DialogContent>
+          <DialogTitle className="modal-title">{fa ? "تست استریم" : "Test stream"}{probeWorker ? ` · ${probeWorker.name}` : ""}</DialogTitle>
+          <DialogDescription className="modal-subtitle">{fa ? "آدرس اصلی رسانه را وارد کن تا پاسخ سرور مبدأ از همین Worker بررسی شود." : "Enter the original media URL to verify upstream access through this Worker."}</DialogDescription>
+          <form className="form-stack" onSubmit={event => { event.preventDefault(); if (probeWorker && !probingWorkerId) void probe(probeWorker); }}>
+            <label>
+              {fa ? "آدرس اصلی رسانه" : "Original media URL"}
+              <Input type="url" dir="ltr" required value={probeSource} onChange={event => setProbeSource(event.target.value)} placeholder="https://example.com/live.m3u8" />
+            </label>
+            {probeWorker && results[probeWorker.id] && <div className="info-box" role="status">{results[probeWorker.id]}</div>}
+            <div className="modal-actions">
+              <Button variant="outline" type="button" onClick={() => setProbeWorkerId("")}>{t("cancel")}</Button>
+              <Button type="submit" disabled={!probeSource.trim() || Boolean(probingWorkerId)}><Activity size={16} />{fa ? "تست استریم" : "Test stream"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <div className="worker-list">
         {workers.length === 0 && (
           <div className="empty-subpanel">
             <Cloud size={25} />
             {t("notConfigured")}
+            <Button size="sm" onClick={() => { setError(""); setAddOpen(true); }}><Plus size={16} />{t("addWorker")}</Button>
           </div>
         )}
         {workers.map((w) => (
@@ -395,9 +405,8 @@ export default function ProxyPage() {
                     : "No access token"}
               </small>
               {w.id === settings.defaultWorkerId && <span className="worker-default-label">{fa ? "پیش‌فرض" : "Default"}</span>}
-              <small className="worker-check-result" role="status">{results[w.id] || ""}</small>
             </div>
-            <div className="row-wrap">
+            <div className="row-wrap worker-actions">
               <label className="checkbox-row">
                 <Checkbox
                   checked={w.enabled}
@@ -418,8 +427,8 @@ export default function ProxyPage() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!probeSource.trim()}
-                onClick={() => void probe(w)}
+                disabled={Boolean(probingWorkerId)}
+                onClick={() => { setProbeWorkerId(w.id); setResults(current => ({ ...current, [w.id]: "" })); }}
               >
                 {settings.language === "fa" ? "تست استریم" : "Test stream"}
               </Button>
@@ -436,6 +445,7 @@ export default function ProxyPage() {
                 size="sm"
                 onClick={() => {
                   setEditingToken(editingToken === w.id ? "" : w.id);
+                  setEditingWorker("");
                   setReplacementToken("");
                 }}
               >
@@ -452,6 +462,7 @@ export default function ProxyPage() {
                 <Trash2 size={18} />
               </Button>
             </div>
+            {results[w.id] && <div className="info-box worker-check-result" role="status">{results[w.id]}</div>}
             {editingWorker === w.id && (
               <div className="worker-editor">
                 <label>
@@ -522,7 +533,6 @@ export default function ProxyPage() {
             {t("proxyMode")}
             <Select
               value={settings.proxyMode}
-              className="ui-input"
               onChange={(e) =>
                 update({
                   proxyMode: e.target.value as "direct" | "proxy" | "auto",
@@ -537,7 +547,6 @@ export default function ProxyPage() {
           <label>
             {t("defaultWorker")}
             <Select
-              className="ui-input"
               value={settings.defaultWorkerId}
               onChange={(e) => update({ defaultWorkerId: e.target.value })}
             >

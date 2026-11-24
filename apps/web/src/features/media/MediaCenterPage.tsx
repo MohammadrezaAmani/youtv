@@ -13,6 +13,10 @@ import {
   SquareArrowOutUpRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectOption } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Link } from "react-router-dom";
 import { ActionButton } from "@/components/ui/action-button";
 import { useYoutv } from "@/stores/useYoutv";
 import { createChannel } from "@youtv/shared";
@@ -37,6 +41,7 @@ import {
   type YouTubePlaylistItem,
   type YouTubeVideo,
 } from "./services/youtube";
+import { resolveYouTubePublicPreview, type YouTubePublicPreview } from "./services/youtubeFallback";
 import { resolveInstagramPost, type InstagramPost } from "./services/instagram";
 import {
   downloadStreamFactory,
@@ -62,6 +67,7 @@ type PlaylistData = {
 type Target =
   | { type: "youtube"; video: YouTubeVideo }
   | { type: "youtube-playlist"; playlist: PlaylistData }
+  | { type: "youtube-preview"; preview: YouTubePublicPreview }
   | { type: "instagram"; post: InstagramPost }
   | { type: "direct"; url: string; probe: DirectProbe | null; kind: MediaKind };
 type Job = {
@@ -201,6 +207,53 @@ function YouTubeDashPreview({
       className="media-embed"
       onError={() => { setDashFailed(true); onFailure(); }}
     />
+  );
+}
+
+function YouTubeRestrictedPreview({ preview, allowDirect, loading, onRetry, fa }: {
+  preview: YouTubePublicPreview;
+  allowDirect: boolean;
+  loading: boolean;
+  onRetry: () => void;
+  fa: boolean;
+}) {
+  const [directRequested, setDirectRequested] = useState(false);
+  const title = preview.metadata?.title || (preview.source.kind === "video"
+    ? (fa ? "ویدئوی یوتیوب" : "YouTube video")
+    : (fa ? "پلی‌لیست یوتیوب" : "YouTube playlist"));
+  return (
+    <section className="panel-card media-detail-card">
+      <div className="media-result-heading">
+        {preview.metadata?.thumbnail && <img src={preview.metadata.thumbnail} alt="" />}
+        <div>
+          <span className="media-provider">YOUTUBE · {preview.metadata ? "PUBLIC METADATA" : "PREVIEW"}</span>
+          <h2>{title}</h2>
+          {preview.metadata?.author && <p>{preview.metadata.author}</p>}
+        </div>
+      </div>
+      <div className="media-inline-warning" role="status">
+        <AlertCircle size={18} />
+        <span>{preview.reason === "bot-check"
+          ? (fa ? "YouTube درخواست استخراج را با بررسی ضدربات رد کرد. همه Workerهای انتخاب‌شده برای استخراج امتحان شده‌اند؛ دانلود تا دریافت فرمت واقعی در دسترس نیست." : "YouTube rejected extraction with a bot check. All selected extraction routes were tried; downloads require real media formats.")
+          : (fa ? "استخراج فرمت‌های رسانه موفق نبود. این نتیجه فقط پیش‌نمایش است و دانلود در دسترس نیست." : "Media format extraction failed. This is a preview only; downloading is unavailable.")}</span>
+      </div>
+      {(allowDirect || directRequested) ? (
+        <>
+          <p className="media-inline-warning">{fa ? "پلیر رسمی YouTube مستقیماً از مرورگر بارگیری می‌شود، نه از Worker. ممکن است به شبکه قابل دسترسی یا اجازه Embed نیاز داشته باشد." : "The official YouTube player connects directly from your browser, not through the Worker. Network access and embedding permission may be required."}</p>
+          <div className="media-embed">
+            <iframe src={preview.embedUrl} title={title} allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen loading="lazy" referrerPolicy="strict-origin-when-cross-origin" />
+          </div>
+        </>
+      ) : (
+        <p className="media-inline-warning">{fa ? "اتصال مستقیم غیرفعال است. در صورت دسترسی، می‌توانی فقط برای این رسانه پلیر رسمی را باز کنی." : "Direct access is off. You may explicitly open the official player for this item only."}</p>
+      )}
+      <div className="media-list-actions media-preview-actions">
+        {!allowDirect && !directRequested && <Button variant="outline" onClick={() => setDirectRequested(true)}><Clapperboard size={16} />{fa ? "پخش مستقیم این رسانه" : "Play this item directly"}</Button>}
+        <Button disabled={loading} onClick={onRetry}><Search size={16} />{fa ? "تلاش مجدد استخراج" : "Retry extraction"}</Button>
+        <Button variant="outline" asChild><a href={preview.canonicalUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} />{fa ? "بازکردن در YouTube" : "Open in YouTube"}</a></Button>
+      </div>
+      {preview.detail && <details className="media-preview-details"><summary>{fa ? "جزئیات خطا" : "Error details"}</summary><p>{preview.detail}</p></details>}
+    </section>
   );
 }
 
@@ -438,9 +491,10 @@ export default function MediaCenterPage() {
       removed?.resolve();
     }
   };
-  const resolve = async () => {
-    const raw = input.trim();
-    if (!raw) return;
+  const resolve = async (sourceUrl = input) => {
+    const raw = sourceUrl.trim();
+    if (!raw || loading) return;
+    setInput(raw);
     setLoading(true);
     resolutionGeneration.current++;
     previewTried.current.clear();
@@ -461,32 +515,33 @@ export default function MediaCenterPage() {
           "آدرس رسانه باید HTTP(S) معتبر و بدون اطلاعات ورود داخل URL باشد.",
         );
       if (isYoutubeHost(parsed.hostname)) {
-        if (!candidates.length)
-          throw new Error(
-            fa
-              ? "برای استخراج و دانلود YouTube ابتدا Worker را در تنظیمات پروکسی فعال کن."
-              : "Select an active Cloudflare Worker in Proxy settings first.",
-          );
         const source = parseYouTubeUrl(raw);
-        if (source.kind === "playlist") {
-          const { worker: selected, value: playlist } = await withMediaWorkers(candidates, candidate => resolveYouTubePlaylist(candidate, source.id, 500));
-          setResolvedWorkerId(selected.id);
-          setTarget({ type: "youtube-playlist", playlist });
-          setSelectedItems(playlist.items.map((item) => item.id));
-        } else {
-          const { worker: selected, value: video } = await withMediaWorkers(candidates, candidate => resolveYouTubeVideo(candidate, source.id));
-          setResolvedWorkerId(selected.id);
-          setTarget({ type: "youtube", video });
-          const best =
-            selectCombinedFormat(video.formats) ||
-            [...video.formats]
-              .filter((item) => item.kind === "video")
-              .sort(
-                (a, b) => b.height - a.height || b.bitrate - a.bitrate,
-              )[0] ||
-            video.formats.find((item) => item.kind === "audio");
-          setSelectedFormat(best?.itag ?? null);
-          setCombineYoutubeAudio(true);
+        try {
+          if (source.kind === "playlist") {
+            const { worker: selected, value: playlist } = await withMediaWorkers(candidates, candidate => resolveYouTubePlaylist(candidate, source.id, 500));
+            setResolvedWorkerId(selected.id);
+            setTarget({ type: "youtube-playlist", playlist });
+            setSelectedItems(playlist.items.map((item) => item.id));
+          } else {
+            const { worker: selected, value: video } = await withMediaWorkers(candidates, candidate => resolveYouTubeVideo(candidate, source.id));
+            setResolvedWorkerId(selected.id);
+            setTarget({ type: "youtube", video });
+            const best =
+              selectCombinedFormat(video.formats) ||
+              [...video.formats]
+                .filter((item) => item.kind === "video")
+                .sort(
+                  (a, b) => b.height - a.height || b.bitrate - a.bitrate,
+                )[0] ||
+              video.formats.find((item) => item.kind === "audio");
+            setSelectedFormat(best?.itag ?? null);
+            setCombineYoutubeAudio(true);
+          }
+        } catch (cause) {
+          const preview = await resolveYouTubePublicPreview(source, candidates, cause);
+          setResolvedWorkerId(preview.metadataWorkerId);
+          setSelectedFormat(null);
+          setTarget({ type: "youtube-preview", preview });
         }
       } else if (isInstagramHost(parsed.hostname)) {
         if (!candidates.length)
@@ -973,8 +1028,9 @@ export default function MediaCenterPage() {
           {fa ? "آدرس رسانه یا Playlist" : "Media or playlist URL"}
         </label>
         <div className="media-url-row">
-          <input
+          <Input
             id="media-url-input"
+            dir="ltr"
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event: { key: string }) => {
@@ -996,14 +1052,22 @@ export default function MediaCenterPage() {
           </Button>
         </div>
         <div className="media-route-controls">
+          <div className="media-route-heading">
+            <strong>{fa ? "مسیریابی و پروکسی" : "Routing & proxy"}</strong>
+            <Button asChild variant="ghost" size="sm"><Link to="/proxy">{fa ? "مدیریت Workerها" : "Manage Workers"}</Link></Button>
+          </div>
+          <div className="media-route-field">
           <label htmlFor="media-worker">{fa ? "مسیر پروکسی رسانه" : "Media proxy route"}</label>
-          <select id="media-worker" value={preferredWorkerId} disabled={loading} onChange={event => { resolutionGeneration.current++; setPreferredWorkerId(event.target.value); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }}>
-            <option value="">{fa ? "Worker پیش‌فرض" : "Default Worker"}</option>
-            {workers.filter(item => item.enabled).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <label><input type="checkbox" checked={automaticFallback} disabled={loading} onChange={event => { resolutionGeneration.current++; setAutomaticFallback(event.target.checked); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }} /> {fa ? "Fallback بین Workerهای فعال" : "Fallback across enabled Workers"}</label>
-          <label><input type="checkbox" checked={allowDirect} disabled={loading} onChange={event => setAllowDirect(event.target.checked)} /> {fa ? "Fallback مستقیم فایل‌ها و Embed یوتیوب (در صورت دسترسی)" : "Direct file and YouTube embed fallback (when accessible)"}</label>
-          <span>{fa ? "مسیر فعلی:" : "Current route:"} {worker?.name || (resolvedWorkerId === "" ? (fa ? "مستقیم" : "Direct") : "—")}</span>
+          <Select id="media-worker" value={preferredWorkerId} disabled={loading} onChange={event => { resolutionGeneration.current++; setPreferredWorkerId(event.target.value); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }}>
+            <SelectOption value="">{fa ? "Worker پیش‌فرض" : "Default Worker"}</SelectOption>
+            {workers.filter(item => item.enabled).map(item => <SelectOption key={item.id} value={item.id}>{item.name}</SelectOption>)}
+          </Select>
+          </div>
+          <div className="media-route-options">
+          <label className="checkbox-row"><Checkbox checked={automaticFallback} disabled={loading} onChange={event => { resolutionGeneration.current++; setAutomaticFallback(event.target.checked); setResolvedWorkerId(null); setTarget(null); clearConvertedPreview(); }} /> {fa ? "Fallback بین Workerهای فعال" : "Fallback across enabled Workers"}</label>
+          <label className="checkbox-row"><Checkbox checked={allowDirect} disabled={loading} onChange={event => setAllowDirect(event.target.checked)} /> {fa ? "Fallback مستقیم فایل‌ها و Embed یوتیوب (در صورت دسترسی)" : "Direct file and YouTube embed fallback (when accessible)"}</label>
+          </div>
+          <span className="media-route-status">{fa ? "مسیر فعلی:" : "Current route:"} {target?.type === "youtube-preview" ? (target.preview.metadataWorkerId ? `${workers.find(item => item.id === target.preview.metadataWorkerId)?.name || "Worker"} · ${fa ? "فقط اطلاعات" : "metadata only"}` : (fa ? "استخراج ناموفق" : "Extraction unavailable")) : worker?.name || (resolvedWorkerId === "" ? (fa ? "مستقیم" : "Direct") : "—")}</span>
         </div>
         <div className="media-source-hints">
           <span>YouTube / Playlist</span>
@@ -1029,6 +1093,17 @@ export default function MediaCenterPage() {
             <span>×</span>
           </ActionButton>
         </div>
+      )}
+
+      {target?.type === "youtube-preview" && (
+        <YouTubeRestrictedPreview
+          key={`${target.preview.source.kind}:${target.preview.source.id}`}
+          preview={target.preview}
+          allowDirect={allowDirect}
+          loading={loading}
+          onRetry={() => void resolve(target.preview.canonicalUrl)}
+          fa={fa}
+        />
       )}
 
       {youtubeVideo && (
@@ -1068,7 +1143,7 @@ export default function MediaCenterPage() {
               <label htmlFor="youtube-format">
                 {fa ? "کیفیت و فرمت دانلود" : "Download format"}
               </label>
-              <select
+              <Select
                 id="youtube-format"
                 value={selectedFormat ?? ""}
                 onChange={(event) =>
@@ -1076,7 +1151,7 @@ export default function MediaCenterPage() {
                 }
               >
                 {youtubeVideo.formats.map((format) => (
-                  <option key={format.itag} value={format.itag}>
+                  <SelectOption key={format.itag} value={format.itag}>
                     {format.quality} · {format.mimeType.split(";")[0]} ·{" "}
                     {format.kind === "combined"
                       ? "Video + Audio"
@@ -1086,34 +1161,33 @@ export default function MediaCenterPage() {
                     {format.size
                       ? ` · ${(format.size / 1024 / 1024).toFixed(1)} MB`
                       : ""}
-                  </option>
+                  </SelectOption>
                 ))}
-              </select>
+              </Select>
             </div>
             {captionLanguages.length > 0 && (
               <div className="media-format-row">
                 <label htmlFor="youtube-caption-language">
                   {fa ? "زبان زیرنویس" : "Subtitle language"}
                 </label>
-                <select
+                <Select
                   id="youtube-caption-language"
                   value={captionLanguage}
                   onChange={(event) => setCaptionLanguage(event.target.value)}
                 >
                   {captionLanguages.map((language) => (
-                    <option key={language} value={language}>
+                    <SelectOption key={language} value={language}>
                       {language}
-                    </option>
+                    </SelectOption>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
             {currentFormat &&
               currentFormat.kind === "video" &&
               youtubeVideo.formats.some((item) => item.kind === "audio") && (
                 <label className="media-combine-option">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={combineYoutubeAudio}
                     onChange={(event) =>
                       setCombineYoutubeAudio(event.target.checked)
@@ -1269,23 +1343,22 @@ export default function MediaCenterPage() {
             <label htmlFor="playlist-quality">
               {fa ? "کیفیت دانلود" : "Download quality"}
             </label>
-            <select
+            <Select
               id="playlist-quality"
               value={quality}
               onChange={(event) => setQuality(event.target.value)}
             >
-              <option value="best">Best available combined</option>
-              <option value="1080">1080p or lower</option>
-              <option value="720">720p or lower</option>
-              <option value="480">480p or lower</option>
-              <option value="360">360p or lower</option>
-            </select>
+              <SelectOption value="best">{fa ? "بهترین کیفیت همراه صدا" : "Best available combined"}</SelectOption>
+              <SelectOption value="1080">{fa ? "1080p یا کمتر" : "1080p or lower"}</SelectOption>
+              <SelectOption value="720">{fa ? "720p یا کمتر" : "720p or lower"}</SelectOption>
+              <SelectOption value="480">{fa ? "480p یا کمتر" : "480p or lower"}</SelectOption>
+              <SelectOption value="360">{fa ? "360p یا کمتر" : "360p or lower"}</SelectOption>
+            </Select>
           </div>
           <div className="media-video-list">
             {youtubePlaylist.items.map((item, index) => (
               <label className="media-video-row" key={item.id}>
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedItems.includes(item.id)}
                   onChange={() =>
                     toggle(selectedItems, item.id, setSelectedItems)
@@ -1370,8 +1443,9 @@ export default function MediaCenterPage() {
             <div className="media-asset-grid">
               {instagramPost.assets.map((asset) => (
                 <div className="media-asset-card" key={asset.id}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    className="media-asset-select"
+                    aria-label={fa ? "انتخاب رسانه" : "Select media asset"}
                     checked={selectedAssets.includes(asset.id)}
                     onChange={() =>
                       toggle(selectedAssets, asset.id, setSelectedAssets)
@@ -1562,8 +1636,9 @@ export default function MediaCenterPage() {
             <label htmlFor="direct-filename">
               {fa ? "نام فایل دانلود" : "Download filename"}
             </label>
-            <input
+            <Input
               id="direct-filename"
+              dir="auto"
               value={directName}
               onChange={(event) => setDirectName(event.target.value)}
               placeholder="media-file"

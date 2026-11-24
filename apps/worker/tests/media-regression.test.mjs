@@ -272,3 +272,53 @@ test("upstream HTML cannot execute as a same-origin Worker document", async () =
     },
   );
 });
+
+test("HLS proxy repairs missing hashes, BOM, leading comments and missing headers", async () => {
+  for (const manifest of [
+    "\n\uFEFF\n# provider comment\n extm3u \n#EXTINF:2,\nsegment.ts",
+    "EXT-X-TARGETDURATION:2\rEXTINF:2,\rsegment.ts",
+    "\n#EXTINF:2,\nsegment.ts",
+  ]) {
+    await withFetch(async () => new Response(manifest, { headers: { "Content-Type": "text/plain" } }), async () => {
+      for (const impl of [worker, bundled]) {
+        const response = await impl.fetch(new Request(url("https://cdn.example/live/stream.m3u8", { hls: "1" })), env);
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get("Content-Type"), /mpegurl/);
+        const text = await response.text();
+        assert.match(text, /^#EXTM3U\n/);
+        const segment = text.split("\n").find(line => line.startsWith("https://"));
+        assert.equal(new URL(segment).searchParams.get("url"), "https://cdn.example/live/segment.ts");
+      }
+    });
+  }
+});
+
+test("incorrect HLS/DASH hints and MIME do not reject non-manifest responses", async () => {
+  const cases = [
+    [new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 255]), "application/vnd.apple.mpegurl", { hls: "1" }],
+    [new TextEncoder().encode('{"message":"source unavailable"}'), "application/json", { hls: "1" }],
+    [new TextEncoder().encode('<html><script>throw Error("unsafe")</script></html>'), "text/html", { hls: "1" }],
+    [new Uint8Array([71, 0, 255, 99]), "video/mp2t", { dash: "1" }],
+  ];
+  for (const [bytes, type, hints] of cases) {
+    await withFetch(async () => new Response(bytes, { headers: { "Content-Type": type } }), async () => {
+      for (const impl of [worker, bundled]) {
+        const response = await impl.fetch(new Request(url("https://cdn.example/live/stream.m3u8", hints)), env);
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("Content-Type"), type);
+        assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
+        assert.match(response.headers.get("Content-Security-Policy"), /sandbox/);
+      }
+    });
+  }
+});
+
+test("a recognized HLS manifest still rejects dangerous URI schemes", async () => {
+  await withFetch(async () => new Response("#EXTINF:2,\njavascript:alert(1)"), async () => {
+    for (const impl of [worker, bundled]) {
+      const response = await impl.fetch(new Request(url("https://cdn.example/stream.m3u8")), env);
+      assert.equal(response.status, 502);
+      assert.equal((await response.json()).code, "invalid_manifest");
+    }
+  });
+});

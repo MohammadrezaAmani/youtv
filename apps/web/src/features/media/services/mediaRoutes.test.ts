@@ -6,6 +6,7 @@ import { createYoutubeFetch, normalizeWorkerBaseUrl, proxyUrl, workerEndpoint } 
 import { probeDirectMedia } from "./mediaDetector";
 import { orderedMediaWorkers, withMediaWorkers, requireMediaCapability, mediaAssetUrls, openMediaAsset, primeMediaStream, archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 import { discoverPlayerId, extractPlayerId } from "./youtubeBootstrap";
+import { isYouTubeBotCheck, resolveYouTubePublicPreview } from "./youtubeFallback";
 
 const profile = (id: string, baseUrl = `https://${id}.example`): WorkerProfile => ({ id, name: id, baseUrl, token: `${id}-secret`, enabled: true });
 async function withServer(run: (base: string, calls: string[]) => Promise<void>) {
@@ -26,6 +27,12 @@ async function withServer(run: (base: string, calls: string[]) => Promise<void>)
       response.end(JSON.stringify({ ok: false, status: 404, kind: "file" })); return;
     }
     if (url.pathname.endsWith("/proxy")) {
+      const upstream = new URL(url.searchParams.get("url") || "https://origin.example");
+      if (upstream.pathname === "/oembed") {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ type: "video", title: "Public title", author_name: "Public author", thumbnail_url: "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", html: "<script>throw new Error('not executed')</script>" }));
+        return;
+      }
       if (request.headers.range === "bytes=1-2") { response.writeHead(206, { "Content-Range": "bytes 1-2/4" }); response.end(Buffer.from([2,3])); return; }
       response.writeHead(200, { "Content-Type": "video/mp4" }); response.end(Buffer.from([1,2,3,4])); return;
     }
@@ -108,3 +115,37 @@ test("distinguishes a missing Worker probe endpoint from an upstream 404", async
   await expect(probeDirectMedia("https://origin.example/video.mp4", profile("old", `${base}/old`))).rejects.toThrow(/Worker \/probe HTTP 404/);
   await expect(probeDirectMedia("https://origin.example/video.mp4", profile("good", `${base}/good`))).rejects.toThrow(/Upstream HTTP 404/);
 }));
+
+test("recognizes the YouTube bot challenge without treating unrelated errors as bot checks", () => {
+  expect(isYouTubeBotCheck("meow: Sign in to confirm you’re not a bot")).toBe(true);
+  expect(isYouTubeBotCheck("Sign in to confirm you're not a bot")).toBe(true);
+  expect(isYouTubeBotCheck("HTTP 404")).toBe(false);
+});
+test("after extraction fails, public metadata uses the configured fallback Worker without claiming downloadable streams", async () => withServer(async (base, calls) => {
+  const result = await resolveYouTubePublicPreview({ kind: "video", id: "abcdefghijk" }, [profile("old", `${base}/old`), profile("good", `${base}/good`)], new Error("Sign in to confirm you're not a bot"));
+  expect(result.reason).toBe("bot-check");
+  expect(result.metadata?.title).toBe("Public title");
+  expect(result.metadata?.author).toBe("Public author");
+  expect(result.metadataWorkerId).toBe("good");
+  expect(new URL(result.metadata!.thumbnail).searchParams.get("key")).toBe("good-secret");
+  expect(result.embedUrl).toBe("https://www.youtube-nocookie.com/embed/abcdefghijk");
+  expect(Object.hasOwn(result, "formats")).toBe(false);
+  expect(calls).toEqual(["/old/proxy", "/good/proxy"]);
+}));
+test("a failed metadata request still returns an honest preview; playlists do not fabricate items", async () => withServer(async (base, calls) => {
+  const result = await resolveYouTubePublicPreview({ kind: "video", id: "abcdefghijk" }, [profile("old", `${base}/old`)], new Error("HTTP 404"));
+  expect(result.metadata).toBe(null);
+  expect(result.metadataWorkerId).toBe(null);
+  expect(result.reason).toBe("extraction-failed");
+  const playlist = await resolveYouTubePublicPreview({ kind: "playlist", id: "PLabcdefghijk" }, [profile("good", `${base}/good`)], new Error("HTTP 403"));
+  expect(playlist.metadata).toBe(null);
+  expect(playlist.embedUrl).toBe("https://www.youtube-nocookie.com/embed/videoseries?list=PLabcdefghijk");
+  expect(calls).toEqual(["/old/proxy"]);
+}));
+test("no Worker or disabled direct fallback does not result in a hidden direct metadata request", async () => {
+  const result = await resolveYouTubePublicPreview({ kind: "video", id: "abcdefghijk" }, [], new Error("No compatible Worker"));
+  expect(result.metadata).toBe(null);
+  expect(result.canonicalUrl).toBe("https://www.youtube.com/watch?v=abcdefghijk");
+  const abort = new AbortController(); abort.abort();
+  await expect(resolveYouTubePublicPreview({ kind: "video", id: "abcdefghijk" }, [], new Error("abort"), abort.signal)).rejects.toThrow(/abort/i);
+});
