@@ -322,3 +322,45 @@ test("a recognized HLS manifest still rejects dangerous URI schemes", async () =
     }
   });
 });
+
+test("redirected HLS at a root URL rewrites root, sibling, protocol-relative and query-only references", async () => {
+  const initial = "https://origin.example/watch";
+  const final = "https://cdn.example/";
+  const calls = [];
+  await withFetch(async (target, init) => {
+    calls.push(target);
+    assert.equal(init.redirect, "manual");
+    if (target === initial) return new Response(null, { status: 302, headers: { Location: "//cdn.example/live/start" } });
+    if (target === "https://cdn.example/live/start") return new Response(null, { status: 307, headers: { Location: "/" } });
+    if (target === final) return new Response('#EXTM3U provider="example"\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="audio",URI="/audio/index.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\n/ifilmfa_2_482/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nrelative/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\n//other.example/live/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=4000000\n?quality=hd\n', { headers: { "Content-Type": "video/mp2t" } });
+    throw new Error(`Unexpected request: ${target}`);
+  }, async () => {
+    for (const impl of [worker, bundled]) {
+      const result = await impl.fetch(new Request(url(initial)), env);
+      assert.equal(result.status, 200);
+      assert.equal(result.headers.get("X-YouTV-Source-URL"), final);
+      assert.match(result.headers.get("Access-Control-Expose-Headers"), /X-YouTV-Source-URL/);
+      const manifest = await result.text();
+      assert.match(manifest, /^#EXTM3U\n/);
+      const resources = [...manifest.matchAll(/https:\/\/worker\.example\/proxy\?[^\s"]+/g)].map(match => new URL(match[0]));
+      assert.deepEqual(resources.map(resource => resource.searchParams.get("url")), ["https://cdn.example/audio/index.m3u8", "https://cdn.example/ifilmfa_2_482/index.m3u8", "https://cdn.example/relative/index.m3u8", "https://other.example/live/index.m3u8", "https://cdn.example/?quality=hd"]);
+      assert.ok(resources.every(resource => resource.searchParams.get("key") === env.PROXY_TOKEN));
+      assert.ok(!manifest.includes("https://worker.example/ifilmfa_2_482"));
+    }
+    assert.deepEqual(calls, [initial, "https://cdn.example/live/start", final, initial, "https://cdn.example/live/start", final]);
+  });
+});
+
+test("text playlist import exposes final origin without rewriting the original list", async () => {
+  const manifest = "#EXTM3U\n#EXTINF:-1,Channel\n/ifilmfa_2_482/index.m3u8\n";
+  await withFetch(async target => target === "https://origin.example/list"
+    ? new Response(null, { status: 302, headers: { Location: "https://cdn.example/folder/list.m3u" } })
+    : new Response(manifest), async () => {
+    const endpoint = new URL(url("https://origin.example/list"));
+    endpoint.pathname = "/text";
+    const result = await worker.fetch(new Request(endpoint), env);
+    assert.equal(result.status, 200);
+    assert.equal(result.headers.get("X-YouTV-Source-URL"), "https://cdn.example/folder/list.m3u");
+    assert.equal(await result.text(), manifest);
+  });
+});

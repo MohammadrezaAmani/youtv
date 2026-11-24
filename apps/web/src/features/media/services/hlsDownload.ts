@@ -1,5 +1,6 @@
 import type { WorkerProfile } from "@youtv/shared";
 import { proxyUrl } from "@/lib/proxy";
+import { hlsRequestRoute, hlsResponseBase } from "@/features/player/hlsRelayRoutes";
 import type { ZipEntrySource } from "./download";
 import { textByteStream } from "./byteStream";
 import { archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
@@ -63,8 +64,10 @@ function extensionFor(value: string, fallback = "bin"): string {
 async function readManifest(
   url: string,
   signal?: AbortSignal,
+  worker?: WorkerProfile,
 ): Promise<LoadedManifest> {
-  const response = await fetch(url, {
+  const routed = worker ? hlsRequestRoute(url, worker, url, true) : url;
+  const response = await fetch(routed, {
     credentials: "omit",
     cache: "no-store",
     signal,
@@ -73,7 +76,8 @@ async function readManifest(
   const text = await response.text();
   if (!/^\uFEFF?\s*#EXTM3U(?:\r?\n|$)/.test(text))
     throw new Error("HLS manifest is invalid");
-  return { text, url: response.url || url };
+  const base = worker ? hlsResponseBase(text, routed, worker, response.headers.get("X-YouTV-Source-URL")) : undefined;
+  return { text, url: base || response.url || routed };
 }
 function parseRange(value: string): ByteRange {
   const match = value.trim().match(/^(\d+)(?:@(\d+))?$/);
@@ -109,7 +113,8 @@ function makeFetcher(
       const headers: [string, string][] = range
         ? [["range", `bytes=${range.offset}-${range.offset + range.length - 1}`]]
         : [];
-      const response = await fetchArchiveResource(worker ? archiveResourceRoutes(url, worker, fallbacks) : [url], {
+      const routed = worker ? hlsRequestRoute(url, worker, url) : url;
+      const response = await fetchArchiveResource(worker ? archiveResourceRoutes(routed, worker, fallbacks) : [routed], {
         headers, credentials: "omit", cache: "no-store", signal: entrySignal || signal,
       }, response => {
         if (!response.ok) throw new Error(`HLS media HTTP ${response.status}`);
@@ -284,9 +289,10 @@ async function archiveSubtitle(
   entries: ZipEntrySource[],
   fetcher: ReturnType<typeof makeFetcher>,
   signal?: AbortSignal,
+  worker?: WorkerProfile,
 ): Promise<{ path: string; segments: number; liveSnapshot: boolean }> {
   try {
-    const loaded = await readManifest(url, signal);
+    const loaded = await readManifest(url, signal, worker);
     const archived = await archiveMediaPlaylist(
       loaded,
       prefix,
@@ -300,7 +306,7 @@ async function archiveSubtitle(
       liveSnapshot: archived.liveSnapshot,
     };
   } catch (manifestError) {
-    const response = await fetch(url, {
+    const response = await fetch(worker ? hlsRequestRoute(url, worker, url) : url, {
       credentials: "omit",
       cache: "no-store",
       signal,
@@ -385,7 +391,7 @@ export async function buildHlsArchiveEntries(
   liveSnapshot: boolean;
 }> {
   const initial = worker ? proxyUrl(sourceUrl, worker, "proxy", true) : sourceUrl;
-  const master = await readManifest(initial, signal);
+  const master = await readManifest(initial, signal, worker);
   const entries: ZipEntrySource[] = [];
   const fetcher = makeFetcher(entries, signal, worker, fallbacks);
   let totalSegments = 0;
@@ -480,7 +486,7 @@ export async function buildHlsArchiveEntries(
       const prefix = `audio/${name}`;
       if (item.meta.URI) {
         const audioUrl = new URL(item.meta.URI, master.url).toString();
-        const loaded = await readManifest(audioUrl, signal);
+        const loaded = await readManifest(audioUrl, signal, worker);
         const archived = await archiveMediaPlaylist(
           loaded,
           prefix,
@@ -505,7 +511,7 @@ export async function buildHlsArchiveEntries(
       const prefix = `video-renditions/${name}`;
       if (item.meta.URI) {
         const renditionUrl = new URL(item.meta.URI, master.url).toString();
-        const loaded = await readManifest(renditionUrl, signal);
+        const loaded = await readManifest(renditionUrl, signal, worker);
         const archived = await archiveMediaPlaylist(
           loaded,
           prefix,
@@ -536,6 +542,7 @@ export async function buildHlsArchiveEntries(
           entries,
           fetcher,
           signal,
+          worker,
         );
         totalSegments += archived.segments;
         liveSnapshot ||= archived.liveSnapshot;
@@ -548,7 +555,7 @@ export async function buildHlsArchiveEntries(
       } else generatedMedia.push(item.line);
     }
     generatedMedia.push(...closedCaptions.map((item) => item.line));
-    const video = await readManifest(chosen.url, signal);
+    const video = await readManifest(chosen.url, signal, worker);
     const archivedVideo = await archiveMediaPlaylist(
       video,
       "video",

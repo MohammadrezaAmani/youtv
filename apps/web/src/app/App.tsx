@@ -70,7 +70,7 @@ import { BUILTIN_PLAYLIST_ID } from "@youtv/shared";
 import ConnectivityPage from "@/features/connectivity/ConnectivityPage";
 import CategoriesPage from "@/features/categories/CategoriesPage";
 import { startScan } from "@/lib/scanManager";
-import { resolveTextSource } from "@/lib/proxy";
+import { resolveTextSource, playlistResponseBase } from "@/lib/proxy";
 import { formatWhen, normalizeError } from "@/lib/utils";
 import { readCatalogAsset } from "@/lib/catalogCache";
 import { ui } from "@/lib/labels";
@@ -526,6 +526,7 @@ function Shell() {
       const controller = new AbortController(),
         timeout = setTimeout(() => controller.abort(), 20000);
       let response: Response;
+      let proxied = false;
       try {
         const routed = resolveTextSource(
           p.url,
@@ -534,6 +535,7 @@ function Shell() {
           p.refreshWorkerId,
           Boolean(p.refreshWorkerId),
         );
+        proxied = Boolean(routed.workerId);
         response = await fetch(routed.url, {
           signal: controller.signal,
           credentials: "omit",
@@ -543,7 +545,7 @@ function Shell() {
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const content = await response.text();
-      const result = parseM3u(content, p.url);
+      const result = parseM3u(content, playlistResponseBase(response, p.url, proxied));
       upsert(result.channels, p.id, true);
       updatePlaylist({
         ...p,

@@ -93,7 +93,7 @@ function corsHeaders(request, env) {
     h.set("Access-Control-Allow-Origin", origin);
   h.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
   h.set("Access-Control-Allow-Headers", "Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token, X-YouTube-Client-Name, X-YouTube-Client-Version, X-Goog-Visitor-Id, X-Goog-Api-Format-Version");
-  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy");
+  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy, X-YouTV-Source-URL");
   h.set("Access-Control-Max-Age", "3600");
   return h;
 }
@@ -249,7 +249,9 @@ function resourceUrl(uri, source, tag, attributeName) {
   return resolved;
 }
 function normalizeDirective(line) {
-  const trimmed = line.trim();
+  const trimmed = line.replace(/^\s*\uFEFF/, "").trim();
+  if (/^#?EXTM3U(?:\s|:|$)/i.test(trimmed))
+    return "#EXTM3U";
   const match = /^#?(EXTM3U|EXTINF|EXT-X-[A-Z0-9-]+)(?::(.*))?$/i.exec(trimmed);
   if (!match)
     return line;
@@ -319,7 +321,7 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints, inherited = {})
       const isPlaylist = pendingPlaylistUri || /\.m3u8?(?:[?#]|$)/i.test(trimmed);
       pendingPlaylistUri = false;
       const uri = rewriteUrl(trimmed, "", "", isPlaylist);
-      return normalized.replace(trimmed, uri);
+      return normalized.replace(trimmed, () => uri);
     }
     if (trimmed.startsWith("#EXT-X-STREAM-INF:"))
       pendingPlaylistUri = true;
@@ -359,7 +361,7 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints, inherited = {})
     }
     if (tag === "EXT-X-PREFETCH") {
       const uri = rewriteUrl(parameter.trim(), tag);
-      return normalized.replace(parameter, uri);
+      return normalized.replace(parameter, () => uri);
     }
     const names = URI_ATTRIBUTES[tag];
     if (!names || !parameter)
@@ -376,7 +378,7 @@ function rewriteHls(manifest, sourceUrl, proxyUrl, token, hints, inherited = {})
       return part.replace(/^\s*[^=]+\s*=\s*.*$/, `${attr.name}=${value}`);
     });
     const next = `${trimmed.slice(0, trimmed.indexOf(":") + 1)}${rewritten.join(",")}`;
-    return normalized.replace(trimmed, next);
+    return normalized.replace(trimmed, () => next);
   });
   return output.join(newline);
 }
@@ -859,6 +861,7 @@ function dashBaseTarget(requestUrl, env) {
 
 // apps/worker/src/index.ts
 var MAX_REDIRECTS = 4;
+var MAX_SOURCE_REDIRECTS = 10;
 var VERSION = "0.36.1";
 function json(request, env, value, status = 200) {
   const headers = corsHeaders(request, env);
@@ -1163,7 +1166,7 @@ function deliveryDirectives(query) {
 }
 async function fetchSource(url, request, env, directives = new URLSearchParams) {
   let current = url;
-  for (let i = 0;i <= MAX_REDIRECTS; i++) {
+  for (let i = 0;i <= MAX_SOURCE_REDIRECTS; i++) {
     current = assertAllowedUrl(current.toString(), env);
     directives.forEach((value, name) => current.searchParams.set(name, value));
     const headers = new Headers;
@@ -1203,6 +1206,9 @@ async function fetchSource(url, request, env, directives = new URLSearchParams) 
     const location = response.headers.get("Location");
     if (!location)
       throw new ProxyError(502, "bad_redirect", "Upstream redirect lacks Location");
+    await response.body?.cancel().catch(() => {
+      return;
+    });
     current = assertAllowedUrl(new URL(location, current).toString(), env);
   }
   throw new ProxyError(502, "redirect_limit", "Too many upstream redirects");
@@ -1228,6 +1234,7 @@ async function proxy(request, env, reqUrl) {
   const headers = corsHeaders(request, env);
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
+  headers.set("X-YouTV-Source-URL", finalUrl.href);
   for (const name of [
     "Content-Type",
     "Content-Range",
@@ -1282,7 +1289,7 @@ async function proxy(request, env, reqUrl) {
   let responseBody = response.body;
   let hlsManifest = hlsHint || isHls(finalUrl, responseType);
   let dashManifest = reqUrl.searchParams.get("dash") === "1" || isDash(finalUrl, responseType);
-  if (request.method !== "HEAD" && response.ok && response.status !== 206 && (hlsManifest || dashManifest || !/^(?:video|audio|image)\//i.test(responseType))) {
+  if (request.method !== "HEAD" && response.ok && response.status !== 206) {
     const peeked = await peekStream(responseBody, 4096);
     responseBody = peeked.body;
     const sample = new TextDecoder().decode(peeked.prefix).replace(/^\uFEFF/, "").trimStart();
@@ -1445,11 +1452,12 @@ var src_default = {
         const raw = url.searchParams.get("url");
         if (!raw)
           throw new ProxyError(400, "missing_url", "url query parameter is required");
-        const { response } = await fetchSource(assertAllowedUrl(raw, env), request, env);
+        const { response, finalUrl } = await fetchSource(assertAllowedUrl(raw, env), request, env);
         if (!response.ok)
           throw new ProxyError(502, "upstream_error", `Playlist source returned HTTP ${response.status}`);
         const headers = corsHeaders(request, env);
         headers.set("Content-Type", "text/plain; charset=utf-8");
+        headers.set("X-YouTV-Source-URL", finalUrl.href);
         headers.set("Cache-Control", "no-store");
         return new Response(response.body, { status: 200, headers });
       }

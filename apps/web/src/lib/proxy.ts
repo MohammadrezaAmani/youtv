@@ -150,6 +150,20 @@ export function resolveTextSource(
   return { url: proxyUrl(source, worker, "text"), workerId: worker.id };
 }
 
+/** The relay URL is not the base of the upstream playlist. A direct fetch can
+ * use Response.url; a Worker must expose the last validated redirect target. */
+export function playlistResponseBase(
+  response: Pick<Response, "headers" | "url">,
+  original: string,
+  proxied: boolean,
+): string {
+  const candidate = proxied ? response.headers.get("X-YouTV-Source-URL") : response.url;
+  if (candidate) {
+    try { return normalizeStreamUrl(candidate); } catch { /* invalid metadata */ }
+  }
+  return original;
+}
+
 /** Build a first-party Worker endpoint while preserving subpath deployments. */
 export function workerEndpoint(
   worker: WorkerProfile,

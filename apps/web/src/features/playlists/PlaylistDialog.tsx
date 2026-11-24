@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parseM3u } from "@/lib/playlist";
-import { resolveTextSource, needsHttpsRelay } from "@/lib/proxy";
+import { resolveTextSource, needsHttpsRelay, playlistResponseBase } from "@/lib/proxy";
 import { normalizeError } from "@/lib/utils";
 import { ui } from "@/lib/labels";
 import { useYoutv } from "@/stores/useYoutv";
@@ -95,7 +95,7 @@ export default function PlaylistDialog({
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         const text = await res.text();
-        parse(text, source.toString());
+        parse(text, playlistResponseBase(res, source.toString(), Boolean(routed.workerId)));
         setPreviewWorkerId(routed.workerId);
         if (!name) setName(source.hostname);
       } finally {

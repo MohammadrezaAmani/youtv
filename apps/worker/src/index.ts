@@ -27,6 +27,7 @@ import {
 
 export interface Env extends ProxyEnv {}
 const MAX_REDIRECTS = 4;
+const MAX_SOURCE_REDIRECTS = 10;
 const VERSION = "0.36.1";
 
 function json(
@@ -511,7 +512,7 @@ async function fetchSource(
   directives = new URLSearchParams(),
 ): Promise<{ response: Response; finalUrl: URL }> {
   let current = url;
-  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+  for (let i = 0; i <= MAX_SOURCE_REDIRECTS; i++) {
     current = assertAllowedUrl(current.toString(), env);
     // hls.js appends _HLS_* to the outer /proxy URL. The origin must receive
     // these as query parameters on its playlist URL, not on workers.dev.
@@ -566,6 +567,7 @@ async function fetchSource(
         "bad_redirect",
         "Upstream redirect lacks Location",
       );
+    await response.body?.cancel().catch(() => undefined);
     current = assertAllowedUrl(new URL(location, current).toString(), env);
   }
   throw new ProxyError(502, "redirect_limit", "Too many upstream redirects");
@@ -614,6 +616,7 @@ async function proxy(
   const headers = corsHeaders(request, env);
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
+  headers.set("X-YouTV-Source-URL", finalUrl.href);
   for (const name of [
     "Content-Type",
     "Content-Range",
@@ -704,10 +707,7 @@ async function proxy(
   if (
     request.method !== "HEAD" &&
     response.ok &&
-    response.status !== 206 &&
-    (hlsManifest ||
-      dashManifest ||
-      !/^(?:video|audio|image)\//i.test(responseType))
+    response.status !== 206
   ) {
     const peeked = await peekStream(responseBody, 4096);
     responseBody = peeked.body;
@@ -933,7 +933,7 @@ export default {
             "missing_url",
             "url query parameter is required",
           );
-        const { response } = await fetchSource(
+        const { response, finalUrl } = await fetchSource(
           assertAllowedUrl(raw, env),
           request,
           env,
@@ -948,6 +948,7 @@ export default {
         // browser instead of buffering the entire file or rejecting large lists.
         const headers = corsHeaders(request, env);
         headers.set("Content-Type", "text/plain; charset=utf-8");
+        headers.set("X-YouTV-Source-URL", finalUrl.href);
         headers.set("Cache-Control", "no-store");
         return new Response(response.body, { status: 200, headers });
       }

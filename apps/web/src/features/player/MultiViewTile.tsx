@@ -1,6 +1,7 @@
 import { ChannelImage } from "@/components/common/RoutedAsset";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
+import { hlsRelayLoader } from "./hlsRelayLoader";
 import {
   Maximize2,
   Minimize2,
@@ -182,6 +183,7 @@ export default function MultiViewTile({
       video.crossOrigin = "anonymous";
       engine = new Hls({
         ...getHlsProfile(settings.hlsLatencyMode),
+        ...(mode.stream?.worker ? { loader: hlsRelayLoader(mode.stream.worker, url) } : {}),
         maxBufferLength: settings.hlsLatencyMode === "low" ? 16 : 24,
         maxMaxBufferLength: settings.hlsLatencyMode === "low" ? 32 : 42,
         capLevelToPlayerSize: true,

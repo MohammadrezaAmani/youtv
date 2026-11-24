@@ -17,6 +17,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import Hls from "hls.js";
+import { hlsRelayLoader } from "./hlsRelayLoader";
 import {
   Activity,
   AlertTriangle,
@@ -774,7 +775,7 @@ export default function PlayerStage({
         }
       })();
     } else if (playbackEngine === "hlsjs") {
-      const engine = new Hls({ ...getHlsProfile(settings.hlsLatencyMode) });
+      const engine = new Hls({ ...getHlsProfile(settings.hlsLatencyMode), ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl) } : {}) });
       hlsRef.current = engine;
       engine.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         if (disposed) return;

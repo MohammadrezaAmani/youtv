@@ -198,7 +198,9 @@ function resourceUrl(
 }
 
 function normalizeDirective(line: string): string {
-  const trimmed = line.trim();
+  const trimmed = line.replace(/^\s*\uFEFF/, "").trim();
+  // Tolerate attributes or a trailing comment on the M3U header.
+  if (/^#?EXTM3U(?:\s|:|$)/i.test(trimmed)) return "#EXTM3U";
   // Providers sometimes omit the hash, use lowercase tags or add whitespace.
   const match = /^#?(EXTM3U|EXTINF|EXT-X-[A-Z0-9-]+)(?::(.*))?$/i.exec(trimmed);
   if (!match) return line;
@@ -284,7 +286,7 @@ export function rewriteHls(
         pendingPlaylistUri || /\.m3u8?(?:[?#]|$)/i.test(trimmed);
       pendingPlaylistUri = false;
       const uri = rewriteUrl(trimmed, "", "", isPlaylist);
-      return normalized.replace(trimmed, uri);
+      return normalized.replace(trimmed, () => uri);
     }
     if (trimmed.startsWith("#EXT-X-STREAM-INF:")) pendingPlaylistUri = true;
     if (trimmed.startsWith("#EXTM3U")) return normalized;
@@ -329,7 +331,7 @@ export function rewriteHls(
 
     if (tag === "EXT-X-PREFETCH") {
       const uri = rewriteUrl(parameter.trim(), tag);
-      return normalized.replace(parameter, uri);
+      return normalized.replace(parameter, () => uri);
     }
     const names = URI_ATTRIBUTES[tag];
     if (!names || !parameter) return normalized;
@@ -349,7 +351,7 @@ export function rewriteHls(
       return part.replace(/^\s*[^=]+\s*=\s*.*$/, `${attr.name}=${value}`);
     });
     const next = `${trimmed.slice(0, trimmed.indexOf(":") + 1)}${rewritten.join(",")}`;
-    return normalized.replace(trimmed, next);
+    return normalized.replace(trimmed, () => next);
   });
   return output.join(newline);
 }
