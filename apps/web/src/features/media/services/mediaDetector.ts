@@ -141,7 +141,13 @@ export async function probeDirectMedia(
     cache: "no-store",
     signal: AbortSignal.timeout(15000),
   });
-  const data = (await response.json()) as {
+  if (response.status === 404) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Worker /probe HTTP 404: check the Worker base URL and deploy the current Worker");
+  }
+  const data = (await response.json().catch(() => {
+    throw new Error(`Worker /probe HTTP ${response.status}: expected a JSON response from YouTV Worker`);
+  })) as {
     status?: number;
     contentType?: string;
     contentLength?: number | null;
@@ -152,7 +158,9 @@ export async function probeDirectMedia(
   };
   if (!response.ok || data.status === undefined || Number(data.status) >= 400)
     throw new Error(
-      data.error || `Media probe HTTP ${data.status || response.status}`,
+      !response.ok
+        ? `Worker /probe HTTP ${response.status}: ${data.error || "request failed"}`
+        : `Upstream HTTP ${data.status ?? "unknown"}: ${data.error || "media probe failed"}`,
     );
   const contentType = data.contentType || "";
   return {

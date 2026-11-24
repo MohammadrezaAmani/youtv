@@ -28,7 +28,7 @@ describe("HLS offline archive", () => {
     const calls: { url: string; range: string | null }[] = [];
     globalThis.fetch = vi.fn(async (input: any, init?: RequestInit) => {
       const url = String(input);
-      calls.push({ url, range: new Request(url, init).headers.get("range") });
+      calls.push({ url, range: new Request(url, { headers: init?.headers }).headers.get("range") });
       if (url === masterUrl)
         return textResponse(
           `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nhttps://worker.example/proxy?url=https%3A%2F%2Forigin.example%2Flow%2Findex.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2000\n${mediaUrl}`,

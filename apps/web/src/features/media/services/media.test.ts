@@ -259,7 +259,7 @@ describe("HLS offline archive", () => {
       if (target === "https://cdn.example/key.bin")
         return new Response(new Uint8Array([9, 8, 7]), { status: 200 });
       if (target === fileUrl) {
-        const range = new Request(url.toString(), init).headers.get("range") || "";
+        const range = new Request(url.toString(), { headers: init?.headers }).headers.get("range") || "";
         requests.push(range);
         const match = /^bytes=(\d+)-(\d+)$/.exec(range);
         if (!match) return new Response(null, { status: 416 });

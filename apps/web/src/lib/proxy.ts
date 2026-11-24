@@ -52,6 +52,21 @@ export function activeWorker(
   const id = channel.workerId || settings.defaultWorkerId;
   return workers.find((w) => w.id === id && w.enabled);
 }
+/** Accept a Worker base URL or a copied URL for a known Worker endpoint.
+ * A saved endpoint is not a mount directory. Never reuse query credentials
+ * from a copied request; the profile token is the sole authentication source.
+ * Preserve explicit mount prefixes for reverse-proxied installations. */
+export function normalizeWorkerBaseUrl(raw: string): string {
+  const base = new URL(normalizeStreamUrl(raw));
+  base.pathname = base.pathname.replace(/\/+$/, "").replace(
+    /\/(?:youtube\/fetch|instagram\/fetch|admin\/cloudflare|proxy|probe|text|health|capabilities)$/,
+    "",
+  ) + "/";
+  base.search = "";
+  base.hash = "";
+  return base.toString();
+}
+
 export function proxyUrl(
   url: string,
   worker: WorkerProfile,
@@ -59,7 +74,7 @@ export function proxyUrl(
   hls = false,
   hints?: { userAgent?: string; referer?: string },
 ): string {
-  const base = normalizeStreamUrl(worker.baseUrl);
+  const base = normalizeWorkerBaseUrl(worker.baseUrl);
   const path = new URL(route, base.endsWith("/") ? base : base + "/");
   path.searchParams.set("url", normalizeStreamUrl(url));
   if (worker.token) path.searchParams.set("key", worker.token);
@@ -141,7 +156,7 @@ export function workerEndpoint(
   route: string,
   params: Record<string, string> = {},
 ): string {
-  const base = normalizeStreamUrl(worker.baseUrl);
+  const base = normalizeWorkerBaseUrl(worker.baseUrl);
   const endpoint = new URL(
     route.replace(/^\/+/, ""),
     base.endsWith("/") ? base : base + "/",
@@ -181,10 +196,7 @@ export function createYoutubeFetch(worker: WorkerProfile): typeof fetch {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    const original =
-      input instanceof Request
-        ? new Request(input, init)
-        : new Request(input, init);
+    const original = new Request(input, init);
     const target = new URL(original.url);
     const host = target.hostname.toLowerCase();
     const youtubeHost =

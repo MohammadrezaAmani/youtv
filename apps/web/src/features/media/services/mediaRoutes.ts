@@ -48,8 +48,14 @@ export async function requireMediaCapability(worker: WorkerProfile, capability: 
   const response = await fetch(workerEndpoint(worker, "capabilities"), {
     credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(8000),
   });
-  if (!response.ok) throw new Error(`Worker /capabilities HTTP ${response.status}; deploy the current Worker from Proxy settings`);
-  const data = await response.json() as Record<string, unknown>;
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Worker /capabilities HTTP ${response.status}; check the Worker base URL and deploy the current Worker from Proxy settings`);
+  }
+  const data = await response.json().catch(() => {
+    throw new Error("Worker /capabilities did not return JSON; check the Worker base URL and deployment");
+  }) as Record<string, unknown>;
+  if (!data || typeof data !== "object") throw new Error("Invalid Worker capabilities response");
   if (data[capability] !== true)
     throw new Error(`Worker does not support ${capability}; deploy the current Worker from Proxy settings`);
   if (data.authentication === "query-token" && !worker.token)

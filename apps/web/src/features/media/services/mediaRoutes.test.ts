@@ -2,7 +2,8 @@
 import { test, expect } from "vitest";
 import { createServer } from "node:http";
 import type { WorkerProfile } from "@youtv/shared";
-import { createYoutubeFetch } from "@/lib/proxy";
+import { createYoutubeFetch, normalizeWorkerBaseUrl, proxyUrl, workerEndpoint } from "@/lib/proxy";
+import { probeDirectMedia } from "./mediaDetector";
 import { orderedMediaWorkers, withMediaWorkers, requireMediaCapability, mediaAssetUrls, openMediaAsset, primeMediaStream, archiveResourceRoutes, fetchArchiveResource } from "./mediaRoutes";
 import { discoverPlayerId, extractPlayerId } from "./youtubeBootstrap";
 
@@ -19,6 +20,10 @@ async function withServer(run: (base: string, calls: string[]) => Promise<void>)
       response.setHeader("X-YouTV-Proxy", "0.36.1");
       if (upstream.pathname === "/iframe_api" || upstream.pathname === "/watch") { response.writeHead(404); response.end(); return; }
       response.end('<script src="/s/player/a61444a1/player_ias.vflset/en_US/base.js"></script>'); return;
+    }
+    if (url.pathname.endsWith("/probe")) {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ ok: false, status: 404, kind: "file" })); return;
     }
     if (url.pathname.endsWith("/proxy")) {
       if (request.headers.range === "bytes=1-2") { response.writeHead(206, { "Content-Range": "bytes 1-2/4" }); response.end(Buffer.from([2,3])); return; }
@@ -81,3 +86,25 @@ test("aborted operations do not try another Worker", async () => {
   await expect(withMediaWorkers([profile("a"),profile("b")], async worker => { calls.push(worker.id); controller.abort(); controller.signal.throwIfAborted(); }, controller.signal)).rejects.toThrow();
   expect(calls).toEqual(["a"]);
 });
+
+// Existing imported profiles may contain an entire copied relay URL, not a base.
+test("normalizes copied Worker endpoints without reusing URL credentials or dropping mount prefixes", async () => withServer(async (base, calls) => {
+  const worker = profile("good", `${base}/good/proxy?url=https%3A%2F%2Fexample.org&key=old-secret#fragment`);
+  expect(normalizeWorkerBaseUrl(worker.baseUrl)).toBe(`${base}/good/`);
+  expect(normalizeWorkerBaseUrl(`${base}/good/youtube/fetch/`)).toBe(`${base}/good/`);
+  expect(normalizeWorkerBaseUrl(`${base}/good/health`)).toBe(`${base}/good/`);
+  expect(normalizeWorkerBaseUrl(`${base}/good/`)).toBe(`${base}/good/`);
+  const route = new URL(proxyUrl("https://origin.example/video.mp4", worker));
+  expect(route.pathname).toBe("/good/proxy");
+  expect(route.searchParams.get("key")).toBe(worker.token);
+  expect(route.hash).toBe("");
+  expect(new URL(workerEndpoint(worker, "health")).pathname).toBe("/good/health");
+  await requireMediaCapability(worker, "youtubeRelay");
+  expect((await createYoutubeFetch(worker)("https://www.youtube.com/iframe_api")).status).toBe(404);
+  expect(await discoverPlayerId(createYoutubeFetch(worker), "abcdefghijk")).toBe("a61444a1");
+  expect(calls).toEqual(["/good/capabilities", "/good/youtube/fetch", "/good/youtube/fetch", "/good/youtube/fetch"]);
+}));
+test("distinguishes a missing Worker probe endpoint from an upstream 404", async () => withServer(async (base) => {
+  await expect(probeDirectMedia("https://origin.example/video.mp4", profile("old", `${base}/old`))).rejects.toThrow(/Worker \/probe HTTP 404/);
+  await expect(probeDirectMedia("https://origin.example/video.mp4", profile("good", `${base}/good`))).rejects.toThrow(/Upstream HTTP 404/);
+}));

@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useYoutv } from "@/stores/useYoutv";
 import { normalizeError } from "@/lib/utils";
-import { proxyUrl } from "@/lib/proxy";
+import { normalizeWorkerBaseUrl, proxyUrl, workerEndpoint } from "@/lib/proxy";
 import { ui } from "@/lib/labels";
 import CloudflareManager from "./CloudflareManager";
 import CloudflareGuide from "./CloudflareGuide";
@@ -73,7 +73,7 @@ export default function ProxyPage() {
       const value = workerSchema.parse({
         id: crypto.randomUUID(),
         name: name.trim(),
-        baseUrl: normalized.toString(),
+        baseUrl: normalizeWorkerBaseUrl(normalized.toString()),
         token: withToken ? token.trim() : "",
         enabled: true,
       });
@@ -118,7 +118,7 @@ export default function ProxyPage() {
       const parsed = workerSchema.parse({
         ...worker,
         name: editName.trim(),
-        baseUrl: target.toString(),
+        baseUrl: normalizeWorkerBaseUrl(target.toString()),
       });
       save(parsed);
       setEditingWorker("");
@@ -209,12 +209,11 @@ export default function ProxyPage() {
   const health = async (id: string, base: string) => {
     setResults((s) => ({ ...s, [id]: "Checking…" }));
     try {
+      const worker = workers.find((item) => item.id === id);
+      if (!worker) throw new Error("Worker not found");
+      const endpoint = workerEndpoint({ ...worker, baseUrl: base, token: "" }, "health");
       const controller = new AbortController(),
         timer = setTimeout(() => controller.abort(), 7000);
-      const endpoint = new URL(
-        "health",
-        base.endsWith("/") ? base : base + "/",
-      );
       let result: Response;
       try {
         result = await fetch(endpoint, {
@@ -224,6 +223,7 @@ export default function ProxyPage() {
       } finally {
         clearTimeout(timer);
       }
+      if (!result.ok) throw new Error(`Worker /health HTTP ${result.status}; check the Worker base URL and deployment`);
       const body: unknown = await result.json();
       if (
         !result.ok ||
