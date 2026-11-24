@@ -21,6 +21,19 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Configure GitHub Pages base path
+        shell: bash
+        run: |
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          repository_name="${repository_name,,}"
+          owner_name="${GITHUB_REPOSITORY_OWNER,,}"
+          if [[ "$repository_name" == "${owner_name}.github.io" ]]; then
+            base_path="/"
+          else
+            base_path="/${repository_name}/"
+          fi
+          echo "VITE_BASE_PATH=${base_path}" >> "$GITHUB_ENV"
+          echo "GitHub Pages Vite base path: ${base_path}"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.5
@@ -32,6 +45,8 @@ jobs:
         run: bun run check && bun run test
       - name: Build static app with original source folders
         run: bun run --cwd apps/web build
+      - name: Verify GitHub Pages asset paths
+        run: node scripts/verify-pages-assets.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -7,6 +7,14 @@ describe("installable, scoped PWA configuration", () => {
     expect(manifest.id).toBe("/my-repository/");
     expect(manifest.start_url).toBe("/my-repository/#/");
     expect(manifest.scope).toBe("/my-repository/");
+    expect(
+      manifest.icons.every((icon) => icon.src.startsWith("/my-repository/")),
+    ).toBe(true);
+    expect(
+      manifest.shortcuts.every((shortcut) =>
+        shortcut.url.startsWith("/my-repository/"),
+      ),
+    ).toBe(true);
     expect(manifest.display).toBe("standalone");
     expect(
       manifest.icons.some(
