@@ -165,7 +165,7 @@ export function corsHeaders(request: Request, env: ProxyEnv): Headers {
   );
   h.set(
     "Access-Control-Expose-Headers",
-    "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy, X-YouTV-Source-URL",
+    "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, Retry-After, X-YouTV-Proxy, X-YouTV-Source-URL",
   );
   h.set("Access-Control-Max-Age", "3600");
   return h;

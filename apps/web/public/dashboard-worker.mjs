@@ -93,7 +93,7 @@ function corsHeaders(request, env) {
     h.set("Access-Control-Allow-Origin", origin);
   h.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
   h.set("Access-Control-Allow-Headers", "Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token, X-YouTube-Client-Name, X-YouTube-Client-Version, X-Goog-Visitor-Id, X-Goog-Api-Format-Version");
-  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy, X-YouTV-Source-URL");
+  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, Retry-After, X-YouTV-Proxy, X-YouTV-Source-URL");
   h.set("Access-Control-Max-Age", "3600");
   return h;
 }
@@ -863,6 +863,11 @@ function dashBaseTarget(requestUrl, env) {
 var MAX_REDIRECTS = 4;
 var MAX_SOURCE_REDIRECTS = 10;
 var VERSION = "0.36.1";
+var PROXY_USER_AGENT = `YouTV/${VERSION} (https://github.com/MohammadrezaAmani/youtv/issues)`;
+function isWikimediaMediaHost(url) {
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  return host === "upload.wikimedia.org" || host === "thumb.wikimedia.org";
+}
 function json(request, env, value, status = 200) {
   const headers = corsHeaders(request, env);
   headers.set("Content-Type", "application/json; charset=utf-8");
@@ -1170,7 +1175,7 @@ async function fetchSource(url, request, env, directives = new URLSearchParams) 
     current = assertAllowedUrl(current.toString(), env);
     directives.forEach((value, name) => current.searchParams.set(name, value));
     const headers = new Headers;
-    for (const key of ["Range", "If-Range", "Accept"]) {
+    for (const key of ["Range", "If-Range", "Accept", "Accept-Language"]) {
       const v = request.headers.get(key);
       if (v)
         headers.set(key, v);
@@ -1193,8 +1198,13 @@ async function fetchSource(url, request, env, directives = new URLSearchParams) 
         throw new ProxyError(400, "invalid_referer", "Referer must be HTTP(S)");
       headers.set("Referer", ref.toString());
     }
-    if (agent)
-      headers.set("User-Agent", agent);
+    const incomingAgent = request.headers.get("User-Agent")?.trim() || "";
+    const clientAgent = incomingAgent.length <= 512 && !/[\r\n\x00-\x1f]/.test(incomingAgent) ? incomingAgent : "";
+    if (isWikimediaMediaHost(current)) {
+      headers.set("User-Agent", PROXY_USER_AGENT + (clientAgent ? ` ${clientAgent}` : ""));
+    } else {
+      headers.set("User-Agent", agent || clientAgent || PROXY_USER_AGENT);
+    }
     const response = await fetch(current.toString(), {
       method: request.method === "HEAD" ? "HEAD" : "GET",
       headers,
@@ -1240,7 +1250,8 @@ async function proxy(request, env, reqUrl) {
     "Content-Range",
     "Accept-Ranges",
     "ETag",
-    "Last-Modified"
+    "Last-Modified",
+    "Retry-After"
   ]) {
     const v = response.headers.get(name);
     if (v)

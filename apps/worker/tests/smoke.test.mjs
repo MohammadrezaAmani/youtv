@@ -461,3 +461,128 @@ test("Telewebion malformed HLS master is served by /proxy", async (t) => {
     );
   assert.doesNotMatch(rewritten, /^EXT-X-VERSION:/m);
 });
+
+
+test("Wikimedia image requests identify YouTV and preserve bytes and range", async (t) => {
+  const previous = globalThis.fetch;
+  const source = "https://upload.wikimedia.org/wikipedia/fa/thumb/9/94/Bushehr_TV.svg/500px-Bushehr_TV.svg.png";
+  const bytes = new Uint8Array([137, 80, 78, 71]);
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, headers: new Headers(opts.headers) });
+    return new Response(bytes, { status: 206, headers: {
+      "Content-Type": "image/png", "Content-Range": "bytes 0-3/100",
+    } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const target = new URL(req(source).url);
+  target.searchParams.set("ua", "Mozilla/5.0");
+  const response = await worker.fetch(new Request(target, { headers: {
+    Origin: "https://mohammadrezaamani.github.io", Range: "bytes=0-3",
+  } }), { ...env, ALLOWED_HOSTS: "*" });
+  assert.equal(response.status, 206);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, source);
+  assert.match(calls[0].headers.get("User-Agent"), /^YouTV\/\d+\.\d+\.\d+ \(https:\/\/github\.com\/MohammadrezaAmani\/youtv\/issues\)$/);
+  assert.equal(calls[0].headers.get("Range"), "bytes=0-3");
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
+});
+
+test("Wikimedia identification is applied after redirects without changing other upstream hints", async (t) => {
+  const previous = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push(new Headers(opts.headers).get("User-Agent"));
+    if (calls.length === 1) return new Response(null, { status: 302, headers: {
+      Location: "https://upload.wikimedia.org/wikipedia/commons/logo.png",
+    } });
+    return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const target = new URL(req("https://media.example.com/logo.png").url);
+  target.searchParams.set("ua", "CustomIPTV/1.0");
+  const response = await worker.fetch(new Request(target), { ...env, ALLOWED_HOSTS: "*" });
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0], "CustomIPTV/1.0");
+  assert.match(calls[1], /^YouTV\//);
+});
+
+test("Wikimedia rate limiting is returned with Retry-After without proxy retry", async (t) => {
+  const previous = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("Too many requests", { status: 429, headers: { "Retry-After": "60" } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const response = await worker.fetch(req("https://upload.wikimedia.org/wikipedia/commons/logo.png"), { ...env, ALLOWED_HOSTS: "*" });
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "60");
+  assert.match(response.headers.get("Access-Control-Expose-Headers"), /Retry-After/);
+  assert.equal(calls, 1);
+  assert.equal(await response.text(), "Too many requests");
+});
+
+
+test("proxy forwards the real Chrome agent and safe request preferences", async (t) => {
+  const previous = globalThis.fetch;
+  const ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+  const calls = [];
+  globalThis.fetch = async (_url, opts) => {
+    calls.push(new Headers(opts.headers));
+    return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const target = new URL(req("https://media.example.com/logo.png").url);
+  const response = await worker.fetch(new Request(target, { headers: {
+    "User-Agent": ua, "Accept": "image/png,image/*;q=0.8", "Accept-Language": "fa,en;q=0.8",
+    Cookie: "session=private", Authorization: "Bearer private",
+  } }), env);
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].get("User-Agent"), ua);
+  assert.equal(calls[0].get("Accept"), "image/png,image/*;q=0.8");
+  assert.equal(calls[0].get("Accept-Language"), "fa,en;q=0.8");
+  assert.equal(calls[0].get("Cookie"), null);
+  assert.equal(calls[0].get("Authorization"), null);
+});
+
+test("Wikimedia identifies the relay and retains the actual browser agent", async (t) => {
+  const previous = globalThis.fetch;
+  const ua = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0";
+  let sent;
+  globalThis.fetch = async (_url, opts) => {
+    sent = new Headers(opts.headers);
+    return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const target = new URL(req("https://upload.wikimedia.org/wikipedia/commons/logo.png").url);
+  target.searchParams.set("ua", "MadeUpAgent/1.0");
+  const response = await worker.fetch(new Request(target, { headers: { "User-Agent": ua } }), { ...env, ALLOWED_HOSTS: "*" });
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.match(sent.get("User-Agent"), /^YouTV\/\d+\.\d+\.\d+ \(https:\/\/github\.com\/MohammadrezaAmani\/youtv\/issues\) /);
+  assert.ok(sent.get("User-Agent").endsWith(ua));
+  assert.ok(!sent.get("User-Agent").includes("MadeUpAgent"));
+});
+
+test("proxy preserves explicit IPTV hints and identifies requests without a client agent", async (t) => {
+  const previous = globalThis.fetch;
+  const agents = [];
+  globalThis.fetch = async (_url, opts) => {
+    agents.push(new Headers(opts.headers).get("User-Agent"));
+    return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "Content-Type": "image/png" } });
+  };
+  t.after(() => { globalThis.fetch = previous; });
+  const target = new URL(req("https://media.example.com/logo.png").url);
+  const plain = await worker.fetch(new Request(target), env);
+  await plain.arrayBuffer();
+  target.searchParams.set("ua", "IPTV/2.0");
+  const explicit = await worker.fetch(new Request(target, { headers: { "User-Agent": "Browser/1.0" } }), env);
+  await explicit.arrayBuffer();
+  assert.match(agents[0], /^YouTV\//);
+  assert.equal(agents[1], "IPTV/2.0");
+});
