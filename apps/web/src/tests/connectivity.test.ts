@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createChannel, defaultState, type WorkerProfile } from "@youtv/shared";
 import { probeChannel, scanChannels } from "@/lib/connectivity";
-import { readCatalogAsset } from "@/lib/catalogCache";
-
-vi.mock("@/lib/catalogCache", () => ({ readCatalogAsset: vi.fn() }));
 
 const channel = createChannel({
   id: "connectivity-a",
@@ -88,61 +85,7 @@ describe("channel connectivity probes", () => {
     expect(result.status).toBe("online");
     expect(result.elapsedMs).toBe(23);
   });
-  it("uses the first-party verified DNS report for NXDOMAIN, without a public DNS request", async () => {
-    vi.stubEnv("VITE_YOUTV_CURATED", "1");
-    vi.mocked(readCatalogAsset).mockResolvedValue(
-      JSON.stringify({
-        generatedAt: "2026-11-24T00:00:00Z",
-        nxdomain: ["removed-domain.example.invalid"],
-        noAddress: [],
-      }),
-    );
-    const missing = {
-      ...channel,
-      id: "dead-dns",
-      url: "https://removed-domain.example.invalid/live.m3u8",
-    };
-    const fetching = vi.fn(async (_input: string | URL) => {
-      throw new TypeError("Failed to fetch");
-    });
-    vi.stubGlobal("fetch", fetching);
-    const result = await probeChannel(missing, settings, []);
-    expect(result.status).toBe("offline");
-    expect(result.detail).toContain("NXDOMAIN");
-    expect(readCatalogAsset).toHaveBeenCalledWith(
-      "sources/_verified/dns-status.json",
-    );
-    expect(fetching).toHaveBeenCalledTimes(1);
-    expect(fetching.mock.calls[0]?.[0]).toBe(missing.url);
-  });
-  it("uses the verified no-address report for missing A/AAAA records", async () => {
-    vi.stubEnv("VITE_YOUTV_CURATED", "1");
-    vi.mocked(readCatalogAsset).mockResolvedValue(
-      JSON.stringify({
-        nxdomain: [],
-        noAddress: ["no-address.example.invalid"],
-      }),
-    );
-    const missing = {
-      ...channel,
-      id: "no-address",
-      url: "https://no-address.example.invalid/live.m3u8",
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("Failed to fetch");
-      }),
-    );
-    const result = await probeChannel(missing, settings, []);
-    expect(result.status).toBe("offline");
-    expect(result.detail).toContain("no A/AAAA");
-  });
-  it("does not call any DoH service when the first-party report is unavailable", async () => {
-    vi.stubEnv("VITE_YOUTV_CURATED", "1");
-    vi.mocked(readCatalogAsset).mockRejectedValue(
-      new Error("No saved report and offline"),
-    );
+  it("does not request obsolete reports or external DNS services", async () => {
     const fetching = vi.fn(async (_input: string | URL) => {
       throw new TypeError("Failed to fetch");
     });
@@ -158,7 +101,6 @@ describe("channel connectivity probes", () => {
     expect(fetching.mock.calls[0]?.[0]).toBe(channel.url);
   });
   it("keeps genuine timeouts inconclusive without consulting a third-party resolver", async () => {
-    vi.stubEnv("VITE_YOUTV_CURATED", "0");
     const timedOut = {
       ...channel,
       id: "dns-timeout-unknown",

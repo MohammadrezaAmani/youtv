@@ -16,12 +16,13 @@ import {
   FolderOpen,
   RefreshCw,
 } from "lucide-react";
-import { createChannel } from "@youtv/shared";
+import { DEFAULT_COUNTRY_SOURCE } from "@youtv/shared";
 import { ActionButton } from "@/components/ui/action-button";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SearchBox } from "@/components/ui/search-box";
-import { FOLDER_SOURCE_PREFIX } from "@/lib/builtin";
-import { parseM3u } from "@/lib/playlist";
+import { FOLDER_SOURCE_PREFIX, folderSourceUrl as sourceUrl, isFolderSourceEnabled, isLegacySource, isIndexSource, readFolderPlaylist } from "@/lib/builtin";
+import { sourceDisplayName } from "@/lib/sourceNames";
 import { normalizeError } from "@/lib/utils";
 import { readCatalogAsset } from "@/lib/catalogCache";
 import { useYoutv } from "@/stores/useYoutv";
@@ -47,8 +48,6 @@ type FolderIndex = {
 };
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-const sourceUrl = (path: string) =>
-  `${import.meta.env.BASE_URL}sources/${path.split("/").map(encodeURIComponent).join("/")}`;
 const pathIsSafe = (path: string) =>
   path.length > 0 &&
   !path.startsWith("/") &&
@@ -58,12 +57,6 @@ const pathIsSafe = (path: string) =>
       (part) =>
         part === "" || part === "." || part === ".." || part.includes("\\"),
     );
-const nameWithoutExtension = (name: string) =>
-  name
-    .replace(/\.m3u8?$/i, "")
-    .replace(/[_-]+/g, " ")
-    .trim();
-
 /** Relative markdown images and links resolve within the matching source folder. */
 function readmeUrlTransform(value: string, readmePath: string): string {
   try {
@@ -175,7 +168,7 @@ export default function FolderSources() {
     [query, setQuery] = useState("");
   const [error, setError] = useState(""),
     [messages, setMessages] = useState<Record<string, string>>({});
-  const [opened, setOpened] = useState<Record<string, boolean>>({ "": true });
+  const [opened, setOpened] = useState<Record<string, boolean>>({ "": true, "world-iptv": true, "world-iptv/countries": true });
   const [readmeOpen, setReadmeOpen] = useState<Record<string, boolean>>({});
   const applyCatalog = (raw: string) => {
     const data: unknown = JSON.parse(raw);
@@ -191,9 +184,9 @@ export default function FolderSources() {
       sources: unknown[];
       folders?: unknown[];
     };
-    const sources = entry.sources.filter(isSource);
+    const sources = entry.sources.filter(isSource).filter(source => !isLegacySource(source.path));
     const folders = Array.isArray(entry.folders)
-      ? entry.folders.filter(isFolder)
+      ? entry.folders.filter(isFolder).filter(folder => !isLegacySource(folder.path))
       : [];
     setCatalog({ version: entry.version || 1, sources, folders });
   };
@@ -270,9 +263,9 @@ export default function FolderSources() {
     () =>
       sources.filter(
         (source) =>
-          !normalized || source.path.toLocaleLowerCase().includes(normalized),
+          !normalized || [source.path, sourceDisplayName(source.path, settings.language), sourceDisplayName(source.path, "en"), ...source.path.split("/").slice(0, -1).map((_, i) => sourceDisplayName(source.path.split("/").slice(0, i + 1).join("/"), settings.language))].some(value => value.toLocaleLowerCase().includes(normalized)),
       ),
-    [sources, normalized],
+    [sources, normalized, settings.language],
   );
   const visibleFolders = useMemo(() => {
     if (!normalized) return effectiveFolders;
@@ -280,19 +273,21 @@ export default function FolderSources() {
       (folder) =>
         folder.path === "" ||
         folder.path.toLocaleLowerCase().includes(normalized) ||
+        sourceDisplayName(folder.path, settings.language).toLocaleLowerCase().includes(normalized) ||
         visibleSources.some((source) =>
           source.path.startsWith(folder.path ? `${folder.path}/` : ""),
         ),
     );
-  }, [effectiveFolders, normalized, visibleSources]);
+  }, [effectiveFolders, normalized, visibleSources, settings.language]);
   const directSources = useMemo(() => {
     const out = new Map<string, Source[]>();
     for (const source of visibleSources) {
       const parent = parentOf(source.path);
       out.set(parent, [...(out.get(parent) || []), source]);
     }
+    for (const items of out.values()) items.sort((a, b) => Number(b.path === DEFAULT_COUNTRY_SOURCE) - Number(a.path === DEFAULT_COUNTRY_SOURCE) || sourceDisplayName(a.path, settings.language).localeCompare(sourceDisplayName(b.path, settings.language), settings.language));
     return out;
-  }, [visibleSources]);
+  }, [visibleSources, settings.language]);
   const directFolders = useMemo(() => {
     const out = new Map<string, SourceFolder[]>();
     for (const folder of visibleFolders) {
@@ -303,7 +298,7 @@ export default function FolderSources() {
     return out;
   }, [visibleFolders]);
   const activeCount = sources.filter(
-    (source) => settings.folderSourceEnabled[source.path] === true,
+    (source) => isFolderSourceEnabled(source.path, settings),
   ).length;
   const availableChannels = sources.reduce(
     (sum, source) => sum + source.channelCount,
@@ -318,11 +313,11 @@ export default function FolderSources() {
   }, [channels]);
 
   const toggle = async (source: Source, enable: boolean) => {
-    if (busy) return;
+    if (busy || isIndexSource(source.path)) return;
     if (!enable) {
       update({
         folderSourceEnabled: {
-          ...settings.folderSourceEnabled,
+          ...useYoutv.getState().settings.folderSourceEnabled,
           [source.path]: false,
         },
       });
@@ -340,30 +335,8 @@ export default function FolderSources() {
     setBusy(source.path);
     setMessages((previous) => ({ ...previous, [source.path]: "" }));
     try {
-      const response = await fetch(sourceUrl(source.path), {
-        credentials: "omit",
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const id = FOLDER_SOURCE_PREFIX + source.path;
-      const result =
-        source.kind === "hls"
-          ? {
-              channels: [
-                createChannel({
-                  name: nameWithoutExtension(source.name),
-                  url: new URL(sourceUrl(source.path), window.location.origin)
-                    .href,
-                  format: "hls",
-                  group: parentOf(source.path),
-                }),
-              ],
-              warnings: [],
-            }
-          : parseM3u(
-              await response.text(),
-              new URL(sourceUrl(source.path), window.location.origin).href,
-            );
+      const result = await readFolderPlaylist(source.path, source.kind);
       const existing = useYoutv
         .getState()
         .playlists.find((playlist) => playlist.id === id);
@@ -398,13 +371,13 @@ export default function FolderSources() {
   };
 
   const renderSource = (source: Source) => {
-    const enabled = settings.folderSourceEnabled[source.path] === true;
+    const enabled = isFolderSourceEnabled(source.path, settings);
     const count = importedCounts.get(FOLDER_SOURCE_PREFIX + source.path);
-    const usable = source.kind !== "invalid";
+    const usable = source.kind !== "invalid" && !isIndexSource(source.path);
     return (
       <div className="folder-source-row" key={source.path}>
         <div className="folder-source-info">
-          <strong title={source.path}>{source.name}</strong>
+          <strong title={source.path}>{sourceDisplayName(source.path, settings.language)}</strong>
           <small>
             {`${count ?? source.channelCount} ${source.kind === "hls" ? (fa ? "استریم HLS" : "HLS stream") : fa ? "شبکه" : "channels"}`}{" "}
             ·{" "}
@@ -419,14 +392,16 @@ export default function FolderSources() {
             </small>
           )}
         </div>
-        <label className="folder-source-toggle">
+        {isIndexSource(source.path) ? (
+          <Button asChild size="sm" variant="outline"><a href={sourceUrl(source.path)} download>{fa ? "دانلود نمایه" : "Download index"}</a></Button>
+        ) : <label className="folder-source-toggle">
           <Checkbox
             disabled={Boolean(busy) || (!usable && !enabled)}
             checked={enabled}
             onChange={(event) => void toggle(source, event.target.checked)}
           />
           <span>{enabled ? (fa ? "فعال" : "On") : fa ? "غیرفعال" : "Off"}</span>
-        </label>
+        </label>}
         {enabled && (
           <ActionButton
             className="folder-source-refresh"
@@ -442,7 +417,7 @@ export default function FolderSources() {
   };
   const renderFolder = (folder: SourceFolder, depth: number): ReactNode => {
     const expanded = opened[folder.path] ?? (!normalized && folder.path === "");
-    const readmeVisible = readmeOpen[folder.path] !== false;
+    const readmeVisible = readmeOpen[folder.path] === true;
     const children = directFolders.get(folder.path) || [];
     const files = directSources.get(folder.path) || [];
     return (
@@ -463,7 +438,7 @@ export default function FolderSources() {
           >
             {expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
             {expanded ? <FolderOpen size={19} /> : <Folder size={19} />}
-            <strong dir="auto">{folder.name}</strong>
+            <strong dir="auto">{sourceDisplayName(folder.path, settings.language)}</strong>
             <span>
               {folder.fileCount.toLocaleString()} {fa ? "فایل" : "files"} ·{" "}
               {folder.channelCount.toLocaleString()} {fa ? "شبکه" : "channels"}
@@ -482,7 +457,7 @@ export default function FolderSources() {
                   onClick={() =>
                     setReadmeOpen((previous) => ({
                       ...previous,
-                      [folder.path]: previous[folder.path] === false,
+                      [folder.path]: !previous[folder.path],
                     }))
                   }
                   aria-expanded={readmeVisible}
@@ -493,7 +468,7 @@ export default function FolderSources() {
                       ? "اطلاعات و کاتالوگ منابع"
                       : "Source information & catalog"}
                   </strong>
-                  <span>README.md</span>
+                  <span>{folder.readme.split("/").at(-1)}</span>
                   {readmeVisible ? (
                     <ChevronDown size={15} />
                   ) : (
@@ -540,6 +515,7 @@ export default function FolderSources() {
             {availableChannels.toLocaleString()}{" "}
             {fa ? "ورودی شبکه" : "channel entries"}
           </p>
+          <p className="muted">{fa ? "ایران به‌طور پیش‌فرض فعال است. مجموعه جهانی و مناطق با کشورها هم‌پوشانی دارند؛ نمایه‌ها فقط قابل دانلود هستند." : "Iran is enabled by default. World and regional collections overlap with countries; indexes are download-only."}</p>
         </div>
         <ActionButton
           className="folder-sources-reload"

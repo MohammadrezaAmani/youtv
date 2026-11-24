@@ -90,7 +90,8 @@ export const healthResultSchema = z.object({
   detail: z.string().max(240).default(""),
 });
 export type HealthResult = z.infer<typeof healthResultSchema>;
-export const BUILTIN_PLAYLIST_ID = "youtv:builtin:default";
+export const BUILTIN_PLAYLIST_ID = "youtv:builtin:default"; // legacy backup compatibility
+export const DEFAULT_COUNTRY_SOURCE = "world-iptv/countries/ir.m3u";
 export const BUILTIN_WORKER_ID = "youtv:builtin:worker";
 export const builtinWorker: WorkerProfile = {
   id: BUILTIN_WORKER_ID,
@@ -102,7 +103,7 @@ export const builtinWorker: WorkerProfile = {
 
 export const settingsSchema = z.object({
   defaultPlaylistEnabled: z.boolean().default(true),
-  folderSourceEnabled: z.record(z.string(), z.boolean()).default({}),
+  folderSourceEnabled: z.record(z.string(), z.boolean()).default({ [DEFAULT_COUNTRY_SOURCE]: true }),
   cloudflareAccountId: z.string().max(32).default(""),
   cloudflareScriptName: z.string().max(64).default(""),
   healthCheckOnStartup: z.boolean().default(false),
@@ -169,7 +170,7 @@ export const defaultState: AppState = {
     cloudflareAccountId: "",
     cloudflareScriptName: "",
     defaultPlaylistEnabled: true,
-    folderSourceEnabled: {},
+    folderSourceEnabled: { [DEFAULT_COUNTRY_SOURCE]: true },
     healthCheckOnStartup: false,
     autoReconnect: true,
     reconnectMaxAttempts: 8,

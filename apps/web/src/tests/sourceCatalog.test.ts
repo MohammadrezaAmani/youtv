@@ -57,34 +57,18 @@ describe("filesystem source catalog", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
-  it("in curated mode lists only DNS-screened playlists while retaining source files on disk", async () => {
-    const root = await mkdtemp(join(tmpdir(), "youtv-curated-source-"));
+  it("reads original country files and ignores obsolete verified output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "youtv-country-source-"));
     try {
+      await mkdir(join(root, "world-iptv", "countries"), { recursive: true });
       await mkdir(join(root, "_verified"), { recursive: true });
-      await writeFile(
-        join(root, "old.m3u"),
-        "#EXTINF:-1,Old\nhttps://dead.example.invalid/stream.m3u8\n",
-      );
-      await mkdir(join(root, "_verified", "collections", "Iran"), {
-        recursive: true,
-      });
-      await writeFile(
-        join(root, "_verified", "online.m3u8"),
-        "#EXTINF:-1,Available\nhttps://resolved.example.org/live.m3u8\n",
-      );
-      await writeFile(
-        join(root, "_verified", "collections", "Iran", "news.m3u8"),
-        "#EXTINF:-1,Available\nhttps://resolved.example.org/live.m3u8\n",
-      );
-      await writeFile(join(root, "_verified", "README.md"), "# DNS verified");
-      const catalog = await scanSourceCatalog(root, true);
-      expect(catalog.sources.map((source) => source.path)).toEqual([
-        "_verified/collections/Iran/news.m3u8",
-      ]);
-      expect(
-        catalog.folders.find((folder) => folder.path === "_verified")?.readme,
-      ).toBe("_verified/README.md");
-      expect((await scanSourceCatalog(root)).sources).toHaveLength(3);
+      await writeFile(join(root, "world-iptv", "README.txt"), "Original source tree");
+      await writeFile(join(root, "world-iptv", "countries", "ir.m3u"), "#EXTINF:-1,Iran\nhttps://example.org/iran.m3u8\n");
+      await writeFile(join(root, "_verified", "online.m3u8"), "https://example.org/old.m3u8\n");
+      const catalog = await scanSourceCatalog(root);
+      expect(catalog.sources.map(source => source.path)).toEqual(["world-iptv/countries/ir.m3u"]);
+      expect(catalog.folders.find(folder => folder.path === "world-iptv")?.readme).toBe("world-iptv/README.txt");
+      expect(catalog.folders.some(folder => folder.path === "_verified")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -121,3 +121,7 @@ The player now prefers native HLS on iOS/iPadOS, even when `hls.js` reports Medi
 ## Media Center
 
 YouTV includes a browser-only Media Center for public YouTube videos/playlists, public Instagram posts/reels/carousels, direct media URLs, HLS and MPEG-DASH. It reuses the existing Cloudflare Worker for platform relay and binary streaming; it does not add a separate backend. See [docs/MEDIA-CENTER.fa.md](docs/MEDIA-CENTER.fa.md) for supported formats, download behavior and browser/source limitations.
+
+### Bundled IPTV sources
+
+The source catalog is generated from the actual `apps/web/public/sources/` directory in development and in the GitHub Pages build. The initial source is `world-iptv/countries/ir.m3u` (Iran). Other countries, regions, and the world master are opt-in through Playlists. The indexes overlap with the stream collections and are download-only. Country names are localized without changing the original file names. The former `_verified` output and legacy `default.m3u8` aggregate are no longer loaded by the application; the offline curation script remains available as a separate utility. Connectivity checks use live HTTP/Worker probes, not the former static DNS report.

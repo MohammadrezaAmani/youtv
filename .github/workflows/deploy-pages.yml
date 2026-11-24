@@ -30,10 +30,7 @@ jobs:
           python-version: "3.12"
       - name: Test and typecheck
         run: bun run check && bun run test
-      - name: Build curated static app (no raw/dead sources published)
-        env:
-          YOUTV_CURATED: "1"
-          VITE_YOUTV_CURATED: "1"
+      - name: Build static app with original source folders
         run: bun run --cwd apps/web build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

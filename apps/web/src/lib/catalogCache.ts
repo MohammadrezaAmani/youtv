@@ -6,12 +6,9 @@ import {
 
 /** Only immutable-ish application metadata is cached; never cache streaming media or Worker responses. */
 export type CatalogAsset =
-  | "sources/_verified/summary.json"
-  | "sources/_verified/dns-status.json"
-  | "sources/index.json"
-  | "default.m3u8";
+  "sources/index.json";
 
-const CACHE_NAMESPACE = "youtv:static-catalog:v1:";
+const CACHE_NAMESPACE = "youtv:static-catalog:v2:";
 export const CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
 export const CATALOG_RETRY_MS = 15 * 60 * 1000;
 const memory = new Map<CatalogAsset, StaticCacheRecord>();
@@ -71,16 +68,6 @@ async function download(path: CatalogAsset): Promise<string> {
       if (!data || typeof data !== "object")
         throw new Error(`Invalid catalog JSON: ${path}`);
       const record = data as Record<string, unknown>;
-      if (
-        path.endsWith("/summary.json") &&
-        (typeof record.digest !== "string" || !record.digest)
-      )
-        throw new Error("Invalid verified catalog digest");
-      if (
-        path.endsWith("/dns-status.json") &&
-        (!Array.isArray(record.nxdomain) || !Array.isArray(record.noAddress))
-      )
-        throw new Error("Invalid DNS status report");
       if (path.endsWith("/index.json") && !Array.isArray(record.sources))
         throw new Error("Invalid sources index");
     }
@@ -129,7 +116,7 @@ export async function readCatalogAsset(
           if (fresh !== cached.text) options.onUpdated?.(fresh);
         })
         .catch(() => {
-          /* Offline: keep the verified last-good snapshot. */
+          /* Offline: keep the last-good snapshot. */
         });
     }
     return cached.text;

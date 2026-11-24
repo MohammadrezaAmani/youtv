@@ -5,7 +5,6 @@ import {
   type WorkerProfile,
 } from "@youtv/shared";
 import { activeWorker, proxyUrl, needsHttpsRelay, effectiveConnectionMode } from "./proxy";
-import { readCatalogAsset } from "./catalogCache";
 
 type ProbeAnswer = {
   ok?: boolean;
@@ -38,67 +37,6 @@ function isValidHttpUrl(value: string) {
     return u.protocol === "https:" || u.protocol === "http:";
   } catch {
     return false;
-  }
-}
-
-// DNS negatives are produced by the real resolver in GitHub Actions and
-// published with the curated catalog. Never query a third-party DoH service
-// from the visitor's browser: such endpoints can be blocked in Iran.
-// readCatalogAsset is first-party, persisted in IndexedDB, and revalidated
-// no more than once per 6 hours (except an explicit user refresh).
-type DnsVerdict = "nxdomain" | "no_address" | "uncertain";
-let verifiedReportRaw: string | undefined;
-let verifiedDeadHosts = new Map<string, Exclude<DnsVerdict, "uncertain">>();
-async function checkDns(hostname: string): Promise<DnsVerdict> {
-  if (import.meta.env.VITE_YOUTV_CURATED !== "1") return "uncertain";
-  const host = hostname.replace(/\.$/, "").toLowerCase();
-  if (!host) return "uncertain";
-  try {
-    const raw = await readCatalogAsset("sources/_verified/dns-status.json");
-    if (raw !== verifiedReportRaw) {
-      const report = JSON.parse(raw) as {
-        nxdomain?: unknown;
-        noAddress?: unknown;
-      };
-      if (!Array.isArray(report.nxdomain) || !Array.isArray(report.noAddress))
-        return "uncertain";
-      const next = new Map<string, Exclude<DnsVerdict, "uncertain">>();
-      for (const item of report.nxdomain) {
-        if (typeof item === "string")
-          next.set(item.replace(/\.$/, "").toLowerCase(), "nxdomain");
-      }
-      for (const item of report.noAddress) {
-        if (typeof item === "string")
-          next.set(item.replace(/\.$/, "").toLowerCase(), "no_address");
-      }
-      verifiedDeadHosts = next;
-      verifiedReportRaw = raw;
-    }
-    return verifiedDeadHosts.get(host) ?? "uncertain";
-  } catch {
-    return "uncertain";
-  }
-}
-async function dnsFailure(
-  channel: Channel,
-  started: number,
-): Promise<HealthResult | undefined> {
-  try {
-    const host = new URL(channel.url).hostname;
-    const result = await checkDns(host);
-    if (result !== "nxdomain" && result !== "no_address") return undefined;
-    return {
-      status: "offline",
-      mode: "direct",
-      elapsedMs: elapsed(started),
-      checkedAt: Date.now(),
-      detail:
-        result === "nxdomain"
-          ? `DNS NXDOMAIN: ${host}`
-          : `DNS has no A/AAAA record: ${host}`,
-    };
-  } catch {
-    return undefined;
   }
 }
 
@@ -191,10 +129,7 @@ export async function probeChannel(
     }
   };
   if (useProxy) {
-    const result = await viaProxy();
-    return result.status === "unknown" && !signal?.aborted
-      ? ((await dnsFailure(channel, started)) ?? result)
-      : result;
+    return viaProxy();
   }
   try {
     const response = await fetch(channel.url, {
@@ -250,8 +185,6 @@ export async function probeChannel(
     if (auto && worker) {
       const result = await viaProxy();
       if (result.status !== "unknown") return result;
-      const dns = await dnsFailure(channel, started);
-      if (dns) return dns;
       if (isFailedToFetch(error))
         return {
           status: "offline",
@@ -266,8 +199,6 @@ export async function probeChannel(
           result.detail || "Direct probe inconclusive; checked through Worker",
       };
     }
-    const dns = await dnsFailure(channel, started);
-    if (dns) return dns;
     return {
       status: isFailedToFetch(error) ? "offline" : "unknown",
       mode: "direct",

@@ -1,5 +1,4 @@
 import { ChannelImage } from "@/components/common/RoutedAsset";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ActionButton } from "@/components/ui/action-button";
 import {
   lazy,
@@ -65,14 +64,15 @@ import {
 import {
   FOLDER_SOURCE_PREFIX,
   isVisibleChannel,
-  readBundledPlaylist,
+  DEFAULT_COUNTRY_ID,
+  isFolderSourceEnabled,
+  readFolderPlaylist,
 } from "@/lib/builtin";
-import { BUILTIN_PLAYLIST_ID } from "@youtv/shared";
+import { BUILTIN_PLAYLIST_ID, DEFAULT_COUNTRY_SOURCE } from "@youtv/shared";
 import ConnectivityPage from "@/features/connectivity/ConnectivityPage";
 import CategoriesPage from "@/features/categories/CategoriesPage";
 import { startScan } from "@/lib/scanManager";
 import { formatWhen, normalizeError } from "@/lib/utils";
-import { readCatalogAsset } from "@/lib/catalogCache";
 import { ui } from "@/lib/labels";
 import i18n from "@/locales";
 
@@ -104,181 +104,25 @@ function Shell() {
     workers = useYoutv((s) => s.workers),
     settings = useYoutv((s) => s.settings);
   const channels = useMemo(() => allChannels.filter((c) => isVisibleChannel(c, settings)),
-    [allChannels, settings.defaultPlaylistEnabled, settings.folderSourceEnabled]);
+    [allChannels, settings.folderSourceEnabled]);
   const [builtinError, setBuiltinError] = useState("");
+  const iranEnabled = isFolderSourceEnabled(DEFAULT_COUNTRY_SOURCE, settings);
   useEffect(() => {
-    if (import.meta.env.VITE_YOUTV_CURATED === "1") return;
-    if (
-      !settings.defaultPlaylistEnabled ||
-      allChannels.some((c) => c.sourceId === BUILTIN_PLAYLIST_ID)
-    )
-      return;
+    if (!iranEnabled || useYoutv.getState().playlists.some(p => p.id === DEFAULT_COUNTRY_ID)) return;
     const controller = new AbortController();
-    void readBundledPlaylist(controller.signal)
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        if (
-          useYoutv
-            .getState()
-            .channels.some((c) => c.sourceId === BUILTIN_PLAYLIST_ID)
-        )
-          return;
-        useYoutv
-          .getState()
-          .upsertChannels(result.channels, BUILTIN_PLAYLIST_ID);
-        useYoutv
-          .getState()
-          .savePlaylist({
-            id: BUILTIN_PLAYLIST_ID,
-            name: "YouTV Default",
-            url: "",
-            importedAt: Date.now(),
-            refreshedAt: null,
-            count: result.channels.length,
-            refreshWorkerId: "",
-          });
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setBuiltinError(normalizeError(error));
-      });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.defaultPlaylistEnabled]);
-  useEffect(() => {
-    if (
-      import.meta.env.VITE_YOUTV_CURATED !== "1" ||
-      !settings.defaultPlaylistEnabled
-    )
-      return;
-    let active = true;
-    const controller = new AbortController();
-    const applySummary = async (raw: string) => {
-      try {
-        const summary = JSON.parse(raw) as { digest?: string };
-        if (!summary.digest) throw new Error("Invalid DNS curation summary");
-        const title = `YouTV DNS verified ${summary.digest}`;
-        if (
-          useYoutv
-            .getState()
-            .playlists.some(
-              (playlist) =>
-                playlist.id === BUILTIN_PLAYLIST_ID && playlist.name === title,
-            )
-        )
-          return;
-        // Digest changed: bypass the default-playlist disk cache once to avoid
-        // importing the previous release under the new release's digest.
-        const result = await readBundledPlaylist(controller.signal, true);
-        if (!active || controller.signal.aborted) return;
+    setBuiltinError("");
+    void readFolderPlaylist(DEFAULT_COUNTRY_SOURCE, "playlist", controller.signal)
+      .then(result => {
         const store = useYoutv.getState();
-        if (
-          store.playlists.some(
-            (playlist) =>
-              playlist.id === BUILTIN_PLAYLIST_ID && playlist.name === title,
-          )
-        )
-          return;
-        store.upsertChannels(result.channels, BUILTIN_PLAYLIST_ID, true);
-        store.savePlaylist({
-          id: BUILTIN_PLAYLIST_ID,
-          name: title,
-          url: "",
-          importedAt: Date.now(),
-          refreshedAt: Date.now(),
-          count: result.channels.length,
-          refreshWorkerId: "",
-        });
-      } catch (error) {
-        if (active && !controller.signal.aborted)
-          setBuiltinError(normalizeError(error));
-      }
-    };
-    void readCatalogAsset("sources/_verified/summary.json", {
-      onUpdated: (raw) => {
-        if (active) void applySummary(raw);
-      },
-    })
-      .then((raw) => {
-        if (active) void applySummary(raw);
+        if (controller.signal.aborted || !isFolderSourceEnabled(DEFAULT_COUNTRY_SOURCE, store.settings) ||
+            store.playlists.some(p => p.id === DEFAULT_COUNTRY_ID)) return;
+        store.upsertChannels(result.channels, DEFAULT_COUNTRY_ID, true);
+        store.savePlaylist({ id: DEFAULT_COUNTRY_ID, name: DEFAULT_COUNTRY_SOURCE, url: "",
+          importedAt: Date.now(), refreshedAt: Date.now(), count: result.channels.length, refreshWorkerId: "" });
       })
-      .catch((error) => {
-        if (active) setBuiltinError(normalizeError(error));
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [settings.defaultPlaylistEnabled]);
-
-  // DNS report is disk-backed and revalidated at most every 6 hours, not on
-  // each reload or channel-count change. Still reapply it to newly imported
-  // channels so they inherit definite NXDOMAIN / no-address results.
-  useEffect(() => {
-    if (import.meta.env.VITE_YOUTV_CURATED !== "1") return;
-    let active = true;
-    const applyDnsReport = (raw: string) => {
-      if (!active) return;
-      try {
-        const report = JSON.parse(raw) as {
-          generatedAt: string;
-          nxdomain: string[];
-          noAddress: string[];
-        };
-        if (!Array.isArray(report.nxdomain) || !Array.isArray(report.noAddress))
-          return;
-        const dead = new Set([...report.nxdomain, ...report.noAddress]);
-        const noAddress = new Set(report.noAddress);
-        const updates: Record<string, import("@youtv/shared").HealthResult> =
-          {};
-        const checkedAt = Date.parse(report.generatedAt) || Date.now();
-        const state = useYoutv.getState();
-        for (const channel of state.channels) {
-          let host = "";
-          try {
-            host = new URL(channel.url).hostname
-              .replace(/\.$/, "")
-              .toLowerCase();
-          } catch {
-            continue;
-          }
-          if (!dead.has(host)) continue;
-          const previous = state.health[channel.id];
-          if (previous?.checkedAt && previous.checkedAt > checkedAt) continue;
-          if (
-            previous?.checkedAt === checkedAt &&
-            previous.status === "offline"
-          )
-            continue;
-          updates[channel.id] = {
-            status: "offline",
-            mode: "direct",
-            elapsedMs: 0,
-            checkedAt,
-            detail: noAddress.has(host)
-              ? "DNS no A/AAAA address"
-              : "DNS NXDOMAIN",
-          };
-        }
-        if (Object.keys(updates).length) state.setHealth(updates);
-      } catch {
-        /* An invalid optional DNS report must not block the player. */
-      }
-    };
-    void readCatalogAsset("sources/_verified/dns-status.json", {
-      onUpdated: (raw) => {
-        if (active) applyDnsReport(raw);
-      },
-    })
-      .then((raw) => {
-        if (active) applyDnsReport(raw);
-      })
-      .catch(() => {
-        /* Optional. */
-      });
-    return () => {
-      active = false;
-    };
-  }, [allChannels.length]);
+      .catch(error => { if (!controller.signal.aborted) setBuiltinError(normalizeError(error)); });
+    return () => controller.abort();
+  }, [iranEnabled]);
   const initialScanStarted = useRef(false);
   useEffect(() => {
     if (
@@ -288,8 +132,8 @@ function Shell() {
     )
       return;
     if (
-      settings.defaultPlaylistEnabled &&
-      !allChannels.some((c) => c.sourceId === BUILTIN_PLAYLIST_ID) &&
+      iranEnabled &&
+      !playlists.some((p) => p.id === DEFAULT_COUNTRY_ID) &&
       !builtinError
     )
       return;
@@ -301,7 +145,8 @@ function Shell() {
       initialScanStarted.current = true;
   }, [
     settings.healthCheckOnStartup,
-    settings.defaultPlaylistEnabled,
+    iranEnabled,
+    playlists,
     channels.length,
     allChannels,
     builtinError,
@@ -746,16 +591,16 @@ function Shell() {
                 </h2>
                 <span className="muted">
                   {playlists
-                    .filter((p) => !p.id.startsWith(FOLDER_SOURCE_PREFIX))
+                    .filter((p) => p.id !== BUILTIN_PLAYLIST_ID && !p.id.startsWith(FOLDER_SOURCE_PREFIX))
                     .length.toLocaleString()}{" "}
                   {settings.language === "fa" ? "منبع" : "sources"}
                 </span>
               </div>
-              {playlists.filter((p) => !p.id.startsWith(FOLDER_SOURCE_PREFIX))
+              {playlists.filter((p) => p.id !== BUILTIN_PLAYLIST_ID && !p.id.startsWith(FOLDER_SOURCE_PREFIX))
                 .length > 0 && (
                 <div className="playlist-grid">
                   {playlists
-                    .filter((p) => !p.id.startsWith(FOLDER_SOURCE_PREFIX))
+                    .filter((p) => p.id !== BUILTIN_PLAYLIST_ID && !p.id.startsWith(FOLDER_SOURCE_PREFIX))
                     .map((p) => (
                       <div key={p.id} className="panel-card playlist-card">
                         <div className="playlist-identity">
@@ -769,29 +614,7 @@ function Shell() {
                             </span>
                           </div>
                         </div>
-                        {p.id === BUILTIN_PLAYLIST_ID ? (
-                          <label className="checkbox-row">
-                            <Checkbox
-                              checked={settings.defaultPlaylistEnabled}
-                              onChange={(e) =>
-                                useYoutv
-                                  .getState()
-                                  .updateSettings({
-                                    defaultPlaylistEnabled: e.target.checked,
-                                  })
-                              }
-                            />{" "}
-                            {settings.language === "fa"
-                              ? "فعال بودن پلی‌لیست پیش‌فرض"
-                              : "Enable bundled playlist"}
-                          </label>
-                        ) : (
-                          p.url && (
-                            <div className="url-line" title={p.url}>
-                              {p.url}
-                            </div>
-                          )
-                        )}
+                        {p.url && <div className="url-line" title={p.url}>{p.url}</div>}
                         <small className="muted">
                           {formatWhen(p.importedAt, settings.language)}
                         </small>
@@ -1190,7 +1013,7 @@ function Shell() {
       />
       {builtinError && (
         <div className="toast-notice" role="alert">
-          Default playlist: {builtinError}
+          Iran / ایران: {builtinError}
           <ActionButton onClick={() => setBuiltinError("")}>
             <X size={16} />
           </ActionButton>

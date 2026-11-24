@@ -18,9 +18,8 @@ vi.mock("@/lib/indexedDbStorage", () => ({
   ),
 }));
 
-const SUMMARY = "sources/_verified/summary.json" as const;
-const DNS = "sources/_verified/dns-status.json" as const;
-const body = (digest: string) => JSON.stringify({ digest });
+const INDEX = "sources/index.json" as const;
+const body = (name: string) => JSON.stringify({ sources: [{ name }] });
 const response = (content: string, status = 200) => ({
   ok: status === 200,
   status,
@@ -45,14 +44,14 @@ describe("persistent static catalog caching", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     const first = await import("@/lib/catalogCache");
-    expect(await first.readCatalogAsset(SUMMARY)).toBe(body("one"));
+    expect(await first.readCatalogAsset(INDEX)).toBe(body("one"));
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0]?.[0]).toContain(
-      "/sources/_verified/summary.json",
+      "/sources/index.json",
     );
     vi.resetModules();
     const reloaded = await import("@/lib/catalogCache");
-    expect(await reloaded.readCatalogAsset(SUMMARY)).toBe(body("one"));
+    expect(await reloaded.readCatalogAsset(INDEX)).toBe(body("one"));
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("returns stale data immediately then updates it in the background", async () => {
@@ -61,32 +60,32 @@ describe("persistent static catalog caching", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     const first = await import("@/lib/catalogCache");
-    await first.readCatalogAsset(SUMMARY);
+    await first.readCatalogAsset(INDEX);
     vi.advanceTimersByTime(first.CATALOG_REFRESH_MS + 1);
     fetcher.mockImplementation(async () => response(body("three")));
     const onUpdated = vi.fn();
-    expect(await first.readCatalogAsset(SUMMARY, { onUpdated })).toBe(
+    expect(await first.readCatalogAsset(INDEX, { onUpdated })).toBe(
       body("two"),
     );
     // Promise microtasks from IndexedDB writes, fetch and callbacks.
     await vi.waitFor(() =>
       expect(onUpdated).toHaveBeenCalledWith(body("three")),
     );
-    expect(await first.readCatalogAsset(SUMMARY)).toBe(body("three"));
+    expect(await first.readCatalogAsset(INDEX)).toBe(body("three"));
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it("keeps stale DNS data after a failed network refresh and backs off", async () => {
+  it("keeps stale source data after a failed network refresh and backs off", async () => {
     const fetcher = vi.fn(async (_input?: RequestInfo | URL) =>
-      response('{"generatedAt":"2026-11-24","nxdomain":[],"noAddress":[]}'),
+      response(body("cached")),
     );
     vi.stubGlobal("fetch", fetcher);
     const cache = await import("@/lib/catalogCache");
-    const old = await cache.readCatalogAsset(DNS);
+    const old = await cache.readCatalogAsset(INDEX);
     vi.advanceTimersByTime(cache.CATALOG_REFRESH_MS + 1);
     fetcher.mockRejectedValue(new Error("offline"));
-    expect(await cache.readCatalogAsset(DNS)).toBe(old);
+    expect(await cache.readCatalogAsset(INDEX)).toBe(old);
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    expect(await cache.readCatalogAsset(DNS)).toBe(old);
+    expect(await cache.readCatalogAsset(INDEX)).toBe(old);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it("manual refresh bypasses a fresh snapshot", async () => {
@@ -95,9 +94,9 @@ describe("persistent static catalog caching", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     const cache = await import("@/lib/catalogCache");
-    await cache.readCatalogAsset(SUMMARY);
+    await cache.readCatalogAsset(INDEX);
     fetcher.mockImplementation(async () => response(body("new")));
-    expect(await cache.readCatalogAsset(SUMMARY, { force: true })).toBe(
+    expect(await cache.readCatalogAsset(INDEX, { force: true })).toBe(
       body("new"),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -108,7 +107,7 @@ describe("persistent static catalog caching", () => {
     );
     vi.stubGlobal("fetch", fetcher);
     const cache = await import("@/lib/catalogCache");
-    await expect(cache.readCatalogAsset(SUMMARY)).rejects.toThrow();
+    await expect(cache.readCatalogAsset(INDEX)).rejects.toThrow();
     expect(disk.size).toBe(0);
   });
 });

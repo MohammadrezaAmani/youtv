@@ -76,7 +76,6 @@ async function classify(
 
 export async function scanSourceCatalog(
   root = defaultRoot(),
-  verifiedOnly = false,
 ): Promise<LocalSourceCatalog> {
   const sources: LocalSourceEntry[] = [];
   const folders: LocalSourceFolder[] = [];
@@ -99,15 +98,7 @@ export async function scanSourceCatalog(
     };
     folders.push(folder);
     for (const entry of children.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (verifiedOnly && dir === root && entry.name !== "_verified") continue;
-      // The aggregate is served as default.m3u8. Show only individual checked
-      // original sources in the folder UI, otherwise users see duplicates.
-      if (
-        verifiedOnly &&
-        dir === join(root, "_verified") &&
-        entry.name === "online.m3u8"
-      )
-        continue;
+      if (entry.name === "_verified") continue;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -115,7 +106,7 @@ export async function scanSourceCatalog(
         continue;
       }
       if (!entry.isFile()) continue;
-      if (/^readme\.md$/i.test(entry.name)) {
+      if (/^readme\.(?:md|txt)$/i.test(entry.name)) {
         folder.readme = webPath(root, full);
         continue;
       }
@@ -153,8 +144,7 @@ export async function scanLocalSources(
 export function sourceCatalogPlugin(): Plugin {
   let root = defaultRoot();
   let outputRoot = "";
-  const curated = process.env.YOUTV_CURATED === "1";
-  const catalog = () => scanSourceCatalog(root, curated);
+  const catalog = () => scanSourceCatalog(root);
   return {
     name: "youtv-source-catalog",
     configResolved(config) {
@@ -167,7 +157,7 @@ export function sourceCatalogPlugin(): Plugin {
         const absolute = resolve(path);
         if (
           absolute.startsWith(root + sep) &&
-          /(?:\.m3u8?|readme\.md)$/i.test(absolute)
+          /(?:\.m3u8?|readme\.(?:md|txt))$/i.test(absolute)
         ) {
           server.ws.send({ type: "custom", event: "youtv:sources-changed" });
         }
@@ -190,11 +180,6 @@ export function sourceCatalogPlugin(): Plugin {
       });
     },
     async generateBundle() {
-      if (curated && !existsSync(resolve(root, "_verified", "summary.json"))) {
-        throw new Error(
-          "YOUTV_CURATED=1 requires a completed DNS curation report",
-        );
-      }
       this.emitFile({
         type: "asset",
         fileName: "sources/index.json",
@@ -202,16 +187,7 @@ export function sourceCatalogPlugin(): Plugin {
       });
     },
     async closeBundle() {
-      // Vite copies public/ verbatim. Remove only the raw source files from the
-      // published bundle; originals remain untouched in git and on disk.
-      if (!curated || !outputRoot) return;
-      const published = resolve(outputRoot, "sources");
-      if (!existsSync(published)) return;
-      for (const entry of await readdir(published)) {
-        if (entry !== "_verified" && entry !== "index.json") {
-          await rm(resolve(published, entry), { recursive: true, force: true });
-        }
-      }
+      if (outputRoot) await rm(resolve(outputRoot, "sources", "_verified"), { recursive: true, force: true });
     },
   };
 }

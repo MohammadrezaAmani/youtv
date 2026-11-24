@@ -18,6 +18,7 @@ import {
   type AppState,
   type HealthResult,
   BUILTIN_PLAYLIST_ID,
+  DEFAULT_COUNTRY_SOURCE,
   BUILTIN_WORKER_ID,
   ensureDefaultWorker,
 } from "@youtv/shared";
@@ -132,10 +133,17 @@ export const useYoutv = create<Store>()(
                 .filter((c) => c.sourceId === sourceId)
                 .map((c) => [c.url, c]),
             );
+            // Recover IDs and user metadata for matching Iran channels from the
+            // obsolete aggregate, without enabling that entire aggregate again.
+            const legacy = sourceId === `youtv:folder:${DEFAULT_COUNTRY_SOURCE}`
+              ? new Map(s.channels.filter(c => c.sourceId === BUILTIN_PLAYLIST_ID).map(c => [c.url, c]))
+              : new Map<string, Channel>();
+            const transferred = new Set<string>();
             const others = s.channels.filter((c) => c.sourceId !== sourceId);
             const owned = new Map<string, Channel>();
             for (const value of values) {
-              const old = previous.get(value.url);
+              const old = previous.get(value.url) ?? legacy.get(value.url);
+              if (old?.sourceId === BUILTIN_PLAYLIST_ID) transferred.add(old.id);
               owned.set(
                 value.url,
                 old
@@ -154,7 +162,7 @@ export const useYoutv = create<Store>()(
                   : { ...value, sourceId },
               );
             }
-            return { channels: [...others, ...owned.values()] };
+            return { channels: [...others.filter(c => !transferred.has(c.id)), ...owned.values()] };
           }
           const existing =
             replaceSource && sourceId

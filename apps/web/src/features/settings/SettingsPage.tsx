@@ -29,7 +29,8 @@ import {
   parseBackupText,
   type RestoreMode,
 } from "@/lib/backup";
-import { BUILTIN_PLAYLIST_ID } from "@youtv/shared";
+import { DEFAULT_COUNTRY_SOURCE } from "@youtv/shared";
+import { DEFAULT_COUNTRY_ID, isFolderSourceEnabled } from "@/lib/builtin";
 import { downloadText, toM3u } from "@/lib/playlist";
 import { normalizeError } from "@/lib/utils";
 import type { Settings } from "@youtv/shared";
@@ -130,14 +131,14 @@ export default function SettingsPage() {
           </h3>
           <label className="checkbox-row">
             <Checkbox
-              checked={settings.defaultPlaylistEnabled}
+              checked={isFolderSourceEnabled(DEFAULT_COUNTRY_SOURCE, settings)}
               onChange={(e) =>
-                update({ defaultPlaylistEnabled: e.target.checked })
+                update({ folderSourceEnabled: { ...settings.folderSourceEnabled, [DEFAULT_COUNTRY_SOURCE]: e.target.checked } })
               }
             />
             {settings.language === "fa"
-              ? "نمایش و استفاده از default.m3u8"
-              : "Enable default.m3u8"}
+              ? "فعال بودن کانال‌های ایران"
+              : "Enable Iran channels"}
           </label>
           <p className="muted">
             {settings.language === "fa"
@@ -145,7 +146,7 @@ export default function SettingsPage() {
               : "Disabling hides default channels without deleting your tags or favorites."}
           </p>
           <p className="muted">
-            {channels.filter((c) => c.sourceId === BUILTIN_PLAYLIST_ID).length}{" "}
+            {channels.filter((c) => c.sourceId === DEFAULT_COUNTRY_ID).length}{" "}
             imported channels
           </p>
         </div>
