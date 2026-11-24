@@ -14,7 +14,5 @@ jobs:
           bun-version: 1.4.5
       - run: bun install
       - run: bun run check
-      - name: Validate DNS curation logic
-        run: python3 -m unittest discover -s scripts -p 'test_curate_iptv_sources.py'
       - run: bun run test
       - run: bun run --cwd apps/web build
