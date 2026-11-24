@@ -1,4 +1,4 @@
-// YouTV Worker bundle version: v0.33.1
+// YouTV Worker bundle version: v0.36.1
 // apps/worker/src/security.ts
 class ProxyError extends Error {
   status;
@@ -82,13 +82,13 @@ function assertToken(token, env) {
     throw new ProxyError(401, "unauthorized", "Invalid proxy access token");
 }
 function corsHeaders(request, env) {
-  const h = new Headers({ Vary: "Origin", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
+  const h = new Headers({ Vary: "Origin", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'" });
   const origin = allowedOrigin(request, env);
   if (origin)
     h.set("Access-Control-Allow-Origin", origin);
   h.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
-  h.set("Access-Control-Allow-Headers", "Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token");
-  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag, X-YouTV-Proxy");
+  h.set("Access-Control-Allow-Headers", "Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token, X-YouTube-Client-Name, X-YouTube-Client-Version, X-Goog-Visitor-Id, X-Goog-Api-Format-Version");
+  h.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy");
   h.set("Access-Control-Max-Age", "3600");
   return h;
 }
@@ -613,14 +613,418 @@ async function cloudflareAdmin(request, env) {
   return new Response(JSON.stringify(result), { status: response.ok ? 200 : response.status, headers });
 }
 
+// apps/worker/src/dash.ts
+function isDash(url, contentType = "") {
+  return url.pathname.toLowerCase().endsWith(".mpd") || contentType.toLowerCase().split(";")[0]?.trim() === "application/dash+xml";
+}
+function xmlDecode(value) {
+  return value.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi, (entity) => {
+    const names = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" };
+    if (names[entity] !== undefined)
+      return names[entity];
+    const code = entity.startsWith("&#x") ? parseInt(entity.slice(3, -1), 16) : parseInt(entity.slice(2, -1), 10);
+    return Number.isInteger(code) && code > 0 && code <= 1114111 ? String.fromCodePoint(code) : entity;
+  });
+}
+function xmlEscape(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function resolveResource(raw, source) {
+  const resolved = new URL(xmlDecode(raw.trim()), source);
+  if (!["http:", "https:"].includes(resolved.protocol) || resolved.username || resolved.password)
+    throw new Error("Unsupported DASH resource URL");
+  return resolved;
+}
+function encodeContext(value) {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodeContext(value) {
+  if (!/^[A-Za-z0-9_-]{1,16384}$/.test(value))
+    throw new Error("Malformed DASH context");
+  const raw = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
+  const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, (c) => c.charCodeAt(0))));
+  if (typeof data.origin !== "string" || typeof data.query !== "string" || typeof data.key !== "string")
+    throw new Error("Malformed DASH context");
+  const origin = new URL(data.origin);
+  if (origin.origin !== data.origin || !["http:", "https:"].includes(origin.protocol))
+    throw new Error("Invalid DASH origin");
+  return data;
+}
+function relayUrl(resolved, workerBase, token, inheritQuery) {
+  const context = encodeContext({ origin: resolved.origin, query: inheritQuery ? resolved.search : "", key: token });
+  const result = new URL(`/dash-base/v1/${context}${resolved.pathname}`, workerBase);
+  if (!inheritQuery)
+    result.search = resolved.search;
+  return result.toString().replace(/%24/gi, "$");
+}
+function proxyResource(raw, source, workerBase, token) {
+  return xmlEscape(relayUrl(resolveResource(raw, source), workerBase, token, false));
+}
+function rewriteDash(mpd, source, workerBase, token = "") {
+  if (new TextEncoder().encode(mpd).byteLength > 8 * 1024 * 1024)
+    throw new Error("DASH manifest too large");
+  if (!/^\s*(?:\uFEFF)?\s*(?:<\?xml[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<(?:[\w.-]+:)?MPD(?:\s|>)/i.test(mpd))
+    throw new Error("Response is not an MPEG-DASH MPD manifest");
+  if (/<!DOCTYPE|<!ENTITY/i.test(mpd))
+    throw new Error("DASH XML declarations with entities are not supported");
+  const stack = [];
+  let rootOpenEnd = 0, rootHasBase = false;
+  const tokens = /<(?:[\w.-]+:)?BaseURL(?:\s[^>]*)?>[\s\S]*?<\/(?:[\w.-]+:)?BaseURL\s*>|<(?:[\w.-]+:)?Location(?:\s[^>]*)?>[\s\S]*?<\/(?:[\w.-]+:)?Location\s*>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<\/?[\w.:-]+(?:[^<>"']|"[^"]*"|'[^']*')*>/gi;
+  let output = "", last = 0;
+  for (const match of mpd.matchAll(tokens)) {
+    const raw = match[0], offset = match.index;
+    output += mpd.slice(last, offset);
+    last = offset + raw.length;
+    const nameMatch = raw.match(/^<(\/?)([\w.:-]+)/);
+    if (!nameMatch) {
+      output += raw;
+      continue;
+    }
+    const full = nameMatch[2], name = full.split(":").at(-1), scope = stack.at(-1), base = scope?.base || source;
+    if (nameMatch[1]) {
+      stack.pop();
+      output += raw;
+      continue;
+    }
+    if (name === "BaseURL") {
+      const parts = raw.match(/^(<[^>]+>)([^<]*)(<\/[^>]+>)$/s);
+      if (!parts)
+        throw new Error("Invalid DASH BaseURL");
+      const resolved = resolveResource(parts[2], scope?.inherited || source);
+      if (scope && !scope.hasBase) {
+        scope.base = resolved;
+        scope.hasBase = true;
+        if (scope.name === "MPD")
+          rootHasBase = true;
+      }
+      output += parts[1] + xmlEscape(relayUrl(resolved, workerBase, token, true)) + parts[3];
+      continue;
+    }
+    if (name === "Location") {
+      const parts = raw.match(/^(<[^>]+>)([^<]*)(<\/[^>]+>)$/s);
+      if (!parts)
+        throw new Error("Invalid DASH Location");
+      output += parts[1] + proxyResource(parts[2], source, workerBase, token) + parts[3];
+      continue;
+    }
+    let rewritten = raw;
+    if (name === "UTCTiming" && /\bschemeIdUri=["'][^"']*http/i.test(raw))
+      rewritten = rewritten.replace(/(\bvalue\s*=\s*)(["'])([^"']+)\2/i, (_m, p, q, v) => `${p}${q}${proxyResource(v, source, workerBase, token)}${q}`);
+    if (["SegmentTemplate", "SegmentURL", "Initialization", "RepresentationIndex", "BitstreamSwitching"].includes(name))
+      rewritten = rewritten.replace(/(\b(?:media|initialization|sourceURL|index)\s*=\s*)(["'])([^"']+)\2/gi, (_m, p, q, v) => {
+        if (!/^(?:https?:|\/)/i.test(xmlDecode(v)))
+          return _m;
+        return `${p}${q}${proxyResource(v, base, workerBase, token)}${q}`;
+      });
+    output += rewritten;
+    if (name === "MPD")
+      rootOpenEnd = output.length;
+    if (!/\/\s*>$/.test(raw))
+      stack.push({ name, prefix: full.includes(":") ? full.split(":")[0] + ":" : "", inherited: base, base, hasBase: false });
+  }
+  output += mpd.slice(last);
+  if (!rootHasBase && rootOpenEnd) {
+    const prefix = mpd.match(/<(?:([\w.-]+):)?MPD\b/)?.[1];
+    const tag = prefix ? `${prefix}:BaseURL` : "BaseURL";
+    const rootBase = xmlEscape(relayUrl(new URL(".", source), workerBase, token, true));
+    output = output.slice(0, rootOpenEnd) + `<${tag}>${rootBase}</${tag}>` + output.slice(rootOpenEnd);
+  }
+  return output;
+}
+function dashRequestToken(requestUrl) {
+  if (!requestUrl.pathname.startsWith("/dash-base/v1/"))
+    return requestUrl.searchParams.get("key");
+  try {
+    return decodeContext(requestUrl.pathname.split("/")[3] || "").key;
+  } catch {
+    if (requestUrl.searchParams.has("base"))
+      return requestUrl.searchParams.get("key");
+    throw new ProxyError(400, "invalid_dash_context", "Invalid DASH relay context");
+  }
+}
+function dashBaseTarget(requestUrl, env) {
+  if (requestUrl.pathname.startsWith("/dash-base/v1/")) {
+    const parts = requestUrl.pathname.split("/");
+    let context;
+    try {
+      context = decodeContext(parts[3] || "");
+    } catch {
+      if (!requestUrl.searchParams.has("base"))
+        throw new ProxyError(400, "invalid_dash_context", "Invalid DASH relay context");
+      context = null;
+    }
+    if (context) {
+      const target = new URL(context.origin);
+      target.pathname = "/" + parts.slice(4).join("/");
+      target.search = requestUrl.search || context.query;
+      return assertAllowedUrl(target.toString(), env);
+    }
+  }
+  const rawBase = requestUrl.searchParams.get("base");
+  if (!rawBase)
+    throw new ProxyError(400, "dash_base_missing", "DASH BaseURL is missing");
+  const base = assertAllowedUrl(rawBase, env);
+  const suffix = requestUrl.pathname.slice("/dash-base/".length);
+  const target = suffix ? new URL("./" + suffix, base) : base;
+  for (const [key, value] of base.searchParams)
+    if (!target.searchParams.has(key))
+      target.searchParams.set(key, value);
+  return assertAllowedUrl(target.toString(), env);
+}
+
 // apps/worker/src/index.ts
 var MAX_REDIRECTS = 4;
-var VERSION = "0.33.1";
+var VERSION = "0.36.1";
 function json(request, env, value, status = 200) {
   const headers = corsHeaders(request, env);
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   return new Response(JSON.stringify(value), { status, headers });
+}
+function sniffMediaKind(url, contentType, prefix = new Uint8Array) {
+  const mime = contentType.toLowerCase().split(";")[0]?.trim() || "";
+  if (isHls(url, mime))
+    return "hls";
+  if (isDash(url, mime))
+    return "dash";
+  if (mime.startsWith("video/") || ["application/x-matroska", "application/x-msvideo", "application/x-shockwave-flash", "application/vnd.rn-realmedia", "application/vnd.ms-asf"].includes(mime))
+    return "video";
+  if (mime.startsWith("audio/") || ["application/x-flac", "application/x-aiff", "application/x-wav"].includes(mime))
+    return "audio";
+  if (mime.startsWith("image/"))
+    return "image";
+  if (mime === "application/pdf" || prefix[0] === 37 && prefix[1] === 80 && prefix[2] === 68 && prefix[3] === 70)
+    return "document";
+  if (prefix[0] === 137 && prefix[1] === 80 && prefix[2] === 78 && prefix[3] === 71 || prefix[0] === 255 && prefix[1] === 216 && prefix[2] === 255 || prefix[0] === 71 && prefix[1] === 73 && prefix[2] === 70)
+    return "image";
+  if (prefix[0] === 82 && prefix[1] === 73 && prefix[2] === 70 && prefix[3] === 70 && String.fromCharCode(...prefix.slice(8, 12)) === "WEBP")
+    return "image";
+  const text = new TextDecoder().decode(prefix).replace(/^\uFEFF/, "").trimStart();
+  if (/^#EXTM3U(?:\s|$)/i.test(text))
+    return "hls";
+  if (/^(?:<\?xml[^>]*>\s*)?<MPD(?:\s|>)/i.test(text) || /<MPD(?:\s|>)/i.test(text.slice(0, 4096)))
+    return "dash";
+  if (prefix.length >= 12) {
+    if (String.fromCharCode(...prefix.slice(4, 8)) === "ftyp") {
+      const brand = String.fromCharCode(...prefix.slice(8, 12));
+      return /^(?:M4A|M4B|M4P)/.test(brand) ? "audio" : "video";
+    }
+    if (prefix[0] === 26 && prefix[1] === 69 && prefix[2] === 223 && prefix[3] === 163)
+      return "video";
+    if (String.fromCharCode(...prefix.slice(0, 3)) === "FLV")
+      return "video";
+    if (String.fromCharCode(...prefix.slice(0, 4)) === "RIFF" && String.fromCharCode(...prefix.slice(8, 12)) === "AVI ")
+      return "video";
+    if (String.fromCharCode(...prefix.slice(0, 4)) === "fLaC" || String.fromCharCode(...prefix.slice(0, 3)) === "ID3")
+      return "audio";
+    if (String.fromCharCode(...prefix.slice(0, 4)) === "RIFF" && String.fromCharCode(...prefix.slice(8, 12)) === "WAVE")
+      return "audio";
+    if (String.fromCharCode(...prefix.slice(0, 4)) === "RIFF" && String.fromCharCode(...prefix.slice(8, 12)) === "WEBP")
+      return "image";
+    if (prefix[0] === 255 && (prefix[1] & 224) === 224)
+      return "audio";
+    if (prefix[0] === 255 && prefix[1] === 216 && prefix[2] === 255)
+      return "image";
+    if (prefix[0] === 137 && String.fromCharCode(...prefix.slice(1, 4)) === "PNG")
+      return "image";
+    if (String.fromCharCode(...prefix.slice(0, 4)) === "GIF8")
+      return "image";
+  }
+  return "file";
+}
+function safeFilename(value) {
+  const cleaned = value.normalize("NFKC").replace(/[\/\\\u0000-\u001f\u007f<>:\"|?*]/g, "_").replace(/\s+/g, " ").replace(/^\.+/, "").trim().slice(0, 180);
+  return cleaned || "download.bin";
+}
+function upstreamFilename(disposition) {
+  if (!disposition)
+    return "";
+  const extended = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1]?.trim();
+  if (extended) {
+    try {
+      return decodeURIComponent(extended.replace(/^\"|\"$/g, ""));
+    } catch {}
+  }
+  const quoted = disposition.match(/filename\s*=\s*\"([^\"]*)\"/i)?.[1];
+  if (quoted)
+    return quoted;
+  return disposition.match(/filename\s*=\s*([^;]+)/i)?.[1]?.trim().replace(/^\"|\"$/g, "") || "";
+}
+async function peekStream(body, limit = 4096) {
+  if (!body)
+    return { prefix: new Uint8Array, body: null };
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0, finished = false;
+  try {
+    while (total < limit) {
+      const item = await reader.read();
+      if (item.done) {
+        finished = true;
+        break;
+      }
+      if (item.value?.length) {
+        chunks.push(item.value);
+        total += item.value.byteLength;
+      }
+    }
+  } catch (error) {
+    reader.releaseLock();
+    throw error;
+  }
+  const prefix = new Uint8Array(Math.min(total, limit));
+  let offset = 0;
+  for (const chunk of chunks) {
+    const part = chunk.subarray(0, prefix.length - offset);
+    prefix.set(part, offset);
+    offset += part.length;
+    if (offset === prefix.length)
+      break;
+  }
+  let index = 0, released = false;
+  const release = () => {
+    if (!released) {
+      released = true;
+      reader.releaseLock();
+    }
+  };
+  const stream = new ReadableStream({ async pull(controller) {
+    if (index < chunks.length) {
+      controller.enqueue(chunks[index++]);
+      return;
+    }
+    try {
+      if (finished) {
+        controller.close();
+        release();
+        return;
+      }
+      const item = await reader.read();
+      if (item.done) {
+        controller.close();
+        release();
+      } else if (item.value)
+        controller.enqueue(item.value);
+    } catch (error) {
+      controller.error(error);
+      release();
+    }
+  }, async cancel(reason) {
+    try {
+      await reader.cancel(reason);
+    } finally {
+      release();
+    }
+  } });
+  return { prefix, body: stream };
+}
+function setDownloadDisposition(headers, requestUrl, response, finalUrl) {
+  const requested = requestUrl.searchParams.get("filename") || "";
+  let pathName = finalUrl.pathname.split("/").filter(Boolean).at(-1) || "download.bin";
+  try {
+    pathName = decodeURIComponent(pathName);
+  } catch {}
+  const name = safeFilename(requested || upstreamFilename(response.headers.get("Content-Disposition")) || pathName);
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/[\"\\;]/g, "_");
+  const encoded = encodeURIComponent(name).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  headers.set("Content-Disposition", `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`);
+}
+var YOUTUBE_REQUEST_HEADERS = new Set([
+  "accept",
+  "accept-language",
+  "content-type",
+  "range",
+  "if-range",
+  "x-youtube-client-name",
+  "x-youtube-client-version",
+  "x-goog-visitor-id",
+  "x-goog-api-format-version",
+  "x-youtube-bootstrap-logged-in",
+  "x-youtube-identity-token"
+]);
+function isYoutubeRelayTarget(url) {
+  const host = url.hostname.toLowerCase();
+  const videoHost = host === "googlevideo.com" || host.endsWith(".googlevideo.com");
+  const hostAllowed = host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtubei.googleapis.com" || videoHost;
+  const pathAllowed = videoHost ? url.pathname === "/videoplayback" : url.pathname.startsWith("/youtubei/v1/") || url.pathname.startsWith("/s/player/") || url.pathname === "/" || url.pathname === "/sw.js_data" || url.pathname === "/api/timedtext" || url.pathname === "/iframe_api" || url.pathname === "/watch" || url.pathname === "/playlist" || url.pathname.startsWith("/embed/");
+  return hostAllowed && pathAllowed;
+}
+function isInstagramRelayTarget(url) {
+  const host = url.hostname.toLowerCase();
+  if (!(host === "instagram.com" || host.endsWith(".instagram.com")))
+    return false;
+  return /^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+\/?$/.test(url.pathname) || /^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+\/embed\/?$/.test(url.pathname);
+}
+async function platformRelay(request, env, requestUrl, platform) {
+  assertToken(requestUrl.searchParams.get("key"), env);
+  const raw = requestUrl.searchParams.get("url");
+  if (!raw)
+    throw new ProxyError(400, "missing_url", "url query parameter is required");
+  if (!["GET", "HEAD", "POST"].includes(request.method))
+    throw new ProxyError(405, "method_not_allowed", "GET/HEAD/POST only");
+  let current = assertAllowedUrl(raw, env);
+  const permitted = platform === "youtube" ? isYoutubeRelayTarget : isInstagramRelayTarget;
+  if (!permitted(current))
+    throw new ProxyError(403, "platform_url_not_allowed", `URL is not an allowed ${platform} endpoint`);
+  let body;
+  if (request.method === "POST") {
+    const declared = Number(request.headers.get("content-length") || "0");
+    if (declared > 1500000)
+      throw new ProxyError(413, "platform_request_too_large", "Platform request body exceeds 1.5 MB");
+    body = await request.arrayBuffer();
+    if (body.byteLength > 1500000)
+      throw new ProxyError(413, "platform_request_too_large", "Platform request body exceeds 1.5 MB");
+  }
+  let response;
+  let method = request.method;
+  for (let attempt = 0;attempt <= MAX_REDIRECTS; attempt++) {
+    current = assertAllowedUrl(current.toString(), env);
+    if (!permitted(current))
+      throw new ProxyError(403, "platform_redirect_blocked", "Platform redirect left the permitted endpoint set");
+    const headers = new Headers;
+    if (platform === "youtube") {
+      for (const [name, value] of request.headers)
+        if (YOUTUBE_REQUEST_HEADERS.has(name.toLowerCase()))
+          headers.set(name, value);
+      headers.set("Origin", "https://www.youtube.com");
+      headers.set("Referer", "https://www.youtube.com/");
+      headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+    } else {
+      headers.set("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8");
+      headers.set("Accept-Language", "en-US,en;q=0.9");
+      headers.set("Referer", "https://www.instagram.com/");
+      headers.set("X-IG-App-ID", "936619743392459");
+      headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+    }
+    response = await fetch(current.toString(), { method, headers, body: method === "POST" ? body : undefined, redirect: "manual", signal: request.signal });
+    if (![301, 302, 303, 307, 308].includes(response.status))
+      break;
+    const location = response.headers.get("Location");
+    if (!location)
+      throw new ProxyError(502, "bad_redirect", "Platform redirect lacks Location");
+    const next = assertAllowedUrl(new URL(location, current).toString(), env);
+    if (!permitted(next))
+      throw new ProxyError(403, "platform_redirect_blocked", "Platform redirect left the permitted endpoint set");
+    if (response.status === 303 || (response.status === 301 || response.status === 302) && method === "POST") {
+      body = undefined;
+      method = "GET";
+    }
+    current = next;
+  }
+  if (!response || [301, 302, 303, 307, 308].includes(response.status))
+    throw new ProxyError(502, "redirect_limit", "Too many platform redirects");
+  const headers = corsHeaders(request, env);
+  const responseHeaders = ["Content-Type", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Cache-Control"];
+  if (current.hostname === "googlevideo.com" || current.hostname.endsWith(".googlevideo.com"))
+    responseHeaders.push("Content-Length");
+  for (const name of responseHeaders) {
+    const value = response.headers.get(name);
+    if (value)
+      headers.set(name, value);
+  }
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-YouTV-Proxy", VERSION);
+  return new Response(method === "HEAD" ? null : response.body, { status: response.status, statusText: response.statusText, headers });
 }
 function deliveryDirectives(query) {
   const result = new URLSearchParams;
@@ -693,8 +1097,8 @@ async function proxy(request, env, reqUrl) {
     throw new ProxyError(400, "invalid_steering_replacement", error instanceof Error ? error.message : "Invalid steering replacement");
   }
   const upstream = assertAllowedUrl(applySteeringReplacement(sourceUrl, replacement).toString(), env);
-  const maybeHls = reqUrl.searchParams.get("hls") === "1" || isHls(upstream, "");
-  const directives = maybeHls ? deliveryDirectives(reqUrl.searchParams) : new URLSearchParams;
+  const hlsHint = reqUrl.searchParams.get("hls") === "1" || isHls(upstream, "");
+  const directives = hlsHint ? deliveryDirectives(reqUrl.searchParams) : new URLSearchParams;
   const variables = parseHlsVariables(reqUrl.searchParams.get("vars"));
   const { response, finalUrl } = await fetchSource(upstream, request, env, directives);
   const headers = corsHeaders(request, env);
@@ -705,6 +1109,11 @@ async function proxy(request, env, reqUrl) {
     if (v)
       headers.set(name, v);
   }
+  const upstreamLength = response.headers.get("Content-Length");
+  if (upstreamLength && !response.headers.has("Content-Encoding"))
+    headers.set("Content-Length", upstreamLength);
+  if (reqUrl.searchParams.get("download") === "1" && response.ok)
+    setDownloadDisposition(headers, reqUrl, response, finalUrl);
   if (reqUrl.searchParams.get("steer") === "1" && request.method !== "HEAD" && response.ok) {
     const original = await readTextStream(response.body, 512000);
     let data;
@@ -713,6 +1122,9 @@ async function proxy(request, env, reqUrl) {
     } catch (error) {
       throw new ProxyError(502, "invalid_steering_manifest", error instanceof Error ? error.message : "Bad steering manifest");
     }
+    headers.delete("Content-Length");
+    headers.delete("ETag");
+    headers.delete("Last-Modified");
     headers.set("Content-Type", "application/vnd.apple.steering-list; charset=utf-8");
     return new Response(data, { status: 200, headers });
   }
@@ -724,13 +1136,49 @@ async function proxy(request, env, reqUrl) {
     } catch (error) {
       throw new ProxyError(502, "invalid_asset_list", error instanceof Error ? error.message : "Invalid HLS asset list");
     }
+    headers.delete("Content-Length");
+    headers.delete("ETag");
+    headers.delete("Last-Modified");
     headers.set("Content-Type", "application/json; charset=utf-8");
     return new Response(data, { status: 200, headers });
   }
-  if (request.method === "HEAD" || !response.ok || response.status === 206 || !(maybeHls || isHls(finalUrl, response.headers.get("Content-Type") || ""))) {
-    return new Response(request.method === "HEAD" ? null : response.body, { status: response.status, statusText: response.statusText, headers });
+  const responseType = response.headers.get("Content-Type") || "";
+  let responseBody = response.body;
+  let hlsManifest = hlsHint || isHls(finalUrl, responseType);
+  let dashManifest = reqUrl.searchParams.get("dash") === "1" || isDash(finalUrl, responseType);
+  if (request.method !== "HEAD" && response.ok && response.status !== 206 && (hlsManifest || dashManifest || !/^(?:video|audio|image)\//i.test(responseType))) {
+    const peeked = await peekStream(responseBody, 4096);
+    responseBody = peeked.body;
+    const sample = new TextDecoder().decode(peeked.prefix).replace(/^\uFEFF/, "").trimStart();
+    if (/^#EXTM3U(?:\s|$)/i.test(sample)) {
+      hlsManifest = true;
+      dashManifest = false;
+    } else if (/^(?:<\?xml[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<(?:[\w.-]+:)?MPD(?:\s|>)/i.test(sample)) {
+      dashManifest = true;
+      hlsManifest = false;
+    } else if (!isHls(finalUrl, responseType) && !isDash(finalUrl, responseType) && /^(?:video|audio|image)\//i.test(responseType)) {
+      hlsManifest = false;
+      dashManifest = false;
+    }
   }
-  const source = await readTextStream(response.body);
+  if (dashManifest && request.method !== "HEAD" && response.ok && response.status !== 206) {
+    const source = await readTextStream(responseBody);
+    let rewritten;
+    try {
+      rewritten = rewriteDash(source, finalUrl, new URL("/", request.url), key || "");
+    } catch (error) {
+      throw new ProxyError(502, "invalid_dash_manifest", error instanceof Error ? error.message : "Invalid DASH MPD");
+    }
+    headers.delete("Content-Length");
+    headers.delete("ETag");
+    headers.delete("Last-Modified");
+    headers.set("Content-Type", "application/dash+xml; charset=utf-8");
+    return new Response(rewritten, { status: 200, headers });
+  }
+  if (request.method === "HEAD" || !response.ok || response.status === 206 || !hlsManifest) {
+    return new Response(request.method === "HEAD" ? null : responseBody, { status: response.status, statusText: response.statusText, headers });
+  }
+  const source = await readTextStream(responseBody);
   let rewritten;
   try {
     const proxyUrl = new URL("/proxy", request.url);
@@ -738,6 +1186,9 @@ async function proxy(request, env, reqUrl) {
   } catch (error) {
     throw new ProxyError(502, "invalid_manifest", error instanceof Error ? error.message : "Invalid HLS manifest");
   }
+  headers.delete("Content-Length");
+  headers.delete("ETag");
+  headers.delete("Last-Modified");
   headers.set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8");
   return new Response(rewritten, { status: 200, headers });
 }
@@ -753,6 +1204,22 @@ var src_default = {
           throw new ProxyError(405, "method_not_allowed", "POST required");
         return await cloudflareAdmin(request, env);
       }
+      if (url.pathname === "/youtube/fetch")
+        return await platformRelay(request, env, url, "youtube");
+      if (url.pathname === "/instagram/fetch")
+        return await platformRelay(request, env, url, "instagram");
+      if (url.pathname.startsWith("/dash-base/")) {
+        const token = dashRequestToken(url);
+        assertToken(token, env);
+        if (request.method !== "GET" && request.method !== "HEAD")
+          throw new ProxyError(405, "method_not_allowed", "GET/HEAD only");
+        const target = dashBaseTarget(url, env);
+        const relay = new URL("/proxy", url);
+        relay.searchParams.set("url", target.toString());
+        if (token)
+          relay.searchParams.set("key", token);
+        return await proxy(request, env, relay);
+      }
       if (url.pathname === "/probe") {
         if (request.method !== "GET")
           throw new ProxyError(405, "method_not_allowed", "GET required");
@@ -760,20 +1227,45 @@ var src_default = {
         const source = url.searchParams.get("url");
         if (!source)
           throw new ProxyError(400, "missing_url", "Source URL required");
+        const upstream = assertAllowedUrl(source, env);
         const start = Date.now();
-        let result = await fetchSource(assertAllowedUrl(source, env), new Request(request.url, { method: "HEAD", signal: AbortSignal.timeout(9000) }), env);
-        if ([405, 501].includes(result.response.status)) {
-          result = await fetchSource(assertAllowedUrl(source, env), new Request(request.url, { headers: { Range: "bytes=0-0" }, signal: AbortSignal.timeout(9000) }), env);
-        }
-        await result.response.body?.cancel().catch(() => {
-          return;
+        let result = await fetchSource(upstream, new Request(request.url, { method: "HEAD", signal: AbortSignal.timeout(9000) }), env);
+        let prefix = new Uint8Array;
+        const initialType = result.response.headers.get("Content-Type") || "";
+        let kind = sniffMediaKind(result.finalUrl, initialType);
+        if ([403, 405, 501].includes(result.response.status) || kind === "file") {
+          await result.response.body?.cancel().catch(() => {
+            return;
+          });
+          result = await fetchSource(upstream, new Request(request.url, { headers: { Range: "bytes=0-4095" }, signal: AbortSignal.timeout(9000) }), env);
+          const peeked = await peekStream(result.response.body, 4096);
+          prefix = peeked.prefix;
+          await peeked.body?.cancel().catch(() => {
+            return;
+          });
+          kind = sniffMediaKind(result.finalUrl, result.response.headers.get("Content-Type") || initialType, prefix);
+        } else
+          await result.response.body?.cancel().catch(() => {
+            return;
+          });
+        const disposition = result.response.headers.get("Content-Disposition") || "";
+        const contentRange = result.response.headers.get("Content-Range") || "";
+        const contentLength = Number(contentRange.match(/\/(\d+)$/)?.[1] || (result.response.status === 206 ? "" : result.response.headers.get("Content-Length"))) || null;
+        return json(request, env, {
+          ok: result.response.status >= 200 && result.response.status < 400,
+          status: result.response.status,
+          elapsedMs: Math.max(0, Date.now() - start),
+          contentType: result.response.headers.get("Content-Type") || initialType,
+          contentLength,
+          acceptRanges: result.response.headers.get("Accept-Ranges") || "",
+          filename: upstreamFilename(disposition),
+          kind
         });
-        return json(request, env, { ok: result.response.status >= 200 && result.response.status < 400, status: result.response.status, elapsedMs: Math.max(0, Date.now() - start), contentType: result.response.headers.get("Content-Type") || "" });
       }
       if (url.pathname === "/health" && request.method === "GET")
         return json(request, env, { name: "YouTV Proxy", version: VERSION, ok: true });
       if (url.pathname === "/capabilities" && request.method === "GET")
-        return json(request, env, { protocol: 1, hls: true, hlsVariables: true, llHlsDirectives: true, contentSteeringProxy: true, range: true, playlistImport: true, authentication: env.PROXY_TOKEN?.trim() ? "query-token" : "none" });
+        return json(request, env, { protocol: 2, hls: true, dash: true, hlsVariables: true, llHlsDirectives: true, contentSteeringProxy: true, range: true, binaryStreaming: true, attachmentDownload: true, youtubeRelay: true, instagramPublicRelay: true, mediaCenter: true, playlistImport: true, authentication: env.PROXY_TOKEN?.trim() ? "query-token" : "none" });
       if (url.pathname === "/text") {
         if (request.method !== "GET")
           throw new ProxyError(405, "method_not_allowed", "GET only");

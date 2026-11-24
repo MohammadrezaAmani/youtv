@@ -61,3 +61,52 @@ export function resolveTextSource(source:string,settings:Pick<Settings,'defaultW
   requireHttpsWorker(worker,appProtocol);
   return {url:proxyUrl(source,worker,'text'),workerId:worker.id};
 }
+
+/** Build a first-party Worker endpoint while preserving subpath deployments. */
+export function workerEndpoint(worker:WorkerProfile,route:string,params:Record<string,string>={}):string {
+  const base=normalizeStreamUrl(worker.baseUrl);
+  const endpoint=new URL(route.replace(/^\/+/,''),base.endsWith('/')?base:base+'/');
+  for(const [name,value] of Object.entries(params))endpoint.searchParams.set(name,value);
+  if(worker.token)endpoint.searchParams.set('key',worker.token);
+  return endpoint.toString();
+}
+
+/** A download request stays on the configured Worker so CORS and attachment headers are handled there. */
+export function proxyDownloadUrl(url:string,worker:WorkerProfile,filename=''):string {
+  const endpoint=new URL(proxyUrl(url,worker));
+  endpoint.searchParams.set('download','1');
+  if(filename)endpoint.searchParams.set('filename',filename.slice(0,180));
+  return endpoint.toString();
+}
+
+const YOUTUBE_RELAY_HEADERS=['accept','accept-language','content-type','range','if-range','x-youtube-client-name','x-youtube-client-version','x-goog-visitor-id','x-goog-api-format-version'];
+/** youtubei.js runs in the browser; only its network requests are relayed by the existing Worker. */
+export function createYoutubeFetch(worker:WorkerProfile):typeof fetch {
+  return async (input:RequestInfo|URL,init?:RequestInit):Promise<Response>=>{
+    const original=input instanceof Request?new Request(input,init):new Request(input,init);
+    const target=new URL(original.url);
+    const host=target.hostname.toLowerCase();
+    const youtubeHost=host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtubei.googleapis.com';
+    const videoHost=host==='googlevideo.com'||host.endsWith('.googlevideo.com');
+    const pathAllowed=youtubeHost
+      ? target.pathname.startsWith('/youtubei/v1/')||target.pathname.startsWith('/s/player/')||target.pathname==='/'||target.pathname==='/sw.js_data'||target.pathname==='/api/timedtext'||target.pathname==='/iframe_api'||target.pathname==='/watch'||target.pathname==='/playlist'||target.pathname.startsWith('/embed/')
+      : videoHost&&target.pathname==='/videoplayback';
+    if(!pathAllowed)throw new TypeError(`YouTube request is outside the supported relay scope: ${host}${target.pathname}`);
+    const endpoint=workerEndpoint(worker,'youtube/fetch',{url:target.toString()});
+    const headers=new Headers();
+    for(const name of YOUTUBE_RELAY_HEADERS){const value=original.headers.get(name);if(value)headers.set(name,value);}
+    const method=original.method.toUpperCase();
+    const body=method==='GET'||method==='HEAD'?undefined:await original.clone().arrayBuffer();
+    return fetch(endpoint,{method,headers,body,signal:original.signal,redirect:'follow'});
+  };
+}
+
+export function instagramFetchUrl(worker:WorkerProfile,url:string,withJson=true):string {
+  const target=new URL(url);
+  if(!['instagram.com','www.instagram.com','m.instagram.com'].includes(target.hostname.toLowerCase()))
+    throw new Error('Only public Instagram post, Reel and TV URLs are supported');
+  if(!/^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+\/?$/.test(target.pathname))
+    throw new Error('Invalid Instagram post URL');
+  if(withJson){target.searchParams.set('__a','1');target.searchParams.set('__d','dis');}
+  return workerEndpoint(worker,'instagram/fetch',{url:target.toString()});
+}

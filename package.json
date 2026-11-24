@@ -7,11 +7,11 @@
     "dev": "bun run --cwd apps/web dev",
     "build": "bun run check && bun run --cwd apps/web build",
     "check": "bun run --cwd packages/shared check && bun run --cwd apps/web check && bun run --cwd apps/worker check",
-    "test": "bun run --cwd apps/web test && bun run --cwd apps/worker test",
+    "test": "bun run dashboard:bundle && bun run --cwd apps/web test && bun run --cwd apps/worker test",
     "worker:dev": "bun run --cwd apps/worker dev",
     "worker:deploy": "bun run --cwd apps/worker deploy",
     "dashboard:bundle": "bun scripts/build-dashboard.cjs",
-    "smoke": "bun test apps/worker/tests/smoke.test.mjs apps/web/src/tests/library.smoke.test.mjs apps/web/src/tests/media.smoke.test.mjs",
+    "smoke": "bun test apps/worker/tests/smoke.test.mjs apps/web/src/tests/library.smoke.test.mjs apps/web/src/tests/media.smoke.test.mjs apps/worker/tests/media-regression.test.mjs apps/web/src/tests/download.regression.test.mjs",
     "sources:check": "bun apps/web/scripts/check-sources.ts"
   },
   "workspaces": [

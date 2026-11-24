@@ -3,7 +3,7 @@ import {initReactI18next} from 'react-i18next';
 import {useYoutv} from '../stores/useYoutv';
 
 const en = {
-  home:'Home',channels:'Live TV',favorites:'Favorites',recent:'Recently watched',playlists:'Playlists',proxy:'Proxy manager',settings:'Settings',
+  home:'Home',channels:'Live TV',favorites:'Favorites',recent:'Recently watched',playlists:'Playlists',mediaCenter:'Media Center',proxy:'Proxy manager',settings:'Settings',
   search:'Search your channels...', addChannel:'Add channel',importPlaylist:'Import playlist',emptyTitle:'Your TV, your channels',
   emptySubtitle:'Add a live stream or import your own IPTV playlist to get started.',all:'All channels',groups:'Groups',
   watch:'Watch',edit:'Edit',delete:'Delete',save:'Save',cancel:'Cancel',name:'Name',url:'Stream URL',logo:'Logo URL',group:'Group',
@@ -37,7 +37,7 @@ const en = {
   install:'Install app',madeFor:'Your private TV library',warning:'Warning',close:'Close'
 };
 const fa:typeof en = {
-  home:'خانه',channels:'تلویزیون زنده',favorites:'علاقه‌مندی‌ها',recent:'اخیراً دیده‌شده',playlists:'پلی‌لیست‌ها',proxy:'مدیریت پروکسی',settings:'تنظیمات',
+  home:'خانه',channels:'تلویزیون زنده',favorites:'علاقه‌مندی‌ها',recent:'اخیراً دیده‌شده',playlists:'پلی‌لیست‌ها',mediaCenter:'مرکز رسانه',proxy:'مدیریت پروکسی',settings:'تنظیمات',
   search:'جست‌وجو در شبکه‌ها...',addChannel:'افزودن شبکه',importPlaylist:'واردکردن پلی‌لیست',emptyTitle:'تلویزیون تو، شبکه‌های تو',
   emptySubtitle:'برای شروع یک استریم زنده یا پلی‌لیست IPTV شخصی اضافه کن.',all:'همه شبکه‌ها',groups:'گروه‌ها',
   watch:'تماشا',edit:'ویرایش',delete:'حذف',save:'ذخیره',cancel:'انصراف',name:'نام',url:'آدرس استریم',logo:'آدرس لوگو',group:'دسته‌بندی',

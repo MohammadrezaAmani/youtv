@@ -34,8 +34,8 @@ test('probe retries HEAD 405 with byte-range GET',async()=>{
   let count=0;
   await withFetch(async(_req,init)=>{count++;
     if(count===1){assert.equal(init.method,'HEAD');return new Response(null,{status:405});}
-    assert.equal(init.method,'GET');assert.equal(init.headers.get('Range'),'bytes=0-0');
-    return new Response(new Uint8Array([1]),{status:206,headers:{'Content-Range':'bytes 0-0/1000'}});
+    assert.equal(init.method,'GET');assert.equal(init.headers.get('Range'),'bytes=0-4095');
+    return new Response(new Uint8Array(4096),{status:206,headers:{'Content-Range':'bytes 0-4095/10000','Accept-Ranges':'bytes'}});
   },async()=>{
     const response=await worker.fetch(request(`/probe?url=${encodeURIComponent('https://stream.example.com/channel.ts')}&key=${secret}`),env);
     const data=await response.json();assert.equal(data.status,206);assert.equal(count,2);

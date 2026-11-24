@@ -4,7 +4,7 @@ import {ActionButton} from '@/components/ui/action-button';
 import {useYoutv} from '@/stores/useYoutv';
 
 type CopyState='idle'|'loading'|'copied'|'error';
-const WORKER_RELEASE='0.33.1';
+const WORKER_RELEASE='0.36.1';
 const scriptUrl=()=>`${import.meta.env.BASE_URL}dashboard-worker.mjs?v=${WORKER_RELEASE}`;
 
 export default function CloudflareGuide(){

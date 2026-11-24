@@ -1,3 +1,38 @@
+## [0.36.1] - 2026-11-24
+
+### Fixed
+- MPEG-DASH BaseURL relay context survives relative URL resolution, nested BaseURLs, dynamic MPD Location updates and absolute SegmentTemplate parameters. Legacy relay URLs remain accepted.
+- HLS hints no longer misclassify an actual MPD. Binary format detection uses bounded prefix sampling with backpressure.
+- Proxied document responses receive a restrictive sandbox CSP; YouTube player evaluation is isolated in an opaque-origin browser frame.
+- Download cancellation aborts pending reads and partial destination writes; ZIP output respects backpressure, duplicate filenames and ZIP32 size limits. Browser handoffs are not reported as confirmed downloads.
+- Adaptive YouTube muxing advances tracks in lockstep and cancels both conversions on interruption. Converted MP4 output can be previewed and saved locally, with OPFS cleanup.
+- Synchronize both published Worker files, including the dashboard copy/download version.
+- Added dependency-free Worker and browser-download regression tests.
+
+### Verification
+- 58 Node tests and 4 Python DNS-curation tests pass in the delivery environment.
+- Worker checked with strict TypeScript and a minimal ExportedHandler declaration. Media services/UI checked with local external-module declaration stubs.
+- Full Bun/Vite/Vitest build and real upstream platform playback/download remain unverified because Bun and npm registry access are unavailable in the delivery environment. Refresh bun.lock using bun install on the deployment machine.
+
+## [0.36.0] - 2026-11-24
+
+### Added
+- Browser-only Media Center backed by the existing Cloudflare Worker.
+- YouTube video/playlist extraction, adaptive audio-video muxing, WebVTT transcript, thumbnail and metadata export.
+- Public Instagram post/reel/carousel extraction with individual and ZIP downloads.
+- Direct media detection, binary downloads, PDF/image previews and browser-side MP4 conversion.
+- Streaming download queue, cancellation, OPFS temporary storage and ZIP generation.
+- HLS VOD/live-window archives with separate audio/subtitle renditions, AES-128 identity keys and byte ranges.
+- Static MPEG-DASH archives for SegmentTemplate, SegmentList and SegmentBase.
+
+### Changed
+- Worker release is now 0.36.0; the frontend copy/download Worker source is generated from the same Worker bundle.
+- Media jobs remain entirely in the browser and use the existing Worker relay; no new backend service is introduced.
+
+### Limitations
+- DRM, private/login-only social media, YouTube authentication bypass, dynamic DASH archiving and LL-HLS part-only archiving are not supported.
+- Browser-side muxing/conversion depends on WebCodecs, browser codecs and available local storage.
+
 ## v0.29.0 — HTTP IPTV sources on HTTPS deployments (2026-11-24)
 - HTTP HLS / media domain URLs automatically use the configured HTTPS Worker in GitHub Pages, including manual Direct or Auto selections; HTTPS media still respects routing preferences.
 - HTTP playlist URL imports, refreshes and Teletext use the HTTPS Worker automatically; original `http://` URLs remain unchanged.
@@ -156,3 +191,14 @@ Important: no real-browser, Bun dependency install, or Vite production build pro
 - Correct Worker HLS routing for auto-detected `.m3u8` streams and automatically fall back from mobile direct playback when Auto mode has an enabled Worker.
 - Use the same mobile engine selection in Multi-view tiles, with user-gesture audio unmute.
 - Move Multi-view action from the watch page toolbar into the controls beneath the primary player; manage active multi-view below the grid.
+
+## [0.36.0] - Media Center expansion
+
+- Added a browser-only Media Center for public YouTube videos, Shorts, Live links and playlists using the existing Cloudflare Worker relay.
+- Added YouTube.js InnerTube and GoogleVideo relay routes with strict host/path allowlists and no browser-cookie forwarding.
+- Added public Instagram Post/Reel/Carousel extraction with official Embed fallback and ZIP downloads when public media URLs are exposed.
+- Added direct media detection for common video/audio/image containers and content sniffing for extensionless HLS/DASH endpoints.
+- Added streamed direct-file downloads with Content-Disposition, Range and If-Range support.
+- Added HLS VOD and static DASH VOD ZIP archives for supported manifests.
+- Added a persistent browser-side download history and lazy-loaded Media Center dependencies.
+- Kept all application functionality on GitHub Pages plus the existing Cloudflare Worker; no new backend service was introduced.

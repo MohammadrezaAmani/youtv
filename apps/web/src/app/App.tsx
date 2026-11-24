@@ -1,9 +1,9 @@
 import {Checkbox} from '@/components/ui/checkbox';
 import {ActionButton} from '@/components/ui/action-button';
-import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
+import {lazy,Suspense,useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {HashRouter,useLocation,useNavigate} from 'react-router-dom';
 import {useTranslation} from 'react-i18next';
-import {House,Radio,Heart,History,ListVideo,Cloud,Settings,PanelRightClose,PanelRightOpen,Plus,Upload,ArrowLeft,ArrowRight,Play,ChevronRight,X,FolderOpen,Library,Activity,Menu,Search,Moon,Sun,Grid2x2} from 'lucide-react';
+import {House,Radio,Heart,History,ListVideo,Cloud,Settings,Clapperboard,PanelRightClose,PanelRightOpen,Plus,Upload,ArrowLeft,ArrowRight,Play,ChevronRight,X,FolderOpen,Library,Activity,Menu,Search,Moon,Sun,Grid2x2} from 'lucide-react';
 import type {Channel} from '@youtv/shared';
 import {Button} from '@/components/ui/button';
 import {SearchBox} from '@/components/ui/search-box';
@@ -31,6 +31,8 @@ import {readCatalogAsset} from '@/lib/catalogCache';
 import {ui} from '@/lib/labels';
 import i18n from '@/locales';
 
+const MediaCenterPage=lazy(()=>import('@/features/media/MediaCenterPage'));
+
 const primaryNav=[
   {path:'/',key:'home',icon:House},
   {path:'/channels',key:'channels',icon:Library},
@@ -40,6 +42,7 @@ const primaryNav=[
 ] as const;
 const toolNav=[
   {path:'/playlists',key:'playlists',icon:ListVideo},
+  {path:'/media',key:'mediaCenter',icon:Clapperboard},
   {path:'/connectivity',key:'healthCheck',icon:Activity},
 ] as const;
 const systemNav=[
@@ -185,7 +188,7 @@ function Shell(){
 
   const path=location.pathname,activeId=path.startsWith('/watch/')?decodeURIComponent(path.slice(7)):'';
   const activeChannel=channels.find(c=>c.id===activeId);
-  const view=path.startsWith('/watch/')?'watch':path==='/proxy'?'proxy':path==='/settings'?'settings':path==='/connectivity'?'connectivity':path==='/groups'?'groups':path==='/playlists'?'playlists':path==='/favorites'?'favorites':path==='/recent'?'recent':'all';
+  const view=path.startsWith('/watch/')?'watch':path==='/media'?'media':path==='/proxy'?'proxy':path==='/settings'?'settings':path==='/connectivity'?'connectivity':path==='/groups'?'groups':path==='/playlists'?'playlists':path==='/favorites'?'favorites':path==='/recent'?'recent':'all';
   const watchIds=multiEnabled?Array.from(new Set([activeId,...multiViewIds])).filter(Boolean).slice(0,MAX_MULTI_VIEWS):[activeId].filter(Boolean);
   const multiChannels=watchIds.map(id=>channels.find(c=>c.id===id)).filter(Boolean) as Channel[];
   const relatedChannels=activeChannel?relatedToChannel(channels,activeChannel):[];
@@ -271,7 +274,7 @@ function Shell(){
 
     <div className="yt-shell-body" data-sidebar-collapsed={!sidebar} data-mobile-open={mobileDrawer}>
       <main className="yt-main" id="main-content">
-        {view==='proxy'?<ProxyPage/>:view==='settings'?<SettingsPage/>:view==='connectivity'?<ConnectivityPage onWatch={openWatch} onGroup={openGroup}/>:view==='groups'?<CategoriesPage onOpen={openGroup}/>:view==='playlists'?<section className="page-content">
+        {view==='media'?<Suspense fallback={<div className="page-loading">Loading Media Center…</div>}><MediaCenterPage/></Suspense>:view==='proxy'?<ProxyPage/>:view==='settings'?<SettingsPage/>:view==='connectivity'?<ConnectivityPage onWatch={openWatch} onGroup={openGroup}/>:view==='groups'?<CategoriesPage onOpen={openGroup}/>:view==='playlists'?<section className="page-content">
           <div className="page-heading"><div><div className="eyebrow">PLAYLIST STUDIO</div><h1><ListVideo size={28}/>{t('playlists')}</h1><p>{t('playlistImportNote')}</p></div><Button onClick={()=>setPlaylistDialog(true)}><Upload size={17}/>{t('importPlaylist')}</Button></div>
           <FolderSources/>
           <div className="folder-sources-heading imported-source-heading"><h2>{settings.language==='fa'?'منابع ثبت‌شده':'Imported playlists'}</h2><span className="muted">{playlists.filter(p=>!p.id.startsWith(FOLDER_SOURCE_PREFIX)).length.toLocaleString()} {settings.language==='fa'?'منبع':'sources'}</span></div>

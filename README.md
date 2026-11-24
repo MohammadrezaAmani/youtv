@@ -1,10 +1,10 @@
-# YouTV Core 0.3.0
+# YouTV Core 0.36.1
 
 A self-hosted, privacy-first IPTV/HLS personal media library built with **React 19 + TypeScript + Vite + shadcn-style Radix components + Bun**, and an **optional Cloudflare Worker**. No central backend, account, analytics SDK, demo channels, mock playlists or hard-coded channel catalog.
 
 ## Status
 
-**Source-release / integration candidate, not a browser-verified production release.** In the delivery environment neither Bun nor the npm package registry is available, so full dependency installation, type checking and browser playback cannot be proven here. The included Node-based smoke suite passes; validate with the commands below on a networked machine before deployment.
+**Source-release / integration candidate, not a browser-verified production release.** In the delivery environment neither Bun nor the npm package registry is available, so full dependency installation, type checking and browser playback cannot be proven here. The included dependency-free suite (58 Node tests and 4 Python tests) passes; validate with the commands below on a networked machine before deployment. See `docs/VALIDATION-v0.36.1.md` for scope and limits.
 
 ## Features available in this source tree
 
@@ -21,7 +21,7 @@ A self-hosted, privacy-first IPTV/HLS personal media library built with **React 
 - Versioned LocalStorage persistence, JSON backup without proxy tokens, GitHub Pages deployment
 - Cloudflare Worker with HLS manifest rewriting, binary response streaming, range requests, CORS, SSRF and redirect protection, configurable source allowlist
 
-**Not supported:** decoding raw DVB/EBU Teletext data embedded in MPEG-TS, DVB bitmap subtitle PIDs, DRM circumvention, transcoding codecs, guaranteed playback of arbitrary geo-blocked/paywalled sources, offline video downloads, EPG/XMLTV (planned), background recording, multi-device sync. Teletext needs an upstream page endpoint or a separate extractor/transcoder generating browser-compatible subtitles. A bare `.m3u8` does not imply a Teletext track.
+**Not supported:** decoding raw DVB/EBU Teletext data embedded in MPEG-TS, DVB bitmap subtitle PIDs, DRM circumvention, guaranteed decoding of arbitrary codecs, guaranteed playback of arbitrary geo-blocked/paywalled sources, EPG/XMLTV (planned), background recording, multi-device sync. Teletext needs an upstream page endpoint or a separate extractor/transcoder generating browser-compatible subtitles. A bare `.m3u8` does not imply a Teletext track.
 
 ## Run locally (Bun only)
 
@@ -120,3 +120,8 @@ This release adds local live-TV recording with MediaRecorder, optional direct fi
 ## YouTV 0.19 mobile playback
 
 The player now prefers native HLS on iOS/iPadOS, even when `hls.js` reports MediaSource support. Native playback does not request CORS-enabled video; browsers still enforce HTTPS mixed-content, codec, and source authorization restrictions. On iOS, start audio with a user tap. Multi-view controls are located with the player action icons, not in the page header. See `docs/UPGRADE-v0.19.fa.md` for deployment and limitations.
+
+
+## Media Center
+
+YouTV includes a browser-only Media Center for public YouTube videos/playlists, public Instagram posts/reels/carousels, direct media URLs, HLS and MPEG-DASH. It reuses the existing Cloudflare Worker for platform relay and binary streaming; it does not add a separate backend. See [docs/MEDIA-CENTER.fa.md](docs/MEDIA-CENTER.fa.md) for supported formats, download behavior and browser/source limitations.

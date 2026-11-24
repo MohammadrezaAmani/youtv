@@ -83,12 +83,12 @@ export function assertToken(token: string | null, env: ProxyEnv): void {
 }
 
 export function corsHeaders(request: Request, env: ProxyEnv): Headers {
-  const h = new Headers({ 'Vary': 'Origin', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
+  const h = new Headers({ 'Vary': 'Origin', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "sandbox; default-src 'none'" });
   const origin = allowedOrigin(request, env);
   if (origin) h.set('Access-Control-Allow-Origin', origin);
   h.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
-  h.set('Access-Control-Allow-Headers', 'Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token');
-  h.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, ETag, X-YouTV-Proxy');
+  h.set('Access-Control-Allow-Headers', 'Range, If-Range, Accept, Content-Type, Authorization, X-YouTV-Admin-Token, X-YouTube-Client-Name, X-YouTube-Client-Version, X-Goog-Visitor-Id, X-Goog-Api-Format-Version');
+  h.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Disposition, Accept-Ranges, ETag, Last-Modified, X-YouTV-Proxy');
   h.set('Access-Control-Max-Age', '3600');
   return h;
 }
