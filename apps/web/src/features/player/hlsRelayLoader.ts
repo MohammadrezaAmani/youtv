@@ -1,11 +1,11 @@
 import Hls from "hls.js";
 import type { WorkerProfile } from "@youtv/shared";
 import { hlsRequestRoute, hlsResponseBase, normalizeRelayPlaylist } from "./hlsRelayRoutes";
-import type { HlsFragmentPrefetcher, HlsPrefetchFragment, PrefetchPayload } from "./hlsPrefetch";
+import type { HlsFragmentPrefetcher, HlsPrefetchFragment } from "./hlsPrefetch";
 
 /** Preserve hls.js retries, aborts, Range and buffering while routing requests
  * through the selected Worker. Completed speculative fragments are served
- * from a local Blob URL; an in-flight prefetch is joined without discarding
+ * directly from cached bytes; an in-flight prefetch is joined without discarding
  * already downloaded bytes. A failed prefetch falls back to the native loader. */
 export function hlsRelayLoader(
   worker: WorkerProfile,
@@ -15,7 +15,6 @@ export function hlsRelayLoader(
   const BaseLoader = Hls.DefaultConfig.loader;
   type LoadArgs = Parameters<InstanceType<typeof BaseLoader>["load"]>;
   return class RelayLoader extends BaseLoader {
-    private cachedObjectUrl: string | null = null;
     private generation = 0;
     private releaseForeground: (() => void) | null = null;
     private abortPending: (() => void) | null = null;
@@ -25,16 +24,9 @@ export function hlsRelayLoader(
       this.releaseForeground = null;
     }
 
-    private releaseCachedObjectUrl(): void {
-      if (!this.cachedObjectUrl) return;
-      URL.revokeObjectURL(this.cachedObjectUrl);
-      this.cachedObjectUrl = null;
-    }
-
     abort(): void {
       this.generation++;
       this.finishForeground();
-      this.releaseCachedObjectUrl();
       const abortPending = this.abortPending;
       this.abortPending = null;
       if (abortPending) abortPending();
@@ -44,7 +36,6 @@ export function hlsRelayLoader(
     destroy(): void {
       this.generation++;
       this.finishForeground();
-      this.releaseCachedObjectUrl();
       this.abortPending = null;
       super.destroy();
     }
@@ -61,13 +52,16 @@ export function hlsRelayLoader(
       const media = !playlist && !fragmentContext.part && !fragmentContext.resetIV && typeof frag?.sn === "number" && (frag.type === "main" || frag.type === "audio");
       this.finishForeground();
       if (media && prefetcher) this.releaseForeground = prefetcher.reserveForeground(url, context.rangeStart, context.rangeEnd, frag);
-      const claimed = media ? prefetcher?.claim(url, context.rangeStart, context.rangeEnd, () => this.generation === generation, frag) : null;
+      const claimed = media ? prefetcher?.claim(url, context.rangeStart, context.rangeEnd, () => this.generation === generation, frag, (loaded, total) => {
+        this.stats.loaded = loaded;
+        this.stats.total = total || loaded;
+        if (loaded > 0 && !this.stats.loading.first) this.stats.loading.first = performance.now();
+      }) : null;
 
       const callbacksWithRouting = {
         ...callbacks,
         onSuccess: (response: Parameters<typeof callbacks.onSuccess>[0], stats: Parameters<typeof callbacks.onSuccess>[1], loadedContext: Parameters<typeof callbacks.onSuccess>[2], networkDetails: Parameters<typeof callbacks.onSuccess>[3]) => {
           this.finishForeground();
-          this.releaseCachedObjectUrl();
           if (media && frag?.duration) {
             prefetcher?.observe(stats.loading.end - stats.loading.start, stats.loading.first - stats.loading.start, frag.duration);
           }
@@ -88,77 +82,41 @@ export function hlsRelayLoader(
         super.load(routedContext, config, callbacksWithRouting);
         return;
       }
-      this.stats.loading.start = performance.now();
+      this.stats.loading.start = this.stats.loading.first || performance.now();
       this.abortPending = () => {
         this.stats.aborted = true;
         callbacks.onAbort?.(this.stats, routedContext, null);
       };
-      void claimed.then((payload) => {
+      const fallback = () => {
         if (this.generation !== generation) return;
         this.abortPending = null;
-        if (!payload) { super.load(routedContext, config, callbacksWithRouting); return; }
-        serveCached(payload);
-      });
-
-      const serveCached = (payload: PrefetchPayload): void => {
-        const cached = payload.blob;
-        let objectUrl: string;
-        try {
-          this.releaseCachedObjectUrl();
-          objectUrl = URL.createObjectURL(cached);
-        } catch {
-          super.load(routedContext, config, callbacksWithRouting);
-          return;
-        }
-        this.cachedObjectUrl = objectUrl;
-        const cachedHeaders = routedContext.headers ? { ...routedContext.headers } : undefined;
-        if (cachedHeaders) {
-          for (const name of Object.keys(cachedHeaders)) {
-            if (name.toLowerCase() === "range") delete cachedHeaders[name];
-          }
-        }
-        const cachedContext = {
-          ...routedContext,
-          url: objectUrl,
-          rangeStart: undefined,
-          rangeEnd: undefined,
-          headers: cachedHeaders,
-        };
-        super.load(cachedContext, config, {
-          ...callbacks,
-          onSuccess: (response, stats, _loadedContext, networkDetails) => {
-            this.finishForeground();
-            this.releaseCachedObjectUrl();
-            // Local Blob speed is not network speed. Preserve the actual fetch
-            // duration for hls.js ABR so a cache hit cannot force a huge upshift.
-            const end = performance.now();
-            stats.loading.start = Math.max(0.001, end - Math.max(1, payload.elapsedMs));
-            stats.loading.first = Math.min(end, stats.loading.start + Math.min(payload.firstByteMs, payload.elapsedMs));
-            stats.loading.end = end;
-            callbacks.onSuccess({ ...response, url }, stats, routedContext, networkDetails);
-          },
-          onError: (error, _loadedContext, networkDetails, ...rest) => {
-            this.finishForeground();
-            this.releaseCachedObjectUrl();
-            callbacks.onError(error, routedContext, networkDetails, ...rest);
-          },
-          onTimeout: (stats, _loadedContext, networkDetails) => {
-            this.finishForeground();
-            this.releaseCachedObjectUrl();
-            callbacks.onTimeout(stats, routedContext, networkDetails);
-          },
-          onAbort: (stats, _loadedContext, networkDetails) => {
-            this.finishForeground();
-            this.releaseCachedObjectUrl();
-            callbacks.onAbort?.(stats, routedContext, networkDetails);
-          },
-          onProgress: callbacks.onProgress
-            ? (stats, _loadedContext, data, networkDetails) => {
-                callbacks.onProgress!(stats, routedContext, data, networkDetails);
-              }
-            : undefined,
-        });
+        // A new native transfer starts with clean timing and progress stats.
+        this.stats.loading.start = this.stats.loading.first = this.stats.loading.end = 0;
+        this.stats.loaded = this.stats.total = 0;
+        super.load(routedContext, config, callbacksWithRouting);
       };
+      void claimed.then(async payload => {
+        if (this.generation !== generation) return;
+        if (!payload) { fallback(); return; }
+        let data: ArrayBuffer;
+        try { data = await payload.blob.arrayBuffer(); }
+        catch { fallback(); return; }
+        if (this.generation !== generation) return;
+        this.abortPending = null;
+        const stats = this.stats;
+        const end = performance.now();
+        stats.loading.start = Math.max(0.001, end - Math.max(1, payload.elapsedMs));
+        stats.loading.first = Math.min(end, stats.loading.start + Math.min(payload.firstByteMs, payload.elapsedMs));
+        stats.loading.end = end;
+        stats.loaded = stats.total = data.byteLength;
+        stats.bwEstimate = data.byteLength * 8000 / Math.max(1, payload.elapsedMs - payload.firstByteMs);
+        // Match the standard XHR loader callback order. No Blob URL request,
+        // no second Range transformation, and no false local-cache ABR sample.
+        this.finishForeground();
+        callbacks.onProgress?.(stats, routedContext, data, null);
+        if (this.generation !== generation) return;
+        callbacks.onSuccess({ url, data, code: context.rangeEnd ? 206 : 200 }, stats, routedContext, null);
+      }, fallback);
     }
   };
 }

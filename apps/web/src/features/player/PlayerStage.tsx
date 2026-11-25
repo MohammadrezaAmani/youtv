@@ -19,7 +19,7 @@ import { useTranslation } from "react-i18next";
 import Hls from "hls.js";
 import { hlsRelayLoader } from "./hlsRelayLoader";
 import { hlsRequestRoute } from "./hlsRelayRoutes";
-import { HLS_LOAD_TIMEOUT_MS, HlsFragmentPrefetcher, type HlsPrefetchFragment } from "./hlsPrefetch";
+import { HlsFragmentPrefetcher, type HlsPrefetchFragment } from "./hlsPrefetch";
 import { playbackSessionIdentity, releasePlayback } from "./playbackLifecycle";
 import {
   Activity,
@@ -793,7 +793,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       const schedulePrefetch = (fragments: readonly HlsPrefetchFragment[], scope: string, rendition: string, live: boolean) => {
         if (!sessionPrefetcher || startupAnchor === null) return;
         const position = video.currentTime === 0 ? Math.max(0, startupAnchor) : video.currentTime;
-        sessionPrefetcher.updatePlayback(secondsBufferedAhead(position, video.buffered));
+        sessionPrefetcher.updatePlayback(secondsBufferedAhead(position, video.buffered), position);
         sessionPrefetcher.schedule(fragments, position, scope, rendition, live);
       };
       // Keep the horizon moving even when hls.js temporarily stops appending
@@ -935,6 +935,10 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         fragmentStarted.set(key, performance.now());
         inFlightFragmentsRef.current.set(key, Date.now());
       });
+      engine.on(Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED, (_, data) => {
+        if (disposed) return;
+        inFlightFragmentsRef.current.delete(`${data.frag.type}:${data.frag.sn}`);
+      });
       engine.on(Hls.Events.FRAG_LOADED, (_, data) => {
         if (disposed) return;
         inFlightFragmentsRef.current.delete(
@@ -962,7 +966,11 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
       });
       engine.on(Hls.Events.ERROR, (_, data) => {
-        if (!data.fatal || disposed) return;
+        if (disposed) return;
+        if (data.frag && (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR || data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT)) {
+          inFlightFragmentsRef.current.delete(`${data.frag.type}:${data.frag.sn}`);
+        }
+        if (!data.fatal) return;
         if (
           data.type === Hls.ErrorTypes.NETWORK_ERROR &&
           recoverCount.current++ < 2
@@ -1203,7 +1211,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       }
       // Give hls.js time to finish its own timeout/retry policy. Only rebuild
       // the player when no fragment is downloading and playback is truly stuck.
-      const limit = engine ? HLS_LOAD_TIMEOUT_MS + 30000 : 65000;
+      const limit = engine ? 30_000 : 65_000;
       if (stalledFor > limit) {
         lastProgressAtRef.current = now;
         fail(`Playback stalled for ${Math.round(limit / 1000)}s`);

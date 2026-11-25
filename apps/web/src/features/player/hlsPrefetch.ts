@@ -32,6 +32,10 @@ type PrefetchEntry = {
   retryTimer?: ReturnType<typeof setTimeout>;
   attempts?: number;
   claimed?: boolean;
+  loaded?: number;
+  total?: number;
+  observers?: Set<(loaded: number, total: number) => void>;
+  claimTimer?: ReturnType<typeof setInterval>;
 };
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -52,11 +56,11 @@ export type HlsPrefetchOptions = {
 
 const DEFAULTS = {
   targetAheadSeconds: 90,
-  maxConcurrent: 16,
+  maxConcurrent: 8,
   maxSegments: 96,
   maxSegmentBytes: 8 * 1024 * 1024,
   maxCacheBytes: 192 * 1024 * 1024,
-  initialConcurrent: 8,
+  initialConcurrent: 2,
 } as const;
 
 export const HLS_LOAD_TIMEOUT_MS = 300_000;
@@ -102,6 +106,7 @@ export function hlsFragmentCacheKey(
 async function readBoundedBlob(
   response: Response,
   maximumBytes: number,
+  onBytes: (loaded: number) => void,
 ): Promise<Blob | null> {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
@@ -117,6 +122,7 @@ async function readBoundedBlob(
 
   if (!response.body) {
     const blob = await response.blob();
+    onBytes(blob.size);
     return blob.size > 0 && blob.size <= maximumBytes ? blob : null;
   }
 
@@ -128,6 +134,7 @@ async function readBoundedBlob(
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
+      onBytes(total);
       if (total > maximumBytes) {
         await reader.cancel().catch(() => undefined);
         return null;
@@ -161,6 +168,10 @@ export class HlsFragmentPrefetcher {
   private started: boolean;
   private limit: number;
   private bufferAhead = 0;
+  private position = 0;
+  private estimatedRate = 0;
+  private estimatedLatencyShare = 0;
+  private samples = 0;
   private successesSinceIncrease = 0;
   private readonly renditions = new Map<string, string>();
   private readonly foreground = new Set<string>();
@@ -179,7 +190,7 @@ export class HlsFragmentPrefetcher {
     options: HlsPrefetchOptions = {},
   ) {
     this.targetAheadSeconds = Math.max(15, options.targetAheadSeconds ?? DEFAULTS.targetAheadSeconds);
-    this.maxConcurrent = Math.max(1, Math.min(16, options.maxConcurrent ?? DEFAULTS.maxConcurrent));
+    this.maxConcurrent = Math.max(1, Math.min(8, options.maxConcurrent ?? DEFAULTS.maxConcurrent));
     this.initialConcurrent = Math.max(1, Math.min(this.maxConcurrent, options.initialConcurrent ?? DEFAULTS.initialConcurrent));
     this.maxSegments = Math.max(1, Math.min(160, options.maxSegments ?? DEFAULTS.maxSegments));
     this.maxSegmentBytes = Math.max(256 * 1024, options.maxSegmentBytes ?? DEFAULTS.maxSegmentBytes);
@@ -195,6 +206,7 @@ export class HlsFragmentPrefetcher {
 
   schedule(fragments: readonly HlsPrefetchFragment[], currentTime: number, scope = "main", rendition = scope, live = false): void {
     if (this.disposed || !this.started || !Number.isFinite(currentTime)) return;
+    this.position = currentTime;
     this.prune(currentTime);
     const horizon = currentTime + this.targetAheadSeconds;
     const candidates = fragments
@@ -292,20 +304,35 @@ export class HlsFragmentPrefetcher {
     this.pump();
   }
 
-  updatePlayback(bufferAhead: number): void {
+  updatePlayback(bufferAhead: number, position?: number): void {
     this.bufferAhead = Math.max(0, bufferAhead);
+    if (position !== undefined && Number.isFinite(position)) this.position = position;
     this.pump();
   }
 
-  /** Work-conserving additive increase, multiplicative decrease. Fast
-   * completions are a reason to keep filling the buffer, not to serialize it.
-   * A successful transfer opens capacity immediately, with no wall-clock gate. */
-  observe(elapsedMs: number, _firstByteMs: number, duration: number): void {
+  /** Estimate delivered media-seconds/s per transfer and the latency share.
+   * Increase slowly when there is a real backlog; avoid filling the connection
+   * with speculative downloads when the transfer itself is the bottleneck. */
+  observe(elapsedMs: number, firstByteMs: number, duration: number): void {
     if (!this.adaptive || !this.started || !Number.isFinite(elapsedMs) || elapsedMs <= 0 || duration <= 0) return;
-    if (this.queue.length && this.bufferAhead < this.targetAheadSeconds * .9) {
-      this.successesSinceIncrease++;
-      if (this.successesSinceIncrease >= 2) {
-        this.limit = Math.min(this.maxConcurrent, this.limit + 1);
+    const rate = duration * 1000 / elapsedMs;
+    const share = Math.max(0, Math.min(1, firstByteMs / elapsedMs));
+    const previous = this.estimatedRate;
+    this.estimatedRate = this.samples ? .75 * previous + .25 * rate : rate;
+    this.estimatedLatencyShare = this.samples ? .75 * this.estimatedLatencyShare + .25 * share : share;
+    this.samples++;
+    const min = Math.min(2, this.maxConcurrent);
+    const latencyLimited = this.estimatedLatencyShare >= .35;
+    // Transfer-dominated degradation is a signal to back off, not add requests.
+    if (this.samples > 3 && !latencyLimited && rate < previous * .45 && this.bufferAhead < 12) {
+      this.limit = Math.max(min, this.limit - 1);
+      this.successesSinceIncrease = 0;
+    } else if (this.queue.length && this.bufferAhead < this.targetAheadSeconds * .9) {
+      const desired = latencyLimited
+        ? Math.min(this.maxConcurrent, Math.max(min, Math.ceil(1.5 / this.estimatedRate)))
+        : Math.min(this.maxConcurrent, this.estimatedRate >= 1.5 ? 4 : 2);
+      if (this.limit < desired && ++this.successesSinceIncrease >= 2) {
+        this.limit++;
         this.successesSinceIncrease = 0;
       }
     }
@@ -319,6 +346,15 @@ export class HlsFragmentPrefetcher {
     }
   }
 
+  /** Prioritize the next missing media, not merely the next wall-clock URL.
+   * Browser fetch priority is a hint; the hard protection is admission control. */
+  private priority(entry: PrefetchEntry): "high" | "auto" | "low" {
+    const distance = entry.start - (this.position + this.bufferAhead);
+    const duration = entry.end - entry.start;
+    if (entry.claimed || distance <= duration + .25) return "high";
+    return distance <= 3 * duration ? "auto" : "low";
+  }
+
   /** Reserve the foreground key so playlist refreshes cannot download it twice.
    * A queued item is promoted to the native loader; running work is joined. */
   reserveForeground(url: string, rangeStart?: number, rangeEnd?: number, frag?: HlsPrefetchFragment): () => void {
@@ -327,13 +363,50 @@ export class HlsFragmentPrefetcher {
     const entry = this.entries.get(key);
     if (entry?.state === "queued" || entry?.state === "retry") this.cancelEntry(entry);
     else if (entry) entry.claimed = true;
-    return () => { this.foreground.delete(key); if (entry) entry.claimed = false; this.pump(); };
+    // Do not wait behind far-away transfers when the foreground is starving.
+    // Abort at most zero-byte speculative downloads, so received bytes are not lost.
+    if (this.started && this.adaptive && this.bufferAhead < 8) {
+      const far = [...this.entries.values()].filter(e => e.state === "loading" && !e.claimed && !e.loaded && this.priority(e) === "low")
+        .sort((a, b) => b.start - a.start);
+      if (this.active >= this.limit && far[0]) this.cancelEntry(far[0]);
+    }
+    return () => {
+      this.foreground.delete(key);
+      if (entry) {
+        entry.claimed = false;
+        entry.observers?.clear();
+        if (entry.claimTimer !== undefined) clearInterval(entry.claimTimer);
+        entry.claimTimer = undefined;
+      }
+      this.pump();
+    };
   }
 
-  claim(url: string, rangeStart?: number, rangeEnd?: number, wanted = () => true, frag?: HlsPrefetchFragment): Promise<PrefetchPayload | null> | null {
+  claim(url: string, rangeStart?: number, rangeEnd?: number, wanted = () => true, frag?: HlsPrefetchFragment, onBytes?: (loaded: number, total: number) => void): Promise<PrefetchPayload | null> | null {
     const key = hlsFragmentCacheKey(url, rangeStart, rangeEnd, frag);
     const entry = this.entries.get(key);
     if (!entry || (entry.state === "queued" && !entry.completion)) return null;
+    if (entry.state === "loading") {
+      if (onBytes) {
+        entry.observers ??= new Set();
+        entry.observers.add((loaded, total) => { if (wanted()) onBytes(loaded, total); });
+        onBytes(entry.loaded ?? 0, entry.total ?? 0);
+      }
+      // A speculative request must not hold playback for its full five-minute
+      // deadline when it has stopped delivering bytes. Hand it back to the
+      // native loader after 30 seconds without progress, only while starving.
+      if (entry.claimTimer === undefined) {
+        let lastProgress = Date.now();
+        let loaded = entry.loaded ?? 0;
+        entry.claimTimer = setInterval(() => {
+          if (entry.loaded !== undefined && entry.loaded !== loaded) { loaded = entry.loaded; lastProgress = Date.now(); }
+          if (this.bufferAhead < 8 && Date.now() - lastProgress >= 30_000) {
+            this.congested();
+            this.fail(entry);
+          }
+        }, 1000);
+      }
+    }
     const consume = (): PrefetchPayload | null => {
       if (!wanted() || this.entries.get(key) !== entry || entry.state !== "ready" || !entry.blob) return null;
       const result = { blob: entry.blob, elapsedMs: entry.elapsedMs ?? 1000, firstByteMs: entry.firstByteMs ?? 0 };
@@ -415,6 +488,8 @@ export class HlsFragmentPrefetcher {
     entry.controller.abort();
     if (entry.deadline !== undefined) clearTimeout(entry.deadline);
     if (entry.retryTimer !== undefined) clearTimeout(entry.retryTimer);
+    if (entry.claimTimer !== undefined) clearInterval(entry.claimTimer);
+    entry.observers?.clear();
     // Loading entries settle after their permit has actually been released.
     if (entry.state !== "loading") entry.resolveCompletion?.();
     if (entry.blob) this.cachedBytes = Math.max(0, this.cachedBytes - entry.blob.size);
@@ -439,9 +514,14 @@ export class HlsFragmentPrefetcher {
     // A claimed prefetch already owns a permit: do not count it twice.
     // Independent native foreground downloads count against the total cap.
     const nativeForeground = [...this.foreground].filter(key => !this.entries.has(key)).length;
-    const budget = this.adaptive ? Math.max(0, this.limit - nativeForeground) : this.limit;
+    const urgent = this.foreground.size > 0 && this.bufferAhead < 8;
+    const effective = this.adaptive && urgent ? Math.min(this.limit, 2) : this.limit;
+    const budget = this.adaptive ? Math.max(0, effective - nativeForeground) : effective;
     while (this.active < budget && this.queue.length &&
         this.cachedBytes + (this.active + 1) * this.maxSegmentBytes <= this.maxCacheBytes) {
+      // During starvation
+      // only the nearby lookahead can compete with the foreground.
+      if (this.adaptive && urgent && this.priority(this.queue[0]!) === "low") break;
       const entry = this.queue.shift()!;
       if (this.entries.get(entry.key) !== entry || entry.state !== "queued") continue;
       entry.state = "loading";
@@ -474,6 +554,7 @@ export class HlsFragmentPrefetcher {
   private retry(entry: PrefetchEntry): void {
     if (this.entries.get(entry.key) !== entry || entry.controller.signal.aborted || this.disposed) return;
     this.congested();
+    if (entry.claimed) { this.fail(entry); return; }
     if ((entry.attempts ?? 0) >= 3) { this.fail(entry); return; }
     entry.state = "retry";
     // Backoff belongs to the failed item, not to the semaphore slot.
@@ -489,6 +570,8 @@ export class HlsFragmentPrefetcher {
 
   private async runAttempt(entry: PrefetchEntry): Promise<void> {
     entry.attempts = (entry.attempts ?? 0) + 1;
+    entry.loaded = 0;
+    entry.total = 0;
     const startedAt = performance.now();
     try {
       if (entry.controller.signal.aborted || this.disposed) return;
@@ -499,8 +582,8 @@ export class HlsFragmentPrefetcher {
       const init = {
         method: "GET", headers, credentials: "omit", cache: "no-store",
         redirect: "follow", signal: entry.controller.signal,
-        priority: entry.claimed ? "high" : "auto",
-      } as RequestInit & { priority: "auto" | "high" };
+        priority: this.priority(entry),
+      } as RequestInit & { priority: "auto" | "high" | "low" };
       const response = await this.fetcher(entry.url, init);
       const firstByteMs = performance.now() - startedAt;
       const ranged = entry.rangeStart !== undefined;
@@ -521,7 +604,11 @@ export class HlsFragmentPrefetcher {
           this.fail(entry); return;
         }
       }
-      const blob = await readBoundedBlob(response, this.maxSegmentBytes);
+      entry.total = Number(response.headers.get("content-length")) || 0;
+      const blob = await readBoundedBlob(response, this.maxSegmentBytes, loaded => {
+        entry.loaded = loaded;
+        for (const observer of entry.observers ?? []) observer(loaded, entry.total ?? 0);
+      });
       if (this.entries.get(entry.key) !== entry || entry.controller.signal.aborted || this.disposed) return;
       if (!blob || (ranged && blob.size !== entry.rangeEnd! - entry.rangeStart!) || !this.makeRoom(blob.size, entry)) {
         this.fail(entry); return;
@@ -531,6 +618,8 @@ export class HlsFragmentPrefetcher {
       entry.blob = blob;
       entry.state = "ready";
       if (entry.deadline !== undefined) clearTimeout(entry.deadline);
+      if (entry.claimTimer !== undefined) clearInterval(entry.claimTimer);
+      entry.claimTimer = undefined;
       this.cachedBytes += blob.size;
       this.observe(entry.elapsedMs, firstByteMs, entry.end - entry.start);
     } catch {

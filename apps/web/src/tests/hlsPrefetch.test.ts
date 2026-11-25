@@ -230,7 +230,7 @@ test("reserves foreground requests and normalizes an empty HLS byte range", () =
   release(); p.dispose();
 });
 
-test("starts with eight permits only after startup and never collapses fast downloads to one", async () => {
+test("starts with two permits only after startup and adapts up to eight when latency dominates", async () => {
   const calls: string[] = [];
   const releases = new Map<string, (response: Response) => void>();
   const p = new HlsFragmentPrefetcher(url => url, { targetAheadSeconds: 300, fetcher: (url, init) => {
@@ -245,21 +245,20 @@ test("starts with eight permits only after startup and never collapses fast down
     p.schedule(items, 0);
     expect(calls.length).toBe(0);
     p.start(); p.schedule(items, 0);
-    expect(calls.length).toBe(8);
-    expect(p.getStats().active).toBe(8);
+    expect(calls.length).toBe(2);
+    expect(p.getStats().active).toBe(2);
     // A fast completion must open a slot without a playlist refresh or a timer.
-    releases.get(items[3]!.url)!(new Response(new Uint8Array([1])));
+    releases.get(items[1]!.url)!(new Response(new Uint8Array([1])));
     await tick();
-    expect(calls.length).toBe(9);
-    expect(p.getStats().active).toBe(8);
-    expect(calls[8]).toBe(items[8]!.url);
+    expect(calls.length).toBe(3);
+    expect(p.getStats().active).toBe(2);
+    expect(calls[2]).toBe(items[2]!.url);
     releases.get(items[0]!.url)!(new Response(new Uint8Array([2])));
     await tick();
-    expect(p.getStats().concurrency).toBe(9);
-    expect(p.getStats().active).toBe(9);
-    for (let i = 0; i < 40; i++) p.observe(400, 100, 6);
-    expect(p.getStats().concurrency).toBe(16);
-    expect(p.getStats().active).toBe(16);
+    expect(p.getStats().concurrency).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < 80; i++) p.observe(30_000, 25_000, 6);
+    expect(p.getStats().concurrency).toBe(8);
+    expect(p.getStats().active).toBe(8);
   } finally { p.dispose(); }
 });
 
@@ -411,4 +410,65 @@ test("a retry backoff releases the permit to the next segment immediately", asyn
     expect(p.getStats().cached).toBe(1);
     expect(p.getStats().active).toBe(0);
   } finally { p.dispose(); }
+});
+
+
+test("assigns high priority to the nearest missing fragment and low priority to distant work", () => {
+  const priorities: string[] = [];
+  const p = new HlsFragmentPrefetcher(url => url, { adaptive: false, maxConcurrent: 3, waitForStartup: false,
+    fetcher: (_url, init) => {
+      priorities.push((init as RequestInit & {priority?: string}).priority ?? "");
+      return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {once:true}));
+    },
+  });
+  try {
+    p.updatePlayback(6, 0);
+    p.schedule([fragment(1, 6), fragment(2, 18), fragment(3, 36)], 0);
+    expect(priorities).toEqual(["high", "auto", "low"]);
+  } finally { p.dispose(); }
+});
+
+test("joined downloads report byte progress before the payload finishes", async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const progress: number[] = [];
+  const item = fragment(1, 6);
+  const p = new HlsFragmentPrefetcher(url => url, {waitForStartup:false, fetcher: async () => new Response(new ReadableStream<Uint8Array>({start(c){controller=c;}}))});
+  try {
+    p.schedule([item], 0);
+    const release = p.reserveForeground(item.url);
+    const pending = p.claim(item.url, undefined, undefined, () => true, undefined, loaded => progress.push(loaded));
+    controller.enqueue(new Uint8Array([1,2]));
+    await tick();
+    expect(progress).toContain(2);
+    controller.enqueue(new Uint8Array([3])); controller.close();
+    expect([ ...new Uint8Array(await (await pending)!.blob.arrayBuffer()) ]).toEqual([1,2,3]);
+    release();
+  } finally {p.dispose();}
+});
+
+test("a slow transfer-limited link stays at two permits", () => {
+  const p = new HlsFragmentPrefetcher(url => url, {waitForStartup:false, fetcher: (_url, init) => new Promise<Response>((_r, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {once:true}))});
+  try {
+    p.schedule(Array.from({length:12},(_,i)=>fragment(i+1,(i+1)*6)),0);
+    for(let i=0;i<30;i++) p.observe(30_000, 100, 6);
+    expect(p.getStats().concurrency).toBe(2);
+  } finally {p.dispose();}
+});
+
+
+test("a failed foreground claim hands control back instead of waiting for speculative retries", async () => {
+  let finish!: (response: Response) => void;
+  let calls = 0;
+  const item = fragment(1, 6);
+  const p = new HlsFragmentPrefetcher(url => url, {waitForStartup:false, retryDelayMs:60_000, fetcher: () => {calls++; return new Promise<Response>(resolve => {finish=resolve;});}});
+  try {
+    p.schedule([item],0);
+    const release=p.reserveForeground(item.url);
+    const claimed=p.claim(item.url);
+    finish(new Response("upstream failure",{status:502}));
+    expect(await claimed).toBeNull();
+    expect(calls).toBe(1);
+    expect(p.getStats().active).toBe(0);
+    release();
+  } finally {p.dispose();}
 });
