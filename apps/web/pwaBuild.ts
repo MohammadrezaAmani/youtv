@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Plugin } from "vite";
+import { imageCacheRuntime } from "./imageCacheRuntime";
 
 /** Vite emits a scope-correct manifest and a cache-bounded service worker for GitHub Pages. */
 export function pwaManifest(base: string) {
@@ -59,7 +60,7 @@ export function pwaManifest(base: string) {
   };
 }
 
-/** Never intercept IPTV sources, Worker requests, HLS fragments or media streams. */
+/** Cache the static shell and public image subresources, never playback requests. */
 export function pwaServiceWorker(
   base: string,
   files: string[],
@@ -80,7 +81,7 @@ export function pwaServiceWorker(
   const safePrefix = base.replace(/[^a-z0-9-]/gi, "_");
   const cachePrefix = `youtv-pwa-${safePrefix}-`;
   const cacheName = `${cachePrefix}${revision}`;
-  return `/* YouTV static app-shell worker. IPTV and remote media are deliberately network-only. */
+  return `/* YouTV static app-shell and public image cache. IPTV playback is network-only. */
 'use strict';
 const CACHE_NAME=${JSON.stringify(cacheName)};
 const CACHE_PREFIX=${JSON.stringify(cachePrefix)};
@@ -88,13 +89,14 @@ const PATHS=${JSON.stringify(paths)};
 const HOME=new URL('index.html',self.registration.scope).href;
 const ASSETS=PATHS.map(path=>new URL(path,self.registration.scope).href);
 const STATIC=new Set(ASSETS);
+${imageCacheRuntime(cachePrefix)}
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(ASSETS)));
 });
 self.addEventListener('activate',event=>{
   event.waitUntil((async()=>{
     for(const key of await caches.keys()){
-      if(key.startsWith(CACHE_PREFIX)&&key!==CACHE_NAME)await caches.delete(key);
+      if(key.startsWith(CACHE_PREFIX)&&key!==CACHE_NAME&&key!==IMAGE_CACHE&&key!==IMAGE_META)await caches.delete(key);
     }
     await self.clients.claim();
   })());
@@ -106,6 +108,11 @@ self.addEventListener('fetch',event=>{
   const request=event.request;
   if(request.method!=='GET')return;
   const url=new URL(request.url);
+  // Cross-origin image subresources of a controlled page reach this worker.
+  if(!STATIC.has(url.href)&&publicImageRequest(request,url)){
+    event.respondWith(cachedPublicImage(request));
+    return;
+  }
   if(url.origin!==self.location.origin)return;
   if(!url.pathname.startsWith(new URL(self.registration.scope).pathname))return;
   if(request.mode==='navigate'){
@@ -116,7 +123,7 @@ self.addEventListener('fetch',event=>{
     return;
   }
   // Only the build-time allowlist is cached; never cache playlists, URLs with tokens,
-  // /sources/, video, range requests, cross-origin assets or API responses.
+  // /sources/, video, range requests or API responses through the app-shell cache.
   if(request.headers.has('range')||url.search||!STATIC.has(url.href))return;
   event.respondWith((async()=>{
     const cached=await caches.match(url.href);
@@ -158,7 +165,7 @@ export function youtvPwaPlugin(): Plugin {
         .filter(
           (name) =>
             name.startsWith("assets/") &&
-            /\.(?:js|css|woff2?|ttf)$/i.test(name),
+            /\.(?:js|css|woff2?|ttf|otf|png|jpe?g|svg|webp|avif|gif|ico)$/i.test(name),
         )
         .sort();
       const digest = createHash("sha256");

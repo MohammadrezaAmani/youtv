@@ -1335,6 +1335,17 @@ async function proxy(request, env, reqUrl) {
     headers.set("Content-Type", "application/dash+xml; charset=utf-8");
     return new Response(rewritten, { status: 200, headers });
   }
+  if (request.method === "GET" && response.status === 200 && !hlsHint && !hlsManifest && !dashManifest && /^image\/[a-z0-9.+-]+(?:\s*;|$)/i.test(responseType) && !key && !env.PROXY_TOKEN?.trim() && !request.headers.has("Authorization") && !request.headers.has("Range") && !request.headers.has("Cookie") && !response.headers.has("Set-Cookie") && [...reqUrl.searchParams.keys()].every((name) => name === "url") && !sourceUrl.search && !finalUrl.search && !/\b(?:cookie|authorization)\b|\*/i.test(response.headers.get("Vary") || "")) {
+    const policy = response.headers.get("Cache-Control") || "";
+    if (!/\b(?:no-store|no-cache|private)\b/i.test(policy) && !/no-cache/i.test(response.headers.get("Pragma") || "")) {
+      const match = /(?:^|,)\s*max-age\s*=\s*"?(\d+)"?/i.exec(policy);
+      const seconds = match ? Math.min(86400, Number(match[1])) : !policy && !response.headers.has("Expires") ? 86400 : 0;
+      const age = Number(response.headers.get("Age") || 0);
+      const remaining = Math.max(0, seconds - (Number.isFinite(age) ? age : seconds));
+      if (remaining > 0)
+        headers.set("Cache-Control", `public, max-age=${Math.floor(remaining)}`);
+    }
+  }
   if (request.method === "HEAD" || !response.ok || response.status === 206 || !hlsManifest) {
     return new Response(request.method === "HEAD" ? null : responseBody, {
       status: response.status,

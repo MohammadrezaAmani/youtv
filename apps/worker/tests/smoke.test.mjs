@@ -19,6 +19,32 @@ function req(source = input, origin = "https://mohammadrezaamani.github.io") {
   u.searchParams.set("key", key);
   return new Request(u.toString(), { headers: { Origin: origin } });
 }
+
+test("only public uncredentialed images get browser freshness; HLS stays network-only", async (t) => {
+  const old = globalThis.fetch;
+  t.after(() => { globalThis.fetch = old; });
+  const target = new URL(endpoint);
+  const publicEnv = { ALLOWED_HOSTS: "*" };
+  target.searchParams.set("url", "https://media.example.com/logo.png");
+  globalThis.fetch = async () => new Response(new Uint8Array([137, 80, 78, 71]), {
+    headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" },
+  });
+  const publicResponse = await worker.fetch(new Request(target), publicEnv);
+  assert.equal(publicResponse.headers.get("Cache-Control"), "public, max-age=3600");
+  target.searchParams.set("url", "https://media.example.com/logo.png?token=secret");
+  assert.equal((await worker.fetch(new Request(target), publicEnv)).headers.get("Cache-Control"), "no-store");
+  target.searchParams.set("url", "https://media.example.com/logo.png");
+  globalThis.fetch = async () => new Response(new Uint8Array([137, 80, 78, 71]), {
+    headers: { "Content-Type": "image/png", "Cache-Control": "private, no-store" },
+  });
+  assert.equal((await worker.fetch(new Request(target), publicEnv)).headers.get("Cache-Control"), "no-store");
+  globalThis.fetch = async () => new Response("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg.ts\n", {
+    headers: { "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "public, max-age=3600" },
+  });
+  target.searchParams.set("url", "https://media.example.com/live.m3u8");
+  assert.equal((await worker.fetch(new Request(target), publicEnv)).headers.get("Cache-Control"), "no-store");
+});
+
 test("HLS rewrites nested playlists, segments, key and map URIs", () => {
   const manifest =
     '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXT-X-KEY:URI="../key",METHOD=AES-128\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nsub/720p.m3u8\n#EXTINF:5,\nsegment.ts\n';

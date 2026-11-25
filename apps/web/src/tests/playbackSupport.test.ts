@@ -77,10 +77,11 @@ describe("mobile playback choices", () => {
       }),
     ).toBe("native");
   });
-  it("keeps the relay loader on devices that expose both native HLS and MSE", () => {
+  it("uses native HLS on Apple mobile even with a relay, while retaining the relay loader elsewhere", () => {
     const capabilities = { isHls: true, nativeHls: true, hlsJsSupported: true, relayed: true };
     expect(selectPlaybackEngine({ ...capabilities, appleMobile: false })).toBe("hlsjs");
-    expect(selectPlaybackEngine({ ...capabilities, appleMobile: true })).toBe("hlsjs");
+    expect(selectPlaybackEngine({ ...capabilities, appleMobile: true })).toBe("native");
+    expect(selectPlaybackEngine({ ...capabilities, appleMobile: true, nativeHls: false })).toBe("hlsjs");
     expect(selectPlaybackEngine({ ...capabilities, appleMobile: true, hlsJsSupported: false })).toBe("native");
   });
   it("does not report interrupted video play promises as permanent failures", () => {

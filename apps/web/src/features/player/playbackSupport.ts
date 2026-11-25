@@ -20,12 +20,16 @@ export function selectPlaybackEngine(options: {
   nativeHls: boolean;
   hlsJsSupported: boolean;
   appleMobile: boolean;
-  /** A relayed stream needs the custom loader whenever MSE is available. */
+  /** Non-Apple devices can use the relay loader for nested HLS requests. */
   relayed?: boolean;
 }): PlaybackEngine {
   if (!options.isHls) return "native";
+  // The native iOS fullscreen player must own playlist refresh and media
+  // loading. A JavaScript/MMS session can stop advancing after entering it.
+  // The relay already rewrites nested HLS URIs to the configured Worker.
+  if (options.nativeHls && options.appleMobile) return "native";
   if (options.relayed && options.hlsJsSupported) return "hlsjs";
-  if (options.nativeHls && (options.appleMobile || !options.hlsJsSupported))
+  if (options.nativeHls && !options.hlsJsSupported)
     return "native";
   if (options.hlsJsSupported) return "hlsjs";
   return options.nativeHls ? "native" : "unsupported";
