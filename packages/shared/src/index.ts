@@ -96,7 +96,7 @@ export const BUILTIN_WORKER_ID = "youtv:builtin:worker";
 export const builtinWorker: WorkerProfile = {
   id: BUILTIN_WORKER_ID,
   name: "YouTV",
-  baseUrl: "https://youtv.mr4016a1382.workers.dev/",
+  baseUrl: "https://meow.arushop.ir/",
   token: "",
   enabled: true,
 };
@@ -117,9 +117,9 @@ export const settingsSchema = z.object({
   theme: z
     .enum(["dark", "light", "mint", "oled", "ocean", "emerald", "violet"])
     .default("dark"),
-  proxyMode: z.enum(["direct", "proxy", "auto"]).default("proxy"),
+  proxyMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
   defaultWorkerId: z.string().default(""),
-  mediaRouteMode: z.enum(["direct", "proxy", "auto"]).default("proxy"),
+  mediaRouteMode: z.enum(["direct", "proxy", "auto"]).default("auto"),
   mediaWorkerId: z.string().default(""),
   mediaWorkerFallback: z.boolean().default(true),
   mediaDirectFallback: z.boolean().default(false),
@@ -180,9 +180,9 @@ export const defaultState: AppState = {
     hlsLatencyMode: "stable",
     language: "fa",
     theme: "dark",
-    proxyMode: "proxy",
+    proxyMode: "auto",
     defaultWorkerId: BUILTIN_WORKER_ID,
-    mediaRouteMode: "proxy",
+    mediaRouteMode: "auto",
     mediaWorkerId: "",
     mediaWorkerFallback: true,
     mediaDirectFallback: false,
@@ -203,7 +203,7 @@ export const defaultState: AppState = {
   },
 };
 /** Seed only empty profiles. Preserve user-configured (including disabled) Workers.
- * Upgrade legacy Auto defaults to Proxy once while preserving explicit Direct choices. */
+ * Never turn a saved Auto route into Proxy-only during legacy initialization. */
 export function ensureDefaultWorker<T extends Pick<AppState, "workers" | "settings">>(state: T, migrateLegacyDefaults = false): T {
   const needsWorker = state.workers.length === 0;
   const needsRoutingMigration = migrateLegacyDefaults && state.settings.routingDefaultsVersion < 1;
@@ -216,8 +216,6 @@ export function ensureDefaultWorker<T extends Pick<AppState, "workers" | "settin
       ...state.settings,
       ...(needsWorker ? { defaultWorkerId: BUILTIN_WORKER_ID, mediaWorkerId: "" } : {}),
       ...(needsRoutingMigration ? {
-        proxyMode: state.settings.proxyMode === "auto" ? "proxy" : state.settings.proxyMode,
-        mediaRouteMode: state.settings.mediaRouteMode === "auto" ? "proxy" : state.settings.mediaRouteMode,
         routingDefaultsVersion: 1,
       } : {}),
     },

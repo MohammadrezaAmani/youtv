@@ -100,3 +100,22 @@ describe("fullscreen across Safari, iPhone and desktop browsers", () => {
     expect(await enterPlayerFullscreen(player, null, doc)).toBe(false);
   });
 });
+
+it("uses viewport fullscreen for MSE when iPhone only offers native video fullscreen", async () => {
+  const player=document.createElement('div');
+  const video=document.createElement('video') as LegacyVideo;
+  document.body.append(player);player.append(video);
+  Object.defineProperty(document,'fullscreenEnabled',{configurable:true,value:false});
+  video.webkitEnterFullscreen=vi.fn();
+  const before=document.body.style.overflow;
+  try {
+    expect(await enterPlayerFullscreen(player,video,document,false)).toBe(true);
+    expect(video.webkitEnterFullscreen).not.toHaveBeenCalled();
+    expect(player.dataset.youtvFullscreen).toBe('true');
+    expect(isPlayerFullscreen(document,video)).toBe(true);
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(await togglePlayerFullscreen(player,video,document,false)).toBe(true);
+    expect(player.dataset.youtvFullscreen).toBeUndefined();
+    expect(document.body.style.overflow).toBe(before);
+  } finally {player.remove();Object.defineProperty(document,'fullscreenEnabled',{configurable:true,value:true});}
+});

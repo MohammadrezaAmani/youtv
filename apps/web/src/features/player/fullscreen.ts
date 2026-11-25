@@ -17,6 +17,26 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
   webkitSupportsFullscreen?: boolean;
 };
 
+const viewportOverflow = new WeakMap<HTMLElement, string>();
+
+export function exitViewportFullscreen(player: HTMLElement | null, doc: Document = document): boolean {
+  if (!player || player.dataset?.youtvFullscreen !== "true") return false;
+  delete player.dataset.youtvFullscreen;
+  if (doc.body) doc.body.style.overflow = viewportOverflow.get(player) ?? "";
+  viewportOverflow.delete(player);
+  doc.dispatchEvent(new Event("youtvfullscreenchange"));
+  return true;
+}
+
+function enterViewportFullscreen(player: HTMLElement, doc: Document): boolean {
+  if (!player.dataset || !doc.body) return false;
+  viewportOverflow.set(player, doc.body.style.overflow);
+  doc.body.style.overflow = "hidden";
+  player.dataset.youtvFullscreen = "true";
+  doc.dispatchEvent(new Event("youtvfullscreenchange"));
+  return true;
+}
+
 export function isElementFullscreen(doc: Document): boolean {
   const legacy = doc as WebkitFullscreenDocument;
   return Boolean(doc.fullscreenElement || legacy.webkitFullscreenElement);
@@ -28,6 +48,7 @@ export function isPlayerFullscreen(
 ): boolean {
   return (
     isElementFullscreen(doc) ||
+    Boolean(doc.querySelector?.('[data-youtv-fullscreen="true"]')) ||
     Boolean((video as WebkitFullscreenVideo | null)?.webkitDisplayingFullscreen)
   );
 }
@@ -36,6 +57,7 @@ export async function enterPlayerFullscreen(
   player: HTMLElement | null,
   video: HTMLVideoElement | null,
   doc: Document = document,
+  allowNativeVideo = true,
 ): Promise<boolean> {
   if (!player || !video) return false;
   if (isPlayerFullscreen(doc, video)) return true;
@@ -43,7 +65,7 @@ export async function enterPlayerFullscreen(
   const legacyPlayer = player as WebkitFullscreenElement;
   const legacyVideo = video as WebkitFullscreenVideo;
   const nativeVideoSupported =
-    typeof legacyVideo.webkitEnterFullscreen === "function" &&
+    allowNativeVideo && typeof legacyVideo.webkitEnterFullscreen === "function" &&
     legacyVideo.webkitSupportsFullscreen !== false;
 
   // On iPhone, a method may be present but fullscreenEnabled is false.
@@ -84,15 +106,17 @@ export async function enterPlayerFullscreen(
       /* not allowed or not ready */
     }
   }
-  return false;
+  return !allowNativeVideo && enterViewportFullscreen(player, doc);
 }
 
 export async function togglePlayerFullscreen(
   player: HTMLElement | null,
   video: HTMLVideoElement | null,
   doc: Document = document,
+  allowNativeVideo = true,
 ): Promise<boolean> {
   if (!player || !video) return false;
+  if (exitViewportFullscreen(player, doc)) return true;
   const legacyDoc = doc as WebkitFullscreenDocument;
   const legacyVideo = video as WebkitFullscreenVideo;
   if (doc.fullscreenElement || legacyDoc.webkitFullscreenElement) {
@@ -123,5 +147,5 @@ export async function togglePlayerFullscreen(
       return false;
     }
   }
-  return enterPlayerFullscreen(player, video, doc);
+  return enterPlayerFullscreen(player, video, doc, allowNativeVideo);
 }

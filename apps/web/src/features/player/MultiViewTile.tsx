@@ -191,7 +191,7 @@ export default function MultiViewTile({
       video.crossOrigin = "anonymous";
       engine = new Hls({
         ...getHlsProfile(settings.hlsLatencyMode),
-        ...(mode.stream?.worker ? { loader: hlsRelayLoader(mode.stream.worker, url) } : {}),
+        loader: hlsRelayLoader(mode.stream?.worker, url),
         maxBufferLength: settings.hlsLatencyMode === "low" ? 16 : 24,
         maxMaxBufferLength: settings.hlsLatencyMode === "low" ? 32 : 42,
         // Do not switch network renditions merely because the tile is resized.
@@ -205,7 +205,7 @@ export default function MultiViewTile({
           return;
         }
         if (
-          data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+          data.type === Hls.ErrorTypes.NETWORK_ERROR && (engine?.levels.length ?? 0) > 0 &&
           networkFailures++ < 2
         ) {
           engine?.startLoad();
@@ -247,7 +247,7 @@ export default function MultiViewTile({
     >
       <div className="multiview-head">
         <div className="multiview-identity">
-          {channel.logo && <ChannelImage channel={channel} route={{ mode: mode.stream?.mode ?? effectiveMode, worker: mode.stream?.worker }} alt="" loading="lazy" />}
+          {channel.logo && <ChannelImage channel={channel} route={{ mode: effectiveMode, worker: mode.stream?.worker }} alt="" loading="lazy" />}
           <strong title={channel.name}>{channel.name}</strong>
         </div>
         <div className="multiview-actions">

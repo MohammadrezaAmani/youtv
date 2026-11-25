@@ -1,4 +1,4 @@
-// YouTV Worker bundle version: v0.36.1
+// YouTV Worker bundle version: v0.36.2
 // apps/worker/src/security.ts
 class ProxyError extends Error {
   status;
@@ -862,7 +862,7 @@ function dashBaseTarget(requestUrl, env) {
 // apps/worker/src/index.ts
 var MAX_REDIRECTS = 4;
 var MAX_SOURCE_REDIRECTS = 10;
-var VERSION = "0.36.1";
+var VERSION = "0.36.2";
 var PROXY_USER_AGENT = `YouTV/${VERSION} (https://github.com/MohammadrezaAmani/youtv/issues)`;
 function isWikimediaMediaHost(url) {
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
@@ -1181,7 +1181,12 @@ async function fetchSource(url, request, env, directives = new URLSearchParams) 
       if (v)
         headers.set(key, v);
     }
-    if ((expectsHls || isHls(current, "")) && !headers.has("Range"))
+    const manifest = expectsHls || isHls(current, "") || isDash(current, "") || new URL(request.url).searchParams.get("dash") === "1";
+    if (manifest) {
+      headers.delete("Range");
+      headers.delete("If-Range");
+    }
+    if (expectsHls || isHls(current, ""))
       headers.set("Accept", "application/vnd.apple.mpegurl, application/x-mpegURL, audio/mpegurl, */*;q=0.8");
     const query = new URL(request.url).searchParams;
     const agent = query.get("ua") || "";
@@ -1243,12 +1248,26 @@ async function proxy(request, env, reqUrl) {
   const hlsHint = reqUrl.searchParams.get("hls") === "1" || isHls(upstream, "");
   const directives = hlsHint ? deliveryDirectives(reqUrl.searchParams) : new URLSearchParams;
   const variables = parseHlsVariables(reqUrl.searchParams.get("vars"));
-  const { response, finalUrl } = await fetchSource(upstream, request, env, directives);
+  let { response, finalUrl } = await fetchSource(upstream, request, env, directives);
+  const upstreamStatus = response.status;
+  const manifestResponse = hlsHint || isHls(finalUrl, response.headers.get("Content-Type") || "") || reqUrl.searchParams.get("dash") === "1" || isDash(finalUrl, response.headers.get("Content-Type") || "");
+  if (response.status === 206 && manifestResponse) {
+    const range = /^bytes\s+0-(\d+)\/(\d+)$/i.exec(response.headers.get("Content-Range") || "");
+    if (!range || Number(range[1]) + 1 !== Number(range[2])) {
+      await response.body?.cancel().catch(() => {
+        return;
+      });
+      throw new ProxyError(502, "partial_manifest", "Upstream returned an incomplete playlist");
+    }
+    const completeHeaders = new Headers(response.headers);
+    completeHeaders.delete("Content-Range");
+    response = new Response(response.body, { status: 200, headers: completeHeaders });
+  }
   const headers = corsHeaders(request, env);
   headers.set("Cache-Control", "no-store");
   headers.set("X-YouTV-Proxy", VERSION);
   headers.set("X-YouTV-Source-URL", finalUrl.href);
-  headers.set("X-YouTV-Upstream-Status", String(response.status));
+  headers.set("X-YouTV-Upstream-Status", String(upstreamStatus));
   for (const name of [
     "Content-Type",
     "Content-Range",
@@ -1261,6 +1280,8 @@ async function proxy(request, env, reqUrl) {
     if (v)
       headers.set(name, v);
   }
+  if (manifestResponse)
+    headers.set("Accept-Ranges", "none");
   const upstreamLength = response.headers.get("Content-Length");
   if (upstreamLength && !response.headers.has("Content-Encoding"))
     headers.set("Content-Length", upstreamLength);

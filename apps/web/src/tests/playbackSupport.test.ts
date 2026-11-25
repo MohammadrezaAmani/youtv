@@ -35,7 +35,7 @@ describe("mobile playback choices", () => {
       isAppleMobileBrowser("Mozilla/5.0 (Linux; Android 15)", "Linux", 5),
     ).toBe(false);
   });
-  it("prefers native HLS on iPhone even if hls.js supports Managed Media Source", () => {
+  it("uses the supported JavaScript engine on iPhone without forcing native by User-Agent", () => {
     expect(
       selectPlaybackEngine({
         isHls: true,
@@ -43,7 +43,7 @@ describe("mobile playback choices", () => {
         hlsJsSupported: true,
         appleMobile: true,
       }),
-    ).toBe("native");
+    ).toBe("hlsjs");
     expect(
       selectPlaybackEngine({
         isHls: true,
@@ -77,10 +77,10 @@ describe("mobile playback choices", () => {
       }),
     ).toBe("native");
   });
-  it("uses native HLS on Apple mobile even with a relay, while retaining the relay loader elsewhere", () => {
+  it("retains relay buffering on Apple mobile and falls back when MSE is unavailable", () => {
     const capabilities = { isHls: true, nativeHls: true, hlsJsSupported: true, relayed: true };
     expect(selectPlaybackEngine({ ...capabilities, appleMobile: false })).toBe("hlsjs");
-    expect(selectPlaybackEngine({ ...capabilities, appleMobile: true })).toBe("native");
+    expect(selectPlaybackEngine({ ...capabilities, appleMobile: true })).toBe("hlsjs");
     expect(selectPlaybackEngine({ ...capabilities, appleMobile: true, nativeHls: false })).toBe("hlsjs");
     expect(selectPlaybackEngine({ ...capabilities, appleMobile: true, hlsJsSupported: false })).toBe("native");
   });
@@ -139,4 +139,11 @@ describe("mobile playback choices", () => {
     ).toBe(true);
     expect(needsUserPlayGesture(new Error("Network error"))).toBe(false);
   });
+});
+
+it("can select the alternate engine once after a real decoder failure", () => {
+ const options={isHls:true,nativeHls:true,hlsJsSupported:true,appleMobile:true};
+ expect(selectPlaybackEngine({...options,failedEngines:["hlsjs"]})).toBe("native");
+ expect(selectPlaybackEngine({...options,failedEngines:["native"]})).toBe("hlsjs");
+ expect(selectPlaybackEngine({...options,failedEngines:["hlsjs","native"]})).toBe("unsupported");
 });

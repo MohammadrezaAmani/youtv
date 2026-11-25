@@ -129,6 +129,7 @@ export default function ChannelDialog({ open, onOpenChange, editing }: Props) {
       if (payload.teletextUrl.trim())
         makeTeletextUrl(payload.teletextUrl.trim(), 100);
       if (
+        (!editing || payload.url !== normalizeStreamUrl(editing.url)) &&
         channels.some((ch) => ch.url === payload.url && ch.id !== editing?.id)
       )
         throw new Error(

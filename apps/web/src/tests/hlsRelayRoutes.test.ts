@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { hlsRequestRoute, hlsResponseBase, normalizeRelayPlaylist } from "../features/player/hlsRelayRoutes";
 import { playlistResponseBase, proxyUrl } from "../lib/proxy";
 import type { WorkerProfile } from "@youtv/shared";
-const worker: WorkerProfile = { id: "w", name: "relay", enabled: true, baseUrl: "https://round-fog-1d8f.mr4016a1382.workers.dev/", token: "secret" };
+const worker: WorkerProfile = { id: "w", name: "relay", enabled: true, baseUrl: "https://meow.arushop.ir/", token: "secret" };
 const source = "https://origin.example/watch";
 const initial = proxyUrl(source, worker, "proxy", true);
 

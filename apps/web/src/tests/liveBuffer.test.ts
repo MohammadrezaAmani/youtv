@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LIVE_HLS_PROFILE,
+  initialPlayableBuffer,
   getHlsProfile,
   recoveryTarget,
   secondsBufferedAhead,
@@ -54,7 +55,7 @@ describe("Live HLS buffering and gap recovery", () => {
     expect(recoveryTarget({ ...data, stalledForMs: 1500 })).toBe(null);
     expect(recoveryTarget({ ...data, stalledForMs: 3500 })).toBeCloseTo(12.49);
   });
-  it("recovers excessive live drift but does not continuously seek for normal latency", () => {
+  it("preserves accumulated live buffer and recovers drift only after starvation", () => {
     const data = {
       current: 18,
       ranges: ranges([15, 25]),
@@ -65,9 +66,8 @@ describe("Live HLS buffering and gap recovery", () => {
     expect(recoveryTarget({ ...data, latency: 10, stalledForMs: 4000 })).toBe(
       null,
     );
-    expect(recoveryTarget({ ...data, latency: 29, stalledForMs: 4000 })).toBe(
-      32,
-    );
+    expect(recoveryTarget({ ...data, latency: 29, stalledForMs: 4000 })).toBe(null);
+    expect(recoveryTarget({ ...data, ranges: ranges(), latency: 29, stalledForMs: 4000 })).toBe(32);
   });
 });
 
@@ -108,3 +108,10 @@ describe("Selectable HLS latency profiles", () => {
     );
   });
 });
+
+ it("waits for a useful startup buffer without deadlocking short videos", () => {
+   expect(initialPlayableBuffer(5)).toBe(10);
+   expect(initialPlayableBuffer(10)).toBe(15);
+   expect(initialPlayableBuffer(1)).toBe(5);
+   expect(initialPlayableBuffer(5, 3)).toBe(3);
+ });

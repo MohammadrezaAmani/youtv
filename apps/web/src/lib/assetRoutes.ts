@@ -53,8 +53,8 @@ export function channelAssetRoutes(raw: string | undefined, channel: Pick<Channe
   const preferred = route?.worker?.id || channel.workerId || settings.defaultWorkerId;
   const first = workers.find(worker => worker.id === preferred && worker.enabled);
   const ordered = first ? [first, ...workers.filter(worker => worker.id !== first.id)] : workers;
-  const mixed = needsHttpsRelay(channel.url, appProtocol) || needsHttpsRelay(raw?.trim() || "", appProtocol);
-  const proxyRequired = mode === "proxy" || mixed || !!route?.worker;
+  const mixed = needsHttpsRelay(raw?.trim() || "", appProtocol);
+  const proxyRequired = mode === "proxy" || mixed || (!!route?.worker && mode !== "auto");
   return assetRoutes(raw, mode === "direct" && !proxyRequired ? [] : ordered,
     !proxyRequired, appProtocol, workers, mode === "auto" && !proxyRequired);
 }

@@ -50,3 +50,12 @@ describe("installable, scoped PWA configuration", () => {
     );
   });
 });
+
+it("development caches public assets without capturing HMR or app code", async () => {
+ const {devAssetServiceWorker}=await import('../../pwaBuild');
+ const code=devAssetServiceWorker('/test/');
+ expect(code).toContain('publicImageRequest(event.request');
+ expect(code).not.toContain('cache.addAll');
+ expect(code).not.toContain("request.mode==='navigate'");
+ expect(code).toContain('youtv-pwa-_test_-images-v1');
+});

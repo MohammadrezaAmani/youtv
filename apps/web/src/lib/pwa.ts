@@ -73,7 +73,7 @@ export function initPwa() {
   });
   window.addEventListener("online", () => publish({ offline: false }));
   window.addEventListener("offline", () => publish({ offline: true }));
-  if (!status.supported || import.meta.env.DEV) return;
+  if (!status.supported) return;
 
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloadAfterUpdate) {
@@ -82,7 +82,7 @@ export function initPwa() {
     } else publish({ registered: true });
   });
   void navigator.serviceWorker
-    .register(`${import.meta.env.BASE_URL}sw.js`, {
+    .register(`${import.meta.env.BASE_URL}${import.meta.env.DEV ? "image-cache-sw.js" : "sw.js"}`, {
       scope: import.meta.env.BASE_URL,
       updateViaCache: "none",
     })

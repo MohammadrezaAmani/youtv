@@ -96,8 +96,14 @@ try {
   ]) {
     const destination = path.join(root, relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, payload, "utf8");
-    console.log("Published " + relative + " (v" + version + ")");
+    // Rewriting an identical public file makes Vite reload active TV sessions.
+    // Repeated checks/builds must not interrupt playback in development.
+    if (!fs.existsSync(destination) || fs.readFileSync(destination, "utf8") !== payload) {
+      fs.writeFileSync(destination, payload, "utf8");
+      console.log("Published " + relative + " (v" + version + ")");
+    } else {
+      console.log("Verified " + relative + " (v" + version + ", unchanged)");
+    }
   }
 } finally {
   fs.rmSync(temporary, { recursive: true, force: true });

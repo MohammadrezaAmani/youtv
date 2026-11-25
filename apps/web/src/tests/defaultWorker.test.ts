@@ -1,23 +1,25 @@
 // @vitest-environment node
 import { test, expect } from "vitest";
 import { createServer } from "node:http";
-import { builtinWorker, BUILTIN_WORKER_ID, defaultState, ensureDefaultWorker, type WorkerProfile } from "@youtv/shared";
+import { builtinWorker, BUILTIN_WORKER_ID, defaultState, ensureDefaultWorker, settingsSchema, type WorkerProfile } from "@youtv/shared";
 import { fetchTextWithFallback, proxyUrl } from "@/lib/proxy";
 import { mediaAssetUrls, mediaRoutingPolicy } from "@/features/media/services/mediaRoutes";
 import { probeDirectMedia } from "@/features/media/services/mediaDetector";
 
-test("fresh profiles use the passwordless YouTV Worker with Proxy-only defaults", () => {
+test("fresh profiles use Auto for television, media and schema defaults", () => {
   expect(defaultState.workers).toEqual([builtinWorker]);
   expect(defaultState.settings.defaultWorkerId).toBe(BUILTIN_WORKER_ID);
-  expect(defaultState.settings.proxyMode).toBe("proxy");
-  expect(defaultState.settings.mediaRouteMode).toBe("proxy");
-  expect(builtinWorker.baseUrl).toBe("https://youtv.mr4016a1382.workers.dev/");
+  expect(defaultState.settings.proxyMode).toBe("auto");
+  expect(defaultState.settings.mediaRouteMode).toBe("auto");
+  expect(settingsSchema.parse({}).proxyMode).toBe("auto");
+  expect(settingsSchema.parse({}).mediaRouteMode).toBe("auto");
+  expect(builtinWorker.baseUrl).toBe("https://meow.arushop.ir/");
   const endpoint = new URL(proxyUrl("https://i.imgur.com/BCC123A.jpg", builtinWorker));
-  expect(endpoint.hostname).toBe("youtv.mr4016a1382.workers.dev");
+  expect(endpoint.hostname).toBe("meow.arushop.ir");
   expect(endpoint.searchParams.has("key")).toBe(false);
 });
 
-test("legacy Auto defaults migrate to Proxy once and personal Workers are preserved", () => {
+test("legacy initialization preserves Auto, explicit modes and personal Workers", () => {
   const previous = {
     ...structuredClone(defaultState),
     workers: [],
@@ -25,8 +27,8 @@ test("legacy Auto defaults migrate to Proxy once and personal Workers are preser
   };
   const migrated = ensureDefaultWorker(previous, true);
   expect(migrated.workers).toEqual([builtinWorker]);
-  expect(migrated.settings.proxyMode).toBe("proxy");
-  expect(migrated.settings.mediaRouteMode).toBe("proxy");
+  expect(migrated.settings.proxyMode).toBe("auto");
+  expect(migrated.settings.mediaRouteMode).toBe("auto");
   expect(migrated.settings.routingDefaultsVersion).toBe(1);
 
   const personalWorker = { ...builtinWorker, id: "personal", token: "personal-key", enabled: false };
@@ -38,7 +40,7 @@ test("legacy Auto defaults migrate to Proxy once and personal Workers are preser
   const migratedPersonal = ensureDefaultWorker(personal, true);
   expect(migratedPersonal.workers).toEqual([personalWorker]);
   expect(migratedPersonal.settings.defaultWorkerId).toBe("personal");
-  expect(migratedPersonal.settings.proxyMode).toBe("proxy");
+  expect(migratedPersonal.settings.proxyMode).toBe("auto");
   expect(ensureDefaultWorker(migratedPersonal, true)).toBe(migratedPersonal);
 
   const explicitDirect = ensureDefaultWorker({
@@ -47,11 +49,14 @@ test("legacy Auto defaults migrate to Proxy once and personal Workers are preser
   }, true);
   expect(explicitDirect.settings.proxyMode).toBe("direct");
   expect(explicitDirect.settings.mediaRouteMode).toBe("direct");
+  const explicitProxy = ensureDefaultWorker({...previous,settings:{...previous.settings,proxyMode:"proxy",mediaRouteMode:"proxy"}},true);
+  expect(explicitProxy.settings.proxyMode).toBe("proxy");
+  expect(explicitProxy.settings.mediaRouteMode).toBe("proxy");
   expect(ensureDefaultWorker(previous).settings.proxyMode).toBe("auto");
 });
 
-test("Proxy-only defaults skip direct; explicit Direct remains direct-only", () => {
-  const proxy = mediaRoutingPolicy(defaultState.workers, defaultState.settings, "https:");
+test("explicit Proxy skips direct; explicit Direct remains direct-only", () => {
+  const proxy = mediaRoutingPolicy(defaultState.workers, {...defaultState.settings,mediaRouteMode:"proxy"}, "https:");
   expect(proxy.candidates).toEqual([builtinWorker]);
   expect(proxy.allowDirect).toBe(false);
   expect(mediaRoutingPolicy(defaultState.workers, { ...defaultState.settings, mediaRouteMode: "direct" }, "https:")).toEqual({ candidates: [], allowDirect: true });
@@ -75,7 +80,7 @@ test("real HTTP: Proxy skips direct; explicit Auto tries direct first", async ()
     if (!address || typeof address === "string") throw new Error("Missing test server address");
     const base = `http://127.0.0.1:${address.port}`;
     const worker: WorkerProfile = { ...builtinWorker, baseUrl: base };
-    const settings = defaultState.settings;
+    const settings = {...defaultState.settings,proxyMode:"proxy" as const};
     const read = (response: Response) => response.text();
     expect(await fetchTextWithFallback(`${base}/ok`, settings, [worker], "", false, read, undefined, "http:")).toEqual({ value: "relay", workerId: worker.id });
     expect(calls.splice(0)).toEqual(["/text"]);

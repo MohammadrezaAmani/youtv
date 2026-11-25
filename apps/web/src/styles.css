@@ -1776,3 +1776,16 @@ select:focus-visible {
   .worker-summary-actions { width: 100%; justify-content: flex-start; }
   .worker-summary-actions .ui-button { flex: 1 1 auto; }
 }
+
+/* Keep MSE/MMS live fetching in the page when native video fullscreen would
+   suspend JavaScript on iPhone. This changes geometry, never the media source. */
+.pro-player[data-youtv-fullscreen="true"] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+  border-radius: 0;
+  z-index: 10000;
+}

@@ -362,38 +362,36 @@ test("a sliding live manifest preserves unfinished and completed work until play
   } finally { p.dispose(); }
 });
 
-test("deduplicates an HLS token refresh without modifying the requested signed URL", async () => {
-  const base = { ...fragment(3419, 6, "https://bozztv.com/stream/media-u961tqi43_3419.ts"), type: "main", level: 0, cc: 1 };
+test("keeps authorization changes separate while deduplicating the identical signed request", async () => {
+  const base = { ...fragment(3419, 6), type: "main", level: 0, cc: 1 };
   const signed = { ...base, url: `${base.url}?token=onetv202` };
-  const route = (url: string) => `https://worker.example/proxy?url=${encodeURIComponent(url)}`;
   const calls: string[] = [];
-  let release!: (response: Response) => void;
-  const p = new HlsFragmentPrefetcher(route, { waitForStartup: false, fetcher: url => {
-    calls.push(String(url)); return new Promise(resolve => { release = resolve; });
+  const releases = new Map<string, (response: Response) => void>();
+  const p = new HlsFragmentPrefetcher(url => url, { waitForStartup: false, fetcher: url => {
+    calls.push(String(url)); return new Promise(resolve => releases.set(String(url), resolve));
   } });
   try {
-    p.schedule([base], 0, "main", "main:0", true);
-    p.schedule([signed], 0, "main", "main:0", true);
-    const finish = p.reserveForeground(route(signed.url), undefined, undefined, signed);
-    const payload = p.claim(route(signed.url), undefined, undefined, () => true, signed);
+    p.schedule([base, signed], 0, "main", "main:0", true);
+    const finish = p.reserveForeground(signed.url, undefined, undefined, signed);
+    const payload = p.claim(signed.url, undefined, undefined, () => true, signed);
     expect(payload).not.toBeNull();
-    release(new Response(new Uint8Array([7, 8, 9])));
+    releases.get(signed.url)!(new Response(new Uint8Array([7, 8, 9])));
     expect([...new Uint8Array(await (await payload)!.blob.arrayBuffer())]).toEqual([7, 8, 9]);
     finish();
-    // A new playlist between loader completion and FRAG_BUFFERED must not refetch.
     p.schedule([signed], 0, "main", "main:0", true);
-    expect(await p.claim(route(base.url), undefined, undefined, () => true, base)).not.toBeNull();
+    expect(await p.claim(signed.url, undefined, undefined, () => true, signed)).not.toBeNull();
     p.markBuffered(signed);
-    p.schedule([base], 0, "main", "main:0", true);
-    expect(calls).toEqual([route(base.url)]);
+    p.schedule([signed], 0, "main", "main:0", true);
+    expect(calls).toEqual([base.url, signed.url]);
     expect(p.getStats().cached).toBe(0);
   } finally { p.dispose(); }
-  const key = hlsFragmentCacheKey(route(base.url), undefined, undefined, base);
-  expect(key).not.toBe(hlsFragmentCacheKey(route(signed.url), undefined, undefined, { ...signed, cc: 2 }));
-  expect(key).not.toBe(hlsFragmentCacheKey(route(`${base.url}?quality=other`), undefined, undefined, base));
-  expect(key).not.toBe(hlsFragmentCacheKey(route(base.url), 10, 20, base));
-  expect(key).not.toBe(hlsFragmentCacheKey(route(base.url), undefined, undefined, { ...base, level: 1 }));
+  const key = hlsFragmentCacheKey(base.url, undefined, undefined, base);
+  expect(key).not.toBe(hlsFragmentCacheKey(signed.url, undefined, undefined, signed));
+  expect(key).not.toBe(hlsFragmentCacheKey(base.url, undefined, undefined, { ...base, cc: 2 }));
+  expect(key).not.toBe(hlsFragmentCacheKey(base.url, 10, 20, base));
+  expect(key).not.toBe(hlsFragmentCacheKey(base.url, undefined, undefined, { ...base, level: 1 }));
 });
+
 
 test("a retry backoff releases the permit to the next segment immediately", async () => {
   const calls: string[] = [];
@@ -471,4 +469,91 @@ test("a failed foreground claim hands control back instead of waiting for specul
     expect(p.getStats().active).toBe(0);
     release();
   } finally {p.dispose();}
+});
+
+test("required media starts before speculation and reports bytes through the same pool", async () => {
+  let finish!: (response: Response) => void;
+  const calls: string[] = [];
+  const p = new HlsFragmentPrefetcher(url => url, {fetcher: url => {calls.push(String(url));return new Promise(resolve => {finish = resolve;});}});
+  const item = {...fragment(1,50),type:'main',level:0,cc:0};
+  try {
+    p.schedule([fragment(2,56)],0);
+    const release = p.reserveForeground(item.url,0,0,item);
+    const progress: number[]=[];
+    const pending = p.loadRequired(item.url,0,0,item,()=>true,n=>progress.push(n));
+    expect(calls).toEqual([item.url]);
+    finish(new Response(new Uint8Array([1,2,3])));
+    expect([ ...new Uint8Array(await (await pending)!.blob.arrayBuffer()) ]).toEqual([1,2,3]);
+    expect(progress).toContain(3);
+    expect(p.getStats().active).toBe(0);
+    p.markBuffered(item);release();
+  } finally {p.dispose();}
+});
+
+test("a required request waiting for a permit is joined, never duplicated", async () => {
+  const releases = new Map<string,(response:Response)=>void>();
+  const calls: string[]=[];
+  const p=new HlsFragmentPrefetcher(url=>url,{maxConcurrent:1,adaptive:false,waitForStartup:false,fetcher:url=>{calls.push(String(url));return new Promise(resolve=>releases.set(String(url),resolve));}});
+  const first=fragment(1,6),required={...fragment(2,12),type:'main',level:0,cc:0};
+  try {
+    p.schedule([first],0);
+    const release=p.reserveForeground(required.url,0,0,required);
+    const progress:number[]=[];
+    const pending=p.loadRequired(required.url,0,0,required,()=>true,n=>progress.push(n));
+    expect(pending).not.toBeNull();expect(calls).toEqual([first.url]);
+    releases.get(first.url)!(new Response(new Uint8Array([1])));
+    await tick();
+    expect(calls).toEqual([first.url,required.url]);
+    releases.get(required.url)!(new Response(new Uint8Array([2,3])));
+    expect((await pending)!.blob.size).toBe(2);expect(progress).toContain(2);
+    release();
+  } finally {p.dispose();}
+});
+
+test("seeking cancels obsolete claimed transfers and allows revisiting consumed media", async()=>{
+  let signal:AbortSignal|undefined;
+  const p=new HlsFragmentPrefetcher(url=>url,{waitForStartup:false,fetcher:(_u,init)=>{signal=init?.signal??undefined;return new Promise<Response>((_r,reject)=>signal?.addEventListener('abort',()=>reject(new Error('aborted'))));}});
+  const item={...fragment(1,6),type:'main',level:0,cc:0};
+  try {
+    const release=p.reserveForeground(item.url,0,0,item);
+    const pending=p.loadRequired(item.url,0,0,item,()=>true,()=>{});
+    p.seek(100);
+    expect(signal?.aborted).toBe(true);expect(await pending).toBeNull();
+    expect(p.getStats().active).toBe(0);release();
+  } finally {p.dispose();}
+});
+
+test("the initial live anchor seek keeps the already admitted transfers",()=>{
+ const signals:AbortSignal[]=[];
+ const p=new HlsFragmentPrefetcher(url=>url,{waitForStartup:false,fetcher:(_url,init)=>{
+   signals.push(init!.signal!);return new Promise<Response>((_r,reject)=>init?.signal?.addEventListener('abort',()=>reject(new Error('aborted'))));
+ }});
+ try {
+   p.updatePlayback(5,50);
+   p.schedule([fragment(11,55),fragment(12,60)],50);
+   p.seek(50.05);
+   expect(signals).toHaveLength(2);expect(signals.every(signal=>!signal.aborted)).toBe(true);
+   expect(p.getStats().active).toBe(2);
+ } finally {p.dispose();}
+});
+
+test("joined transfer timings retain the original download clock for ABR",async()=>{
+ let controller!:ReadableStreamDefaultController<Uint8Array>;
+ const item={...fragment(1,6),type:'main',level:0,cc:0};
+ const p=new HlsFragmentPrefetcher(url=>url,{waitForStartup:false,fetcher:async()=>new Response(new ReadableStream<Uint8Array>({start(c){controller=c;}}))});
+ try {
+   const before=performance.now();p.schedule([item],0);await tick();
+   const joinedAt=performance.now();
+   const timing=p.getTransferTiming(item.url,0,0,item)!;
+   expect(timing.start).toBeGreaterThanOrEqual(before);expect(timing.start).toBeLessThan(joinedAt);
+   expect(timing.first).toBeGreaterThanOrEqual(timing.start);
+   const release=p.reserveForeground(item.url,0,0,item);
+   const payload=p.claim(item.url,0,0,()=>true,item);
+   controller.enqueue(new Uint8Array([1,2,3]));controller.close();
+   const first=await payload;expect(first).not.toBeNull();
+   const bytes=await first!.blob.arrayBuffer();structuredClone(bytes,{transfer:[bytes]});
+   const second=await p.claim(item.url,0,0,()=>true,item);
+   expect([...new Uint8Array(await second!.blob.arrayBuffer())]).toEqual([1,2,3]);
+   release();
+ } finally {p.dispose();}
 });

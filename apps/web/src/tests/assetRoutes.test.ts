@@ -28,6 +28,13 @@ test("explicit direct mode and automatic mode retain their respective routing po
   expect(channelAssetRoutes(image, { ...channel, proxyMode: "direct" }, settings, [a, b], undefined, "https:")).toEqual([image]);
   expect(channelAssetRoutes(image, { ...channel, proxyMode: "auto" }, settings, [a, b], undefined, "https:")).toEqual([image, proxyUrl(image, b), proxyUrl(image, a)]);
 });
+test("Auto images remain direct-first when playback selected a Worker or the channel is HTTP",()=>{
+  const automatic={...settings,proxyMode:"auto" as const};
+  expect(channelAssetRoutes(image,channel,automatic,[a,b],{mode:"auto",worker:b},"https:")).toEqual([image,proxyUrl(image,b),proxyUrl(image,a)]);
+  expect(channelAssetRoutes(image,{...channel,url:"http://tv.example/live.m3u8"},automatic,[b],undefined,"https:")).toEqual([image,proxyUrl(image,b)]);
+  const http="http://cdn.example/logo.png";
+  expect(channelAssetRoutes(http,channel,automatic,[b],undefined,"https:")).toEqual([proxyUrl(http,b)]);
+});
 test("media fallback is proxy-first and direct is appended only when explicitly allowed", () => {
   expect(assetRoutes(image, [a, b], false, "https:")).toEqual([proxyUrl(image, a), proxyUrl(image, b)]);
   expect(assetRoutes(image, [a, b], true, "https:")).toEqual([proxyUrl(image, a), proxyUrl(image, b), image]);

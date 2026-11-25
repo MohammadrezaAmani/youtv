@@ -296,10 +296,10 @@ export default function MediaCenterPage() {
   const worker = resolvedWorkerId === "" ? undefined : candidates.find(item => item.id === resolvedWorkerId) || candidates[0];
   const activeCandidates = useMemo(() => worker ? [worker, ...candidates.filter(item => item.id !== worker.id)] : candidates, [worker, candidates]);
   const allowAssetDirect = allowDirect;
-  const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers, autoMode && resolvedWorkerId === "");
+  const imageUrls = (url?: string) => assetRoutes(url, activeCandidates, allowAssetDirect, undefined, workers, autoMode);
   const openAsset = (url: string, filename: string, signal?: AbortSignal) => {
     const urls = mediaAssetUrls(url, activeCandidates, allowAssetDirect, filename);
-    if (resolvedWorkerId === "" && urls.includes(url)) return openMediaAsset([url, ...urls.filter(item => item !== url)], signal);
+    if ((autoMode || resolvedWorkerId === "") && urls.includes(url)) return openMediaAsset([url, ...urls.filter(item => item !== url)], signal);
     return openMediaAsset(urls, signal);
   };
   const openYoutube = async (id: string, itag: number, signal?: AbortSignal) => (await withMediaWorkers(activeCandidates, async candidate => {

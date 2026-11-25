@@ -20,6 +20,9 @@ import Hls from "hls.js";
 import { hlsRelayLoader } from "./hlsRelayLoader";
 import { hlsRequestRoute } from "./hlsRelayRoutes";
 import { HlsFragmentPrefetcher, type HlsPrefetchFragment } from "./hlsPrefetch";
+import { playbackPreparation, type PlaybackPreparation } from "./playbackPreparation";
+import { PreparationIndicator } from "./PreparationIndicator";
+import { chooseHlsAutoRoute, type HlsAutoRoute } from "./hlsAutoRoute";
 import { playbackSessionIdentity, releasePlayback } from "./playbackLifecycle";
 import {
   Activity,
@@ -62,6 +65,7 @@ import {
 } from "lucide-react";
 import type { Channel, SubtitleSource, WorkerProfile } from "@youtv/shared";
 import { useYoutv } from "@/stores/useYoutv";
+import { flushPendingPersistence } from "@/lib/indexedDbStorage";
 import {
   activeWorker,
   resolveStream,
@@ -74,6 +78,7 @@ import { TeletextPanel } from "./TeletextPanel";
 import { useLocalRecorder } from "@/features/recording/useLocalRecorder";
 import {
   getHlsProfile,
+  initialPlayableBuffer,
   recoveryTarget,
   secondsBufferedAhead,
   hasActiveFragmentLoading,
@@ -85,9 +90,11 @@ import {
   isInterruptedPlay,
   needsUserPlayGesture,
   selectPlaybackEngine,
+  type PlaybackEngine,
 } from "./playbackSupport";
 import {
   enterPlayerFullscreen,
+  exitViewportFullscreen,
   isElementFullscreen,
   isPlayerFullscreen,
   togglePlayerFullscreen,
@@ -230,6 +237,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
   const settings = useYoutv((s) => s.settings),
     workers = useYoutv((s) => s.workers);
   const updateSettings = useYoutv((s) => s.updateSettings),
+    updateChannel = useYoutv((s) => s.updateChannel),
     toggleFavorite = useYoutv((s) => s.toggleFavorite),
     togglePinned = useYoutv((s) => s.togglePinned);
   const language = settings.language;
@@ -256,16 +264,24 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
   const playbackEpochRef = useRef(0);
   const needsGestureRef = useRef(appleMobile && settings.autoplay);
   const userPausedRef = useRef(false);
+  const initialBufferReadyRef = useRef(false);
+  const [preparation, setPreparation] = useState<PlaybackPreparation | null>(null);
+  const preparationClock = useRef({session:"",started:Date.now(),progress:Date.now(),bytes:0,buffer:0});
   const lastProgressAtRef = useRef(Date.now());
   const healthySinceRef = useRef(Date.now());
   const lastTimeRef = useRef(0);
   const lastRecoveryRef = useRef(0);
   const inFlightFragmentsRef = useRef<Map<string, number>>(new Map());
+  const prefetchRef = useRef<HlsFragmentPrefetcher | null>(null);
+  const [downloadStats, setDownloadStats] = useState<ReturnType<HlsFragmentPrefetcher["getStats"]> | null>(null);
   const [bufferAhead, setBufferAhead] = useState(0);
   const [liveLatency, setLiveLatency] = useState<number | null>(null);
   const [bufferedFragments, setBufferedFragments] = useState(0);
   const [lastFragmentMs, setLastFragmentMs] = useState<number | null>(null);
   const [stallCount, setStallCount] = useState(0);
+  const [recoveryEvents, setRecoveryEvents] = useState(0);
+  const [playlistUpdatedAt, setPlaylistUpdatedAt] = useState(0);
+  const [lastHlsError, setLastHlsError] = useState("");
   const reconnectOptionsRef = useRef({
     enabled: settings.autoReconnect,
     max: settings.reconnectMaxAttempts,
@@ -318,8 +334,34 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
   const effectiveMode = preparedSource ? (preparedSource.worker ? "proxy" : "direct") : effectiveConnectionMode(channel, settings, override);
   const httpNeedsProxy = needsHttpsRelay(preparedSource?.url || sources[sourceIndex] || channel.url);
   const displayedMode = httpNeedsProxy && canProxy ? "proxy" : effectiveMode;
+  const hls = preparedSource ? preparedSource.kind === "hls" : isProbablyHls(sources[sourceIndex] || channel.url, channel.format);
+  const hlsJsSupported = useMemo(() => Hls.isSupported(), []);
+  const routeWorker = activeWorker(channel, settings, workers);
+  const raceRoutes = !preparedSource && hls && hlsJsSupported && effectiveMode === "auto" && !fallback && !httpNeedsProxy && routeWorker &&
+    (window.location.protocol !== "https:" || /^https:\/\//i.test(routeWorker.baseUrl)) &&
+    !(appleMobile && (channel.iptv.userAgent || channel.iptv.referer));
+  const autoRouteKey = raceRoutes ? JSON.stringify([channel.id, sources[sourceIndex], routeWorker.baseUrl, routeWorker.token, channel.iptv.userAgent, channel.iptv.referer, attempt]) : "";
+  const [autoRoute, setAutoRoute] = useState<{ key: string; result: HlsAutoRoute } | null>(null);
+  const [autoRouteError, setAutoRouteError] = useState({ key: "", error: "" });
+  useEffect(() => {
+    if (!autoRouteKey) return;
+    const controller = new AbortController();
+    let result: HlsAutoRoute | undefined;
+    const source = { ...channel, url: sources[sourceIndex] || channel.url, proxyMode: "auto" as const };
+    void Promise.resolve().then(() => chooseHlsAutoRoute(resolveStream(source, settings, workers), resolveStream(source, settings, workers, true), controller.signal)).then(value => {
+      result = value;
+      if (controller.signal.aborted) value.dispose();
+      else setAutoRoute({ key: autoRouteKey, result: value });
+    }).catch(cause => {
+      if (!controller.signal.aborted) setAutoRouteError({ key: autoRouteKey, error: cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, "[URL]") : "Route selection failed" });
+    });
+    return () => { controller.abort(); result?.dispose(); };
+    // Only source, relevant authorization/Worker, mode and explicit retry form
+    // the probe identity. Unrelated settings must not interrupt playback.
+  }, [autoRouteKey]);
   const resolved = useMemo(() => {
     if (preparedSource) return { value: { url: preparedSource.url, mode: preparedSource.worker ? "proxy" as const : "direct" as const, worker: preparedSource.worker }, error: "" };
+    if (autoRouteKey) return { value: autoRoute?.key === autoRouteKey ? autoRoute.result.route : null, error: autoRouteError.key === autoRouteKey ? autoRouteError.error : "" };
     try {
       const preferWorker =
         appleMobile &&
@@ -351,8 +393,12 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     appleMobile,
     effectiveMode,
     preparedSource,
+    autoRouteKey,
+    autoRoute,
+    autoRouteError,
   ]);
   const streamUrl = resolved.value?.url ?? "";
+  const [failedEngines, setFailedEngines] = useState<{ url: string; engines: PlaybackEngine[] }>({url:"",engines:[]});
   const recording = useLocalRecorder(
     videoRef,
     channel.name,
@@ -365,10 +411,6 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     "starting",
     "saving",
   ].includes(rec.phase);
-  const hls = preparedSource ? preparedSource.kind === "hls" : isProbablyHls(
-    sources[sourceIndex] || channel.url,
-    channel.format,
-  );
   const nativeHlsSupport = useMemo(
     () =>
       typeof document !== "undefined" &&
@@ -377,17 +419,25 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         .canPlayType("application/vnd.apple.mpegurl"),
     [],
   );
-  const hlsJsSupported = useMemo(() => Hls.isSupported(), []);
   const playbackEngine = preparedSource?.kind === "dash" ? "dashjs" : selectPlaybackEngine({
     isHls: hls,
     nativeHls: nativeHlsSupport,
     hlsJsSupported,
     appleMobile,
     relayed: Boolean(resolved.value?.worker),
+    failedEngines: failedEngines.url === streamUrl ? failedEngines.engines : [],
   });
+  const tryAlternateEngine = () => {
+    if (!hls || playbackEngine === "dashjs") return false;
+    const engines = [...(failedEngines.url === streamUrl ? failedEngines.engines : []), playbackEngine];
+    const next = selectPlaybackEngine({isHls:true,nativeHls:nativeHlsSupport,hlsJsSupported,appleMobile,failedEngines:engines});
+    if (next === "unsupported") return false;
+    setFailedEngines({url:streamUrl,engines});
+    return true;
+  };
   const currentWorker =
     resolved.value?.mode === "proxy" ? resolved.value.worker : undefined;
-  const assetRoute = { mode: currentWorker ? "proxy" as const : effectiveMode, worker: currentWorker };
+  const assetRoute = { mode: effectiveMode, worker: currentWorker };
   const artworkUrl = channelAssetRoutes(channel.logo, channel, settings, workers, assetRoute)[0];
   const tr = useCallback(
     (fa: string, en: string) => fallbackTranslation(language, fa, en),
@@ -431,14 +481,33 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
   const requestPlayback = useCallback(
     (video: HTMLVideoElement) => {
       const epoch = playbackEpochRef.current;
+      const engine = hlsRef.current;
+      // A click during Auto's route check expresses intent. Calling play() on
+      // the still-empty element queues a browser play promise that can bypass
+      // the startup buffer gate when MediaSource is attached a moment later.
+      if (playbackEngine === "hlsjs" && !engine && !appleMobile) {
+        setStatus("buffering");
+        return;
+      }
+      if (engine && !appleMobile && settings.hlsLatencyMode !== "low" && !initialBufferReadyRef.current) {
+        const details = engine.latestLevelDetails;
+        const target = initialPlayableBuffer(details?.targetduration, details?.totalduration);
+        if (secondsBufferedAhead(video.currentTime, video.buffered) + .35 < target) {
+          setStatus("buffering");
+          return;
+        }
+        initialBufferReadyRef.current = true;
+      }
       void video.play().catch((reason) => reportPlayFailure(reason, epoch));
     },
-    [reportPlayFailure],
+    [reportPlayFailure, appleMobile, settings.hlsLatencyMode, playbackEngine],
   );
   const reset = useCallback(
     (mode: ConnectionOverride = override) => {
       clearRetry();
+      preparationClock.current = {...preparationClock.current,started:Date.now(),progress:Date.now(),bytes:0,buffer:0};
       retryCountRef.current = 0;
+      setFailedEngines({url:"",engines:[]});
       healthySinceRef.current = Date.now();
       setError("");
       setStatus("retry");
@@ -448,6 +517,13 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     },
     [override, clearRetry],
   );
+  const selectRoute = useCallback((mode: "auto" | "direct" | "proxy") => {
+    updateChannel(channel.id, { proxyMode: mode });
+    reset("default");
+    // Route choices are user preferences. Commit the existing catalog write
+    // immediately instead of leaving it in the normal 550ms debounce window.
+    void flushPendingPersistence();
+  }, [channel.id, updateChannel, reset]);
   const fail = useCallback(
     (message: string) => {
       if (retryTimerRef.current) return; // multiple HLS callbacks must not schedule duplicate retries
@@ -502,15 +578,11 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         setError("");
         return;
       }
-      if (effectiveMode === "auto" && !fallback && canProxy) {
-        setStatus("proxy fallback");
-        setFallback(true);
-        setError("");
-      } else {
-        setError(message);
-        setStatus("error");
-        terminalErrorRef.current?.(message);
-      }
+      // Direct -> Worker was handled above. A Worker selected by Auto must
+      // report terminal failure rather than "switch" to the same failed URL.
+      setError(message);
+      setStatus("error");
+      terminalErrorRef.current?.(message);
     },
     [
       effectiveMode,
@@ -719,6 +791,12 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     const playbackEpoch = ++playbackEpochRef.current;
     if (!video || !streamUrl) return;
     recoverCount.current = 0;
+    initialBufferReadyRef.current = false;
+    const preparationSession = `${streamUrl}|${playbackEngine}`;
+    preparationClock.current = {session:preparationSession,
+      started:preparationClock.current.session === preparationSession ? preparationClock.current.started : Date.now(),
+      progress:Date.now(),bytes:0,buffer:0};
+    setPreparation(null);
     inFlightFragmentsRef.current.clear();
     let disposed = false;
     let dashEngine: { reset: () => void } | undefined;
@@ -745,6 +823,9 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     setBufferedFragments(0);
     setLastFragmentMs(null);
     setStallCount(0);
+    setRecoveryEvents(0);
+    setPlaylistUpdatedAt(0);
+    setLastHlsError("");
     video.volume = settings.defaultVolume;
     video.playbackRate = settings.defaultPlaybackRate;
     if (appleMobile) video.setAttribute("webkit-playsinline", "");
@@ -780,9 +861,10 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         }
       })();
     } else if (playbackEngine === "hlsjs") {
-      sessionPrefetcher = currentWorker && settings.hlsLatencyMode !== "low"
-        ? new HlsFragmentPrefetcher((url) => hlsRequestRoute(url, currentWorker, streamUrl, false))
+      sessionPrefetcher = settings.hlsLatencyMode !== "low"
+        ? new HlsFragmentPrefetcher((url) => currentWorker ? hlsRequestRoute(url, currentWorker, streamUrl, false) : url)
         : null;
+      prefetchRef.current = sessionPrefetcher;
       let mainFragments: readonly HlsPrefetchFragment[] = [];
       let audioFragments: readonly HlsPrefetchFragment[] = [];
       let startupAnchor: number | null = null;
@@ -809,10 +891,19 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
       };
       video.addEventListener("timeupdate", refreshPrefetch);
-      stopPrefetchUpdates = () => video.removeEventListener("timeupdate", refreshPrefetch);
+      const onSeek = () => {
+        sessionPrefetcher?.seek(video.currentTime);
+        lastPrefetchPosition = -Infinity;
+        refreshPrefetch();
+      };
+      video.addEventListener("seeking", onSeek);
+      stopPrefetchUpdates = () => {
+        video.removeEventListener("timeupdate", refreshPrefetch);
+        video.removeEventListener("seeking", onSeek);
+      };
       const engine = new Hls({
         ...getHlsProfile(settings.hlsLatencyMode),
-        ...(currentWorker ? { loader: hlsRelayLoader(currentWorker, streamUrl, sessionPrefetcher ?? undefined) } : {}),
+        loader: hlsRelayLoader(currentWorker, streamUrl, sessionPrefetcher ?? undefined, autoRoute?.key === autoRouteKey ? autoRoute.result.responses : undefined),
       });
       sessionHls = engine;
       hlsRef.current = engine;
@@ -916,6 +1007,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       engine.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
         if (disposed) return;
         setIsLive(data.details.live);
+        setPlaylistUpdatedAt(Date.now());
         mainFragments = data.details.fragments as readonly HlsPrefetchFragment[];
         mainPrefetchRendition = `main:${data.level}`;
         mainLive = data.details.live;
@@ -959,22 +1051,30 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
           setBufferedFragments((n) => n + 1);
           if (startupAnchor === null) {
             startupAnchor = data.frag.start;
+            // Bootstrap bytes are valid only for the initial playlist window.
+            // Retire unused variants before a seek or a reused live URL can
+            // accidentally consume them as a later media sequence.
+            if (autoRoute?.key === autoRouteKey) autoRoute.result.dispose();
             sessionPrefetcher?.start();
           }
         }
         schedulePrefetch(mainFragments, "main", mainPrefetchRendition, mainLive);
         schedulePrefetch(audioFragments, "audio", audioPrefetchRendition, audioLive);
+        if (playbackWantedRef.current && video.paused) requestPlayback(video);
       });
       engine.on(Hls.Events.ERROR, (_, data) => {
         if (disposed) return;
+        const reason = data.reason?.split(/[\r\n]/, 1)[0]?.replace(/https?:\/\/[^\s"'<>]+/gi, "[URL]").slice(0, 160);
+        setLastHlsError(`${data.type}: ${data.details}${data.response?.code ? ` (HTTP ${data.response.code})` : ""}${reason ? ` · ${reason}` : ""}`);
         if (data.frag && (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR || data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT)) {
           inFlightFragmentsRef.current.delete(`${data.frag.type}:${data.frag.sn}`);
         }
         if (!data.fatal) return;
         if (
-          data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+          data.type === Hls.ErrorTypes.NETWORK_ERROR && engine.levels.length > 0 &&
           recoverCount.current++ < 2
         ) {
+          setRecoveryEvents(n => n + 1);
           engine.startLoad();
           return;
         }
@@ -982,9 +1082,11 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
           data.type === Hls.ErrorTypes.MEDIA_ERROR &&
           recoverCount.current++ < 2
         ) {
+          setRecoveryEvents(n => n + 1);
           engine.recoverMediaError();
           return;
         }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && tryAlternateEngine()) return;
         fail(
           `${data.details}${data.response?.code ? ` (HTTP ${data.response.code})` : ""}`,
         );
@@ -1013,6 +1115,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       disposed = true;
       stopPrefetchUpdates?.();
       sessionPrefetcher?.dispose();
+      if (prefetchRef.current === sessionPrefetcher) prefetchRef.current = null;
       clearRetry();
       inFlightFragmentsRef.current.clear();
       if (playbackEpochRef.current === playbackEpoch)
@@ -1131,6 +1234,43 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     if (!hlsRef.current)
       setIsLive(!Number.isFinite(v.duration) && v.seekable.length > 0);
   }, []);
+  useEffect(() => {
+    if (!diagnostics) return;
+    const refresh = () => setDownloadStats(prefetchRef.current?.getStats() ?? null);
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => clearInterval(timer);
+  }, [diagnostics]);
+  useEffect(() => {
+    if (playing || error || resolved.error || userPausedRef.current) { setPreparation(null); return; }
+    const refresh = () => {
+      const video = videoRef.current;
+      if (!video) return;
+      const engine = hlsRef.current;
+      const now = Date.now(), clock = preparationClock.current;
+      const details = engine?.latestLevelDetails;
+      const target = initialPlayableBuffer(details?.targetduration, details?.totalduration);
+      const ahead = secondsBufferedAhead(video.currentTime, video.buffered);
+      const fragments = engine ? Object.values(engine.inFlightFragments).flatMap(track => track?.frag ? [track.frag] : []) : [];
+      const loading = fragments.filter(frag => !frag.stats.loading.end);
+      const bytes = loading.reduce((sum, frag) => sum + frag.stats.loaded, 0);
+      const total = loading.reduce((sum, frag) => sum + frag.stats.total, 0);
+      const rate = loading.reduce((sum, frag) => {
+        const start = frag.stats.loading.first || frag.stats.loading.start;
+        return sum + (frag.stats.loaded > 0 ? frag.stats.loaded * 1000 / Math.max(1, performance.now() - start) : 0);
+      }, 0);
+      const durations = loading.reduce((sum, frag) => sum + frag.duration, 0);
+      const bitrate = total > 0 && durations > 0 ? total * 8 / durations : engine?.levels[engine.loadLevel]?.bitrate || prefetchRef.current?.getStats().mediaBitrate || 0;
+      if (bytes > clock.bytes || ahead > clock.buffer + .05) clock.progress = now;
+      clock.bytes = bytes; clock.buffer = ahead;
+      setPreparation(playbackPreparation({elapsedMs:now-clock.started,inactivityMs:now-clock.progress,
+        bufferedSeconds:ahead,targetSeconds:target,downloadedBytes:bytes,totalBytes:total,
+        bytesPerSecond:rate,mediaBitsPerSecond:bitrate,nativeReady:!engine&&video.readyState>=3}));
+    };
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => clearInterval(timer);
+  }, [playing, error, resolved.error, streamUrl, attempt, playbackEngine, status]);
   const progressMax = useMemo(() => {
     const v = videoRef.current;
     if (isLive && v?.seekable.length)
@@ -1206,6 +1346,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         lastRecoveryRef.current = now;
         lastProgressAtRef.current = now;
         video.currentTime = recovery;
+        setRecoveryEvents(n => n + 1);
         if (video.paused && playbackWantedRef.current) requestPlayback(video);
         return;
       }
@@ -1220,13 +1361,13 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
     return () => clearInterval(id);
   }, [fail, status, isLive, requestPlayback]);
   const toggleFullscreen = () => {
-    void togglePlayerFullscreen(playerRef.current, videoRef.current);
+    void togglePlayerFullscreen(playerRef.current, videoRef.current, document, playbackEngine === "native");
   };
   const rotateScreen = async () => {
     const player = playerRef.current;
     if (!player) return;
     if (!isPlayerFullscreen(document, videoRef.current))
-      await enterPlayerFullscreen(player, videoRef.current);
+      await enterPlayerFullscreen(player, videoRef.current, document, playbackEngine === "native");
     const orientation = screen.orientation as ScreenOrientation & {
       lock?: (orientation: "landscape") => Promise<void>;
     };
@@ -1257,6 +1398,12 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
       case "k":
         event.preventDefault();
         togglePlay();
+        break;
+      case "escape":
+        if (playerRef.current?.dataset.youtvFullscreen === "true") {
+          event.preventDefault();
+          exitViewportFullscreen(playerRef.current);
+        }
         break;
       case "f":
         event.preventDefault();
@@ -1334,6 +1481,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
   }, []);
   useEffect(() => {
     const video = videoRef.current;
+    const player = playerRef.current;
     const handler = () => {
       const active = isPlayerFullscreen(document, video);
       setFullscreen(active);
@@ -1346,16 +1494,19 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
         }
       }
     };
+    document.addEventListener("youtvfullscreenchange", handler);
     document.addEventListener("fullscreenchange", handler);
     document.addEventListener("webkitfullscreenchange", handler);
     video?.addEventListener("webkitbeginfullscreen", handler);
     video?.addEventListener("webkitendfullscreen", handler);
     handler();
     return () => {
+      document.removeEventListener("youtvfullscreenchange", handler);
       document.removeEventListener("fullscreenchange", handler);
       document.removeEventListener("webkitfullscreenchange", handler);
       video?.removeEventListener("webkitbeginfullscreen", handler);
       video?.removeEventListener("webkitendfullscreen", handler);
+      exitViewportFullscreen(player);
     };
   }, []);
   useEffect(() => {
@@ -1440,7 +1591,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             poster={preparedSource?.poster}
             preload={appleMobile ? "metadata" : "auto"}
             crossOrigin={playbackEngine === "hlsjs" ? "anonymous" : undefined}
-            autoPlay={settings.autoplay && !appleMobile}
+            autoPlay={settings.autoplay && !appleMobile && playbackEngine !== "hlsjs"}
             className={`pro-media caption-${settings.captionSize} caption-bg-${settings.captionBackground}`}
             onTimeUpdate={refreshTimeline}
             onDurationChange={refreshTimeline}
@@ -1496,6 +1647,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
                 const code = e.currentTarget.error?.code;
                 // A load/abort during layout or engine cleanup is not a source failure.
                 if (!code || code === 1) return;
+                if (tryAlternateEngine()) return;
                 const message =
                   code === 4
                     ? tr(
@@ -1546,7 +1698,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
                   {t("retry")}
                 </ActionButton>
                 {canProxy && (
-                  <ActionButton onClick={() => reset("proxy")}>
+                  <ActionButton onClick={() => selectRoute("proxy")}>
                     <Cloud size={16} />
                     {t("tryProxy")}
                   </ActionButton>
@@ -1672,6 +1824,25 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
                 )}
               </div>
               <div className="pro-control-group">
+                {preparation && !playing && !error && !resolved.error && <PreparationIndicator
+                  progress={preparation.phase === "ready" ? 1 : preparation.bufferedSeconds / preparation.targetSeconds}
+                  label={tr("وضعیت آماده‌سازی پخش", "Playback preparation")}>
+                  <strong role="status">{preparation.phase === "ready"
+                    ? tr("آمادهٔ پخش؛ دکمهٔ پخش را بزنید", "Ready — press Play")
+                    : preparation.phase === "waiting"
+                      ? tr("هنوز دادهٔ کافی از سرور نرسیده است", "Waiting for data from the server")
+                      : tr("در حال آماده‌سازی پخش", "Preparing playback")}</strong>
+                  <span>{tr("زمان سپری‌شده", "Elapsed")}: {secondsToClock(preparation.elapsedSeconds)} · {tr("ویدئوی آماده", "Playable video")}: {preparation.bufferedSeconds.toFixed(1)} / {preparation.targetSeconds.toFixed(0)} {tr("ثانیه", "seconds")}</span>
+                  {preparation.phase !== "ready" && <span>{preparation.etaSeconds !== null
+                    ? `${tr("زمان تقریبی تا شروع", "Estimated start")}: ~${preparation.etaSeconds} ${tr("ثانیه", "seconds")}`
+                    : tr("زمان شروع هنوز قابل تخمین نیست؛ به دریافت داده از این مسیر بستگی دارد.", "Start time is not yet known; waiting for data on this route.")}</span>}
+                  {preparation.downloadedBytes > 0 && <span>{tr("دریافت‌شده", "Downloaded")}: {readableBytes(preparation.downloadedBytes)}{preparation.totalBytes > 0 ? ` / ${readableBytes(preparation.totalBytes)}` : ""}</span>}
+                  {preparation.phase === "waiting" && <span>{playbackEngine === "hlsjs"
+                    ? tr("اگر ۳۰ ثانیه دادهٔ تازه‌ای نرسد، درخواست دوباره امتحان می‌شود. می‌توانید مسیر اتصال را از دکمه‌های پایین تغییر دهید.", "Requests retry after 30 seconds without data. You can also change the connection route below.")
+                    : tr("سرور هنوز دادهٔ کافی نفرستاده است. می‌توانید مسیر اتصال را از دکمه‌های پایین تغییر دهید.", "The server has not provided enough data. You can change the connection route below.")}</span>}
+
+                </PreparationIndicator>}
+
                 <ActionButton
                   className={`media-icon pro-record-button ${recordingActive ? "is-on" : ""}`}
                   aria-label={tr("تنظیمات ضبط", "Recording controls")}
@@ -2265,7 +2436,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
           <ActionButton
             className={displayedMode === "auto" ? "selected" : ""}
             aria-pressed={displayedMode === "auto"}
-            onClick={() => reset("auto")}
+            onClick={() => selectRoute("auto")}
           >
             {t("automatic")}
           </ActionButton>
@@ -2273,7 +2444,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             className={displayedMode === "direct" ? "selected" : ""}
             aria-pressed={displayedMode === "direct"}
             disabled={httpNeedsProxy}
-            onClick={() => reset("direct")}
+            onClick={() => selectRoute("direct")}
           >
             {t("direct")}
           </ActionButton>
@@ -2281,7 +2452,7 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             className={displayedMode === "proxy" ? "selected" : ""}
             aria-pressed={displayedMode === "proxy"}
             disabled={!canProxy}
-            onClick={() => reset("proxy")}
+            onClick={() => selectRoute("proxy")}
           >
             {t("viaProxy")}
           </ActionButton>
@@ -2345,6 +2516,18 @@ function PlaybackSession({ channel, bottomActions, onTerminalError, preparedSour
             <span>Proxy</span>
             <b>{resolved.value?.mode || "unavailable"}</b>
           </div>
+          <div><span>Engine / Worker</span><b>{playbackEngine} / {currentWorker?.name || "—"}</b></div>
+          {downloadStats && <>
+            <div><span>Active / target / pending</span><b>{downloadStats.active} / {downloadStats.concurrency} / {downloadStats.queued}</b></div>
+            <div><span>Segment cache</span><b>{downloadStats.cached} · {readableBytes(downloadStats.cachedBytes)}</b></div>
+            <div><span>Cache hits / misses / joined</span><b>{downloadStats.hits} / {downloadStats.misses} / {downloadStats.deduplicated}</b></div>
+            <div><span>Throughput / aggregate</span><b>{Math.round(downloadStats.throughput / 1000)} / {Math.round(downloadStats.aggregateThroughput / 1000)} kbps</b></div>
+            <div><span>TTFB / retries / errors</span><b>{Math.round(downloadStats.ttfb)}ms / {downloadStats.retries} / {downloadStats.errors}</b></div>
+          </>}
+          <div><span>Playlist refresh</span><b>{playlistUpdatedAt ? `${Math.floor((Date.now() - playlistUpdatedAt) / 1000)}s ago` : "—"}</b></div>
+          <div><span>Recoveries</span><b>{recoveryEvents}</b></div>
+          <div><span>Last HLS error</span><b>{lastHlsError || "—"}</b></div>
+          <div><span>Total buffered</span><b>{videoRef.current ? Array.from({length:videoRef.current.buffered.length}, (_,i) => videoRef.current!.buffered.end(i) - videoRef.current!.buffered.start(i)).reduce((sum, value) => sum + value, 0).toFixed(1) : "0"}s</b></div>
           <div>
             <span>Time / Buffer</span>
             <b>

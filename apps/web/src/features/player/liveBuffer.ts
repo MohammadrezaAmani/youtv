@@ -6,7 +6,7 @@ import { HLS_LOAD_TIMEOUT_MS } from "./hlsPrefetch";
  * the whole player, which aborts the active fragment and loses progress.
  */
 const SLOW_FRAGMENT_RETRY = {
-  maxNumRetry: 4,
+  maxNumRetry: 3,
   retryDelayMs: 1000,
   maxRetryDelayMs: 16000,
   backoff: "exponential",
@@ -89,6 +89,11 @@ export function getHlsProfile(mode: "stable" | "low") {
   return mode === "low" ? LOW_LATENCY_HLS_PROFILE : LIVE_HLS_PROFILE;
 }
 
+/** Wait for two segments, bounded for short VOD and long segment durations. */
+export function initialPlayableBuffer(targetDuration = 5, totalDuration = Infinity): number {
+  return Math.min(15, Math.max(5, targetDuration * 2), totalDuration > 0 ? totalDuration : Infinity);
+}
+
 /** Suppress player resets while a media segment is actively downloading. */
 export function hasActiveFragmentLoading(
   starts: Iterable<number>,
@@ -141,6 +146,7 @@ export function recoveryTarget(args: {
     stalledForMs,
   } = args;
   if (stalledForMs < 2200) return null;
+  if (secondsBufferedAhead(current, ranges) > 0.4) return null;
   if (
     live &&
     syncPosition != null &&
@@ -152,7 +158,6 @@ export function recoveryTarget(args: {
   ) {
     return syncPosition;
   }
-  if (secondsBufferedAhead(current, ranges) > 0.4) return null;
   for (let i = 0; i < ranges.length; i++) {
     const start = ranges.start(i);
     if (

@@ -411,12 +411,12 @@ test("passwordless /probe, /text and CORS preflight work with localhost defaults
     new Request("https://youtv.workers.dev/health"),
     open,
   );
-  assert.equal((await health.json()).version, "0.36.1");
+  assert.equal((await health.json()).version, "0.36.2");
 });
 
 // The Cloudflare installer in YouTV must not distribute an older Worker.
 // This also catches future updates that forgot to synchronize the published file.
-test("dashboard installer uses the same v0.36.1 Worker as the runtime", async () => {
+test("dashboard installer uses the same v0.36.2 Worker as the runtime", async () => {
   const fs = await import("node:fs");
   const runtime = fs.readFileSync(
     new URL("../dashboard-worker.mjs", import.meta.url),
@@ -434,8 +434,8 @@ test("dashboard installer uses the same v0.36.1 Worker as the runtime", async ()
     "utf8",
   );
   assert.equal(published, runtime);
-  assert.match(published, /^\/\/ YouTV Worker bundle version: v0\.36\.1\n/);
-  assert.match(guide, /^\s*const\s+WORKER_RELEASE\s*=\s*(["'])0\.36\.1\1\s*;?\s*$/m);
+  assert.match(published, /^\/\/ YouTV Worker bundle version: v0\.36\.2\n/);
+  assert.match(guide, /^\s*const\s+WORKER_RELEASE\s*=\s*(["'])0\.36\.2\1\s*;?\s*$/m);
   assert.match(guide, /dashboard-worker\.mjs\?v=/);
   assert.match(guide, /YouTV-Worker-v/);
 });

@@ -10,7 +10,7 @@
 
 1. Patch نسخه v0.24 به v0.25 را اعمال کن و وب‌سایت را منتشر کن.
 2. اگر Worker را در Cloudflare Dashboard ساخته‌ای، **فایل جدید** `apps/web/public/dashboard-worker.mjs` را جایگزین کد Worker کن و **Deploy** بزن. Push کردن Frontend به GitHub به‌تنهایی کد Worker را آپدیت نمی‌کند.
-3. خروجی `https://round-fog-1d8f.mr4016a1382.workers.dev/health` باید `version: 0.25.0` داشته باشد. مسیر `/capabilities` با نبود `PROXY_TOKEN` باید `authentication: none` را گزارش کند.
+3. خروجی `https://meow.arushop.ir/health` باید `version: 0.25.0` داشته باشد. مسیر `/capabilities` با نبود `PROXY_TOKEN` باید `authentication: none` را گزارش کند.
 4. در YouTV اگر از قبل توکنی ذخیره شده، روی «تغییر توکن» بزن و مقدار خالی را ذخیره کن؛ در صورت کش PWA، سایت را با نسخه جدید باز کن.
 
 **هشدار:** Worker عمومی با `ALLOWED_HOSTS=*` و بدون `PROXY_TOKEN` می‌تواند توسط دیگران مصرف شود؛ این تنظیم سهمیه و هزینه احتمالی Worker را در معرض استفاده دیگران قرار می‌دهد.

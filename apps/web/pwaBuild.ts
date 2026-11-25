@@ -133,6 +133,19 @@ self.addEventListener('fetch',event=>{
 `;
 }
 
+/** Development uses persistent asset caching without caching HMR, app code,
+ * navigation documents or media. It shares the compatible image cache schema. */
+export function devAssetServiceWorker(base: string) {
+  const prefix = `youtv-pwa-${base.replace(/[^a-z0-9-]/gi, "_")}-`;
+  return `"use strict";\n${imageCacheRuntime(prefix)}
+self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',event=>{
+  if(event.request.method==='GET'&&publicImageRequest(event.request,new URL(event.request.url)))
+    event.respondWith(cachedPublicImage(event.request));
+});`;
+}
+
 export function youtvPwaPlugin(): Plugin {
   let base = "/";
   return {
@@ -146,11 +159,19 @@ export function youtvPwaPlugin(): Plugin {
       if (!base.endsWith("/")) base += "/";
     },
     configureServer(server) {
-      // The dev site still exposes a valid manifest. A caching SW is production-only
-      // so HMR and source editing never get stuck behind stale script caches.
+      // The dev worker caches only public images/fonts. HMR and source modules
+      // remain network-only; production still uses the versioned shell worker.
       server.middlewares.use((req, res, next) => {
-        if ((req.url || "").split("?")[0] !== `${base}manifest.webmanifest`)
-          return next();
+        const path = (req.url || "").split("?")[0];
+        if (path === `${base}image-cache-sw.js`) {
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+          res.setHeader("Cache-Control", "no-store");
+          res.setHeader("Service-Worker-Allowed", base);
+          res.end(devAssetServiceWorker(base));
+          return;
+        }
+        if (path !== `${base}manifest.webmanifest`) return next();
         res.statusCode = 200;
         res.setHeader(
           "Content-Type",

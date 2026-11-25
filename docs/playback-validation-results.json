@@ -1,0 +1,790 @@
+{
+  "source": "https://4kuhls.persiana.live/hls/stream.m3u8",
+  "results": [
+    {
+      "date": "2026-11-25T08:35:43.110Z",
+      "engine": "chromium",
+      "base": "http://localhost:5175",
+      "results": [
+        {
+          "scenario": "direct",
+          "passed": true,
+          "elapsed": 200.915,
+          "progress": 200.87226900000002,
+          "stalls": 0,
+          "requests": {
+            "segments": 50,
+            "playlists": 42,
+            "duplicates": 0,
+            "peak": 3
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795595534552,
+            "time": 50.131926,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.119667,
+                75.002666
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795595735467,
+            "time": 251.004195,
+            "paused": false,
+            "ready": 4,
+            "frames": 5026,
+            "ranges": [
+              [
+                230.119667,
+                300.005333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.12002,
+              "wall": 1795595534541
+            }
+          ]
+        },
+        {
+          "scenario": "proxy",
+          "passed": false,
+          "requests": {
+            "segments": 0,
+            "playlists": 1,
+            "duplicates": 0,
+            "peak": 1
+          },
+          "error": "page.waitForFunction: Timeout 45000ms exceeded.",
+          "events": []
+        },
+        {
+          "scenario": "direct-slow",
+          "passed": true,
+          "elapsed": 200.924,
+          "progress": 200.881036,
+          "stalls": 0,
+          "requests": {
+            "segments": 52,
+            "playlists": 44,
+            "duplicates": 0,
+            "peak": 3
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795595542154,
+            "time": 50.12793,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.119667,
+                64.997333
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795595743078,
+            "time": 251.008966,
+            "paused": false,
+            "ready": 4,
+            "frames": 5027,
+            "ranges": [
+              [
+                230.119667,
+                304.997333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.120011,
+              "wall": 1795595542146
+            }
+          ]
+        },
+        {
+          "scenario": "direct-iphone",
+          "passed": true,
+          "elapsed": 200.929,
+          "progress": 200.886271,
+          "stalls": 0,
+          "requests": {
+            "segments": 50,
+            "playlists": 42,
+            "duplicates": 0,
+            "peak": 4
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795595533036,
+            "time": 50.128289,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.119667,
+                54.992
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795595733965,
+            "time": 251.01456,
+            "paused": false,
+            "ready": 4,
+            "frames": 5027,
+            "ranges": [
+              [
+                230.119667,
+                300.005333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "waiting",
+              "time": 0,
+              "wall": 1795595532115
+            },
+            {
+              "event": "playing",
+              "time": 50.12122,
+              "wall": 1795595533029
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-11-25T08:35:38.202Z",
+      "engine": "firefox",
+      "base": "http://localhost:5175",
+      "results": [
+        {
+          "scenario": "direct",
+          "passed": true,
+          "elapsed": 201.608,
+          "progress": 201.609733,
+          "stalls": 0,
+          "requests": {
+            "segments": 50,
+            "playlists": 42,
+            "duplicates": 0,
+            "peak": 2
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795595536539,
+            "time": 50.127697,
+            "paused": false,
+            "ready": 4,
+            "frames": 0,
+            "ranges": [
+              [
+                50.127677,
+                64.997354
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795595738147,
+            "time": 251.73743,
+            "paused": false,
+            "ready": 4,
+            "frames": 5040,
+            "ranges": [
+              [
+                230.127677,
+                300.005354
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.127677,
+              "wall": 1795595536532
+            }
+          ]
+        },
+        {
+          "scenario": "proxy",
+          "passed": false,
+          "requests": {
+            "segments": 0,
+            "playlists": 1,
+            "duplicates": 0,
+            "peak": 1
+          },
+          "error": "page.waitForFunction: Timeout 45000ms exceeded.",
+          "events": []
+        }
+      ]
+    },
+    {
+      "date": "2026-11-25T09:02:06.821Z",
+      "engine": "chromium",
+      "base": "http://localhost:5175",
+      "results": [
+        {
+          "scenario": "proxy-local",
+          "passed": true,
+          "elapsed": 200.931,
+          "progress": 200.88793900000002,
+          "stalls": 0,
+          "requests": {
+            "segments": 51,
+            "playlists": 41,
+            "duplicates": 1,
+            "peak": 3
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795597119104,
+            "time": 50.129808,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.117,
+                64.997333
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795597320035,
+            "time": 251.017747,
+            "paused": false,
+            "ready": 4,
+            "frames": 5027,
+            "ranges": [
+              [
+                230.117,
+                300.005333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.117232,
+              "wall": 1795597119092
+            }
+          ]
+        },
+        {
+          "scenario": "proxy-local-slow",
+          "passed": true,
+          "elapsed": 200.923,
+          "progress": 200.87949500000002,
+          "stalls": 0,
+          "requests": {
+            "segments": 53,
+            "playlists": 43,
+            "duplicates": 1,
+            "peak": 3
+          },
+          "fullscreenEntered": true,
+          "fullscreenExited": true,
+          "first": {
+            "wall": 1795597125870,
+            "time": 50.133291,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.117,
+                64.997333
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795597326793,
+            "time": 251.012786,
+            "paused": false,
+            "ready": 4,
+            "frames": 5027,
+            "ranges": [
+              [
+                230.117,
+                304.997333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.117257,
+              "wall": 1795597125854
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-11-25T09:27:47.302Z",
+      "engine": "chromium",
+      "base": "http://localhost:5175",
+      "results": [
+        {
+          "scenario": "direct-interruption",
+          "passed": true,
+          "elapsed": 201.011,
+          "progress": 200.968503,
+          "stalls": 0,
+          "requests": {
+            "segments": 50,
+            "playlists": 43,
+            "duplicates": 0,
+            "peak": 3
+          },
+          "interruptions": [
+            {
+              "offline": true,
+              "wall": 1795598732121
+            },
+            {
+              "offline": false,
+              "wall": 1795598742134
+            }
+          ],
+          "first": {
+            "wall": 1795598666262,
+            "time": 50.128996,
+            "paused": false,
+            "ready": 4,
+            "frames": 4,
+            "ranges": [
+              [
+                50.122334,
+                60.005333
+              ]
+            ]
+          },
+          "last": {
+            "wall": 1795598867273,
+            "time": 251.097499,
+            "paused": false,
+            "ready": 4,
+            "frames": 5029,
+            "ranges": [
+              [
+                230.122334,
+                300.005333
+              ]
+            ]
+          },
+          "events": [
+            {
+              "event": "playing",
+              "time": 50.123172,
+              "wall": 1795598666256
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "autoRouteUpdate": {
+    "recordedAt": "2026-11-25T10:16:35.598Z",
+    "results": [
+      {
+        "date": "2026-11-25T10:12:07.836Z",
+        "engine": "chromium",
+        "base": "http://localhost:5175",
+        "results": [
+          {
+            "scenario": "auto",
+            "passed": true,
+            "elapsed": 200.948,
+            "progress": 200.904898,
+            "stalls": 0,
+            "requests": {
+              "segments": 51,
+              "playlists": 43,
+              "duplicates": 0,
+              "peak": 3
+            },
+            "initialBufferAhead": 9.875804000000002,
+            "startupPrepared": true,
+            "fullscreenEntered": true,
+            "fullscreenExited": true,
+            "first": {
+              "wall": 1795601316886,
+              "time": 50.129529,
+              "paused": false,
+              "ready": 4,
+              "frames": 4,
+              "ranges": [
+                [
+                  50.117,
+                  60.005333
+                ]
+              ]
+            },
+            "last": {
+              "wall": 1795601517834,
+              "time": 251.034427,
+              "paused": false,
+              "ready": 4,
+              "frames": 5027,
+              "ranges": [
+                [
+                  230.117,
+                  300.005333
+                ]
+              ]
+            },
+            "events": [
+              {
+                "event": "playing",
+                "time": 50.117227,
+                "wall": 1795601316874
+              }
+            ]
+          },
+          {
+            "scenario": "auto-slow",
+            "passed": true,
+            "elapsed": 200.934,
+            "progress": 200.89093,
+            "stalls": 0,
+            "requests": {
+              "segments": 53,
+              "playlists": 44,
+              "duplicates": 0,
+              "peak": 3
+            },
+            "initialBufferAhead": 9.881549,
+            "startupPrepared": true,
+            "fullscreenEntered": true,
+            "fullscreenExited": true,
+            "first": {
+              "wall": 1795601326870,
+              "time": 50.123784,
+              "paused": false,
+              "ready": 4,
+              "frames": 4,
+              "ranges": [
+                [
+                  50.117,
+                  60.005333
+                ]
+              ]
+            },
+            "last": {
+              "wall": 1795601527804,
+              "time": 251.014714,
+              "paused": false,
+              "ready": 4,
+              "frames": 5027,
+              "ranges": [
+                [
+                  230.117,
+                  309.989333
+                ]
+              ]
+            },
+            "events": [
+              {
+                "event": "playing",
+                "time": 50.117317,
+                "wall": 1795601326864
+              }
+            ]
+          },
+          {
+            "scenario": "auto-iphone",
+            "passed": true,
+            "elapsed": 200.933,
+            "progress": 200.88996,
+            "stalls": 0,
+            "requests": {
+              "segments": 51,
+              "playlists": 43,
+              "duplicates": 0,
+              "peak": 3
+            },
+            "initialBufferAhead": 4.8679539999999974,
+            "startupPrepared": true,
+            "fullscreenEntered": true,
+            "fullscreenExited": true,
+            "first": {
+              "wall": 1795601316708,
+              "time": 50.124045,
+              "paused": false,
+              "ready": 4,
+              "frames": 4,
+              "ranges": [
+                [
+                  50.117,
+                  54.991999
+                ]
+              ]
+            },
+            "last": {
+              "wall": 1795601517641,
+              "time": 251.014005,
+              "paused": false,
+              "ready": 4,
+              "frames": 5027,
+              "ranges": [
+                [
+                  230.117,
+                  300.005333
+                ]
+              ]
+            },
+            "events": [
+              {
+                "event": "waiting",
+                "time": 0,
+                "wall": 1795601315834
+              },
+              {
+                "event": "playing",
+                "time": 50.118821,
+                "wall": 1795601316703
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-11-25T10:12:00.116Z",
+        "engine": "chromium",
+        "base": "http://localhost:5175",
+        "results": [
+          {
+            "scenario": "auto-proxy-local",
+            "passed": true,
+            "elapsed": 200.959,
+            "progress": 200.915717,
+            "stalls": 0,
+            "requests": {
+              "segments": 49,
+              "playlists": 43,
+              "duplicates": 0,
+              "peak": 3
+            },
+            "initialBufferAhead": 9.867049999999999,
+            "startupPrepared": true,
+            "fullscreenEntered": true,
+            "fullscreenExited": true,
+            "first": {
+              "wall": 1795601319126,
+              "time": 50.138283,
+              "paused": false,
+              "ready": 4,
+              "frames": 4,
+              "ranges": [
+                [
+                  50.125,
+                  60.005333
+                ]
+              ]
+            },
+            "last": {
+              "wall": 1795601520085,
+              "time": 251.054,
+              "paused": false,
+              "ready": 4,
+              "frames": 5028,
+              "ranges": [
+                [
+                  230.125,
+                  295.013333
+                ]
+              ]
+            },
+            "events": [
+              {
+                "event": "playing",
+                "time": 50.125221,
+                "wall": 1795601319113
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "date": "2026-11-25T10:12:02.154Z",
+        "engine": "firefox",
+        "base": "http://localhost:5175",
+        "results": [
+          {
+            "scenario": "auto",
+            "passed": true,
+            "elapsed": 201.562,
+            "progress": 201.541722,
+            "stalls": 0,
+            "requests": {
+              "segments": 51,
+              "playlists": 43,
+              "duplicates": 0,
+              "peak": 4
+            },
+            "initialBufferAhead": 9.880313000000001,
+            "startupPrepared": true,
+            "fullscreenEntered": true,
+            "fullscreenExited": true,
+            "first": {
+              "wall": 1795601320530,
+              "time": 50.12502,
+              "paused": false,
+              "ready": 4,
+              "frames": 0,
+              "ranges": [
+                [
+                  50.125,
+                  60.005333
+                ]
+              ]
+            },
+            "last": {
+              "wall": 1795601522092,
+              "time": 251.666742,
+              "paused": false,
+              "ready": 4,
+              "frames": 5039,
+              "ranges": [
+                [
+                  230.125,
+                  300.005333
+                ]
+              ]
+            },
+            "events": [
+              {
+                "event": "playing",
+                "time": 50.125,
+                "wall": 1795601320511
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "preparationUI": [
+      {
+        "width": 320,
+        "closed": {
+          "playerHeight": 167.625,
+          "shellHeight": 169.625,
+          "infoTop": 303.421875,
+          "controlsOverflow": false
+        },
+        "open": {
+          "playerHeight": 167.625,
+          "shellHeight": 169.625,
+          "infoTop": 303.421875,
+          "controlsOverflow": false
+        },
+        "popup": {
+          "x": 12,
+          "y": 143.421875,
+          "width": 296,
+          "height": 104.875
+        },
+        "layoutUnchanged": true,
+        "escapeDismissed": true
+      },
+      {
+        "width": 390,
+        "closed": {
+          "playerHeight": 207,
+          "shellHeight": 209,
+          "infoTop": 342.796875,
+          "controlsOverflow": false
+        },
+        "open": {
+          "playerHeight": 207,
+          "shellHeight": 209,
+          "infoTop": 342.796875,
+          "controlsOverflow": false
+        },
+        "popup": {
+          "x": 13,
+          "y": 182.796875,
+          "width": 300,
+          "height": 104.875
+        },
+        "layoutUnchanged": true,
+        "escapeDismissed": true
+      },
+      {
+        "width": 1280,
+        "closed": {
+          "playerHeight": 528.296875,
+          "shellHeight": 530.296875,
+          "infoTop": 675.09375,
+          "controlsOverflow": false
+        },
+        "open": {
+          "playerHeight": 528.296875,
+          "shellHeight": 530.296875,
+          "infoTop": 675.09375,
+          "controlsOverflow": false
+        },
+        "popup": {
+          "x": 462.859375,
+          "y": 539.09375,
+          "width": 300,
+          "height": 76.484375
+        },
+        "layoutUnchanged": true,
+        "escapeDismissed": true
+      }
+    ],
+    "directLogoCache": {
+      "source": "https://raw.githubusercontent.com/shayanline/iptv-iran/main/assets/logos/4Kurd.fr.png",
+      "original": {
+        "decoded": true,
+        "width": 512
+      },
+      "repeated": {
+        "decoded": true,
+        "width": 512
+      },
+      "otherTab": {
+        "decoded": true,
+        "width": 512
+      },
+      "reloaded": {
+        "decoded": true,
+        "width": 512
+      },
+      "initialTransfers": 1,
+      "repeatTransfers": 1,
+      "tabTransfers": 1,
+      "reloadTransfers": 1,
+      "passed": true
+    },
+    "userBrowserAuto": {
+      "elapsed": 275.202,
+      "progress": 275.19534,
+      "frames": 6881,
+      "readyState": 4,
+      "paused": false,
+      "events": []
+    }
+  }
+}
